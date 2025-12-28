@@ -1,0 +1,72 @@
+:root {
+    --primary: #ffcc00;
+    --dark: #111;
+    --glass: rgba(0, 0, 0, 0.7);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Segoe UI', sans-serif; }
+
+body { background-color: var(--dark); color: white; overflow: hidden; }
+
+/* MENU PRINCIPAL */
+.menu-container {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 20px; background: radial-gradient(circle, #2a2a2a 0%, #000 100%);
+}
+
+.profile-section { text-align: center; margin-bottom: 40px; }
+.avatar-circle {
+    width: 100px; height: 100px; border-radius: 50%; border: 3px solid var(--primary);
+    overflow: hidden; margin: 0 auto 15px;
+}
+.avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
+.highlight { color: var(--primary); font-style: italic; }
+
+.cards-grid { display: grid; gap: 15px; width: 100%; max-width: 400px; }
+
+.game-card {
+    background: #222; border-radius: 15px; padding: 20px; text-decoration: none; color: white;
+    display: flex; align-items: center; border: 1px solid #333; transition: 0.2s;
+}
+.game-card:active { transform: scale(0.98); border-color: var(--primary); }
+
+.game-card .icon { font-size: 40px; margin-right: 20px; color: var(--primary); }
+.game-card h2 { font-size: 18px; font-weight: bold; }
+.game-card p { font-size: 12px; color: #aaa; }
+
+/* ENGINE DO JOGO */
+.game-mode #input-video {
+    position: absolute; width: 100%; height: 100%; object-fit: cover;
+    transform: scaleX(-1); z-index: 0; filter: brightness(0.7);
+}
+.game-mode #output-canvas {
+    position: absolute; width: 100%; height: 100%; z-index: 1; /* ThreeJS aqui */
+}
+
+#ui-layer { position: absolute; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+
+.hud-top {
+    padding: 20px; display: flex; justify-content: space-between; align-items: flex-start;
+}
+
+.btn-back {
+    background: rgba(255,0,0,0.8); color: white; border: none; padding: 10px 20px;
+    border-radius: 20px; font-weight: bold; pointer-events: auto; cursor: pointer;
+}
+
+.score-board { text-align: right; }
+.score-board .value { font-size: 32px; color: var(--primary); font-weight: 900; }
+
+.status-badge {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    padding: 5px 15px; border-radius: 10px; font-size: 12px; font-weight: bold;
+    text-transform: uppercase;
+}
+.waiting { background: #ff4444; color: white; }
+.tracking { background: #00cc00; color: black; }
+
+.center-msg {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 24px; font-weight: 900; text-shadow: 0 0 10px black;
+}
+
