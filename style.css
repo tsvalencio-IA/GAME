@@ -1,0 +1,56 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #000;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  text-align: center;
+}
+
+.screen {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.hidden {
+  display: none;
+}
+
+button {
+  padding: 15px 30px;
+  font-size: 22px;
+  border-radius: 12px;
+  border: none;
+  background: #00ffcc;
+  color: #000;
+  font-weight: bold;
+}
+
+#hud {
+  position: absolute;
+  top: 10px;
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+  font-size: 18px;
+}
+
+#instruction {
+  font-size: 40px;
+  margin-top: 40px;
+}
+
+video {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  max-height: 50%;
+  opacity: 0.2;
+}
