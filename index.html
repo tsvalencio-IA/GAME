@@ -2,48 +2,62 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>thIAguinho Arcade | Hub</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>thIAguinho Arcade | Hub Central</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 </head>
-<body>
+<body class="menu-bg">
     <div class="menu-container">
-        <div class="profile-section">
-            <div class="avatar-circle">
+        <div class="profile-header">
+            <div class="avatar-frame">
                 <img src="assets/mascote_perfil.jpg" onerror="this.src='https://via.placeholder.com/150/FFD700/000?text=TH'" alt="Avatar">
             </div>
-            <h1>ARCADE <span class="highlight">thIAguinho</span></h1>
-            <p>Realidade Aumentada & IA Tracking</p>
+            <h1 class="brand-title">ARCADE <span class="highlight">thIAguinho</span></h1>
+            <p class="brand-subtitle">Escolha seu Desafio AR</p>
         </div>
 
         <div class="cards-grid">
-            <a href="game.html?mode=race" class="game-card race">
-                <div class="icon"><i class='bx bxs-car-crash'></i></div>
-                <div class="info">
+            
+            <a href="game.html?mode=race" class="game-card theme-race">
+                <div class="card-icon"><i class='bx bxs-car-crash'></i></div>
+                <div class="card-info">
                     <h2>GRAND PRIX</h2>
-                    <p>Desvie dos obstáculos usando seu corpo.</p>
+                    <p>Desvie dos obstáculos em alta velocidade.</p>
+                    <div class="card-tags">
+                        <span><i class='bx bx-mobile-vibration'></i> Tilt</span>
+                        <span><i class='bx bx-body'></i> Body</span>
+                    </div>
                 </div>
             </a>
 
-            <a href="game.html?mode=run" class="game-card run">
-                <div class="icon"><i class='bx bx-run'></i></div>
-                <div class="info">
+            <a href="game.html?mode=run" class="game-card theme-run">
+                <div class="card-icon"><i class='bx bx-run'></i></div>
+                <div class="card-info">
                     <h2>STREET RUN</h2>
-                    <p>Corra no lugar para ganhar velocidade.</p>
+                    <p>Corra no lugar para ganhar energia.</p>
+                    <div class="card-tags">
+                        <span><i class='bx bxs-hand-up'></i> Tap</span>
+                        <span><i class='bx bx-body'></i> Motion</span>
+                    </div>
                 </div>
             </a>
 
-            <a href="game.html?mode=dance" class="game-card dance">
-                <div class="icon"><i class='bx bxs-music'></i></div>
-                <div class="info">
+            <a href="game.html?mode=dance" class="game-card theme-dance">
+                <div class="card-icon"><i class='bx bxs-music'></i></div>
+                <div class="card-info">
                     <h2>DANCE FIT</h2>
                     <p>Pegue os orbes de luz com as mãos.</p>
+                    <div class="card-tags">
+                        <span><i class='bx bx-body'></i> Full Body</span>
+                    </div>
                 </div>
             </a>
         </div>
         
-        <footer>v3.0.0 Stable | Powered by TensorFlow & Three.js</footer>
+        <footer class="app-footer">
+            Versão 4.0.0 (Gold Master) | thIAguinho Soluções
+        </footer>
     </div>
 </body>
 </html>
