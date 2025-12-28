@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Body Dash</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="menu" class="screen">
+  <h1>🏃‍♂️ BODY DASH</h1>
+  <p>Mova o corpo para vencer</p>
+  <button id="startBtn">COMEÇAR</button>
+</div>
+
+<div id="game" class="screen hidden">
+  <div id="hud">
+    <span id="score">Pontos: 0</span>
+    <span id="lives">Vidas: 3</span>
+  </div>
+
+  <div id="instruction">PREPARE-SE</div>
+
+  <video id="camera" autoplay playsinline></video>
+</div>
+
+<div id="gameover" class="screen hidden">
+  <h1>FIM DE JOGO</h1>
+  <p id="finalScore"></p>
+  <button onclick="location.reload()">JOGAR DE NOVO</button>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
