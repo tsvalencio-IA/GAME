@@ -1,124 +1,98 @@
 /**
- * thIAguinho Vision Module v4.0 (Robust)
- * Encapsulamento completo do MediaPipe Pose e Gestão de Câmera.
+ * thIAguinho Vision Module v5.0 (Resource Managed)
+ * Permite ligar/desligar a câmera dinamicamente.
  */
-
 const Vision = {
     pose: null,
     camera: null,
     active: false,
-    debugEnabled: false,
-    
-    // Dados normalizados acessíveis pelo Game.js
-    results: {
-        x: 0.5,         // 0 (Esq) a 1 (Dir)
-        y: 0.5,         // 0 (Topo) a 1 (Base)
-        visibility: 0,  // 0 a 1 (Confiança da detecção)
-        hands: {        // Posição das mãos (Normalizada)
-            left: { x: 0, y: 0 },
-            right: { x: 0, y: 0 }
-        },
-        activityLevel: 0 // Delta de movimento (para modo RUN)
-    },
+    results: { x: 0.5, y: 0.5, activity: 0, visible: false },
+    videoElement: null,
+    canvasElement: null,
+    ctx: null,
 
-    lastY: 0, // Para calcular atividade
+    // Configura mas não inicia a câmera ainda
+    setup: function(vidId, canvasId) {
+        this.videoElement = document.getElementById(vidId);
+        this.canvasElement = document.getElementById(canvasId);
+        if(!this.videoElement || !this.canvasElement) return;
 
-    init: async function(videoElement, canvasElement, onReady, onError) {
-        console.log("[Vision] Inicializando...");
-        const ctx = canvasElement.getContext('2d');
-
-        // 1. Configurar MediaPipe Pose
-        this.pose = new Pose({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-        }});
-
+        this.ctx = this.canvasElement.getContext('2d');
+        
+        // MediaPipe Setup
+        this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
         this.pose.setOptions({
-            modelComplexity: 1, // 0=Lite, 1=Full (Balanceado), 2=Heavy
+            modelComplexity: 1,
             smoothLandmarks: true,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
 
-        this.pose.onResults((res) => {
-            this.processFrame(res, canvasElement, ctx);
+        this.pose.onResults((res) => this.processResults(res));
+        
+        // Camera Instance
+        this.camera = new Camera(this.videoElement, {
+            onFrame: async () => {
+                if(this.active) await this.pose.send({image: this.videoElement});
+            },
+            width: 640, height: 480
         });
+    },
 
-        // 2. Tentar Iniciar Câmera
+    start: async function() {
+        if(this.active) return; // Já está rodando
+        console.log("Vision: Iniciando Câmera...");
         try {
-            this.camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    await this.pose.send({image: videoElement});
-                },
-                width: 640,
-                height: 480
-            });
-            
             await this.camera.start();
             this.active = true;
-            console.log("[Vision] Câmera Ativa.");
-            if(onReady) onReady();
             
-        } catch (e) {
-            console.warn("[Vision] Erro de Câmera (Provável falta de HTTPS ou permissão):", e);
-            // Chama onReady mesmo com erro, para o jogo não travar (fallback para Touch)
-            if(onError) onError(e);
-            else if(onReady) onReady(); 
+            // Fade In Canvas
+            if(this.canvasElement) this.canvasElement.style.opacity = 1;
+            
+        } catch(e) {
+            console.error("Vision Error:", e);
+            alert("Erro: Câmera não permitida ou indisponível.");
+            this.active = false;
         }
     },
 
-    processFrame: function(results, canvas, ctx) {
-        // Limpar e desenhar feed da câmera (espelhado via CSS)
-        ctx.save();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    stop: function() {
+        if(!this.active) return;
+        console.log("Vision: Pausando Câmera...");
+        this.active = false;
         
-        // Desenha vídeo de fundo
-        if (results.image) {
-            ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-        }
+        // Fade Out Canvas
+        if(this.canvasElement) this.canvasElement.style.opacity = 0;
+        
+        // Nota: CameraUtils não tem 'stop' real fácil, mas paramos de enviar frames para o Pose
+        // Isso economiza MUITA CPU.
+    },
 
-        // Se detectou corpo...
-        if (results.poseLandmarks) {
-            // Desenhar esqueleto (apenas se debug estiver ativo)
-            if (this.debugEnabled) {
-                drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
-                drawLandmarks(ctx, results.poseLandmarks, {color: '#FF0000', lineWidth: 2});
-            }
+    processResults: function(results) {
+        if(!this.active) return;
 
-            // Extrair dados críticos
+        // Desenha o feed da câmera para o usuário se ver
+        this.ctx.save();
+        this.ctx.clearRect(0, 0, this.canvasElement.width, this.canvasElement.height);
+        this.ctx.drawImage(results.image, 0, 0, this.canvasElement.width, this.canvasElement.height);
+        
+        if(results.poseLandmarks) {
+            // Extração de dados
             const nose = results.poseLandmarks[0];
             const leftShoulder = results.poseLandmarks[11];
             const rightShoulder = results.poseLandmarks[12];
-            const leftHand = results.poseLandmarks[15]; // Pulso Esq
-            const rightHand = results.poseLandmarks[16]; // Pulso Dir
 
-            // --- NORMALIZAÇÃO DE DADOS ---
-            
-            // X: Invertemos o X do MediaPipe (1 - x) para corrigir o espelhamento natural
+            // X Invertido (Espelho)
             this.results.x = 1 - nose.x;
+            this.results.y = (leftShoulder.y + rightShoulder.y) / 2;
+            this.results.visible = true;
             
-            // Y: Média dos ombros
-            const currentY = (leftShoulder.y + rightShoulder.y) / 2;
-            this.results.y = currentY;
-
-            // Atividade (Quão rápido está se movendo verticalmente - Corrida Estacionária)
-            const delta = Math.abs(currentY - this.lastY);
-            this.results.activityLevel = delta * 100; // Fator de amplificação
-            this.lastY = currentY;
-
-            // Mãos (Também invertendo X)
-            this.results.hands.left = { x: 1 - leftHand.x, y: leftHand.y };
-            this.results.hands.right = { x: 1 - rightHand.x, y: rightHand.y };
-
-            this.results.visibility = nose.visibility;
+            // Desenho simples de debug (pontos no nariz e ombros)
+            this.ctx.fillStyle = '#00FF00';
+            this.ctx.beginPath(); this.ctx.arc(this.results.x * this.canvasElement.width, nose.y * this.canvasElement.height, 10, 0, 2*Math.PI); this.ctx.fill();
         } else {
-            this.results.visibility = 0;
-            this.results.activityLevel = 0;
+            this.results.visible = false;
         }
-        ctx.restore();
-    },
-
-    toggleDebug: function() {
-        this.debugEnabled = !this.debugEnabled;
-        console.log("[Vision] Debug:", this.debugEnabled);
+        this.ctx.restore();
     }
 };
