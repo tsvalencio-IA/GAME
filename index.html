@@ -1,36 +1,49 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Body Dash</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>thIAguinho Arcade | Hub</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 </head>
 <body>
+    <div class="menu-container">
+        <div class="profile-section">
+            <div class="avatar-circle">
+                <img src="assets/mascote_perfil.jpg" onerror="this.src='https://via.placeholder.com/150/FFD700/000?text=TH'" alt="Avatar">
+            </div>
+            <h1>ARCADE <span class="highlight">thIAguinho</span></h1>
+            <p>Realidade Aumentada & IA Tracking</p>
+        </div>
 
-<div id="menu" class="screen">
-  <h1>🏃‍♂️ BODY DASH</h1>
-  <p>Mova o corpo para vencer</p>
-  <button id="startBtn">COMEÇAR</button>
-</div>
+        <div class="cards-grid">
+            <a href="game.html?mode=race" class="game-card race">
+                <div class="icon"><i class='bx bxs-car-crash'></i></div>
+                <div class="info">
+                    <h2>GRAND PRIX</h2>
+                    <p>Desvie dos obstáculos usando seu corpo.</p>
+                </div>
+            </a>
 
-<div id="game" class="screen hidden">
-  <div id="hud">
-    <span id="score">Pontos: 0</span>
-    <span id="lives">Vidas: 3</span>
-  </div>
+            <a href="game.html?mode=run" class="game-card run">
+                <div class="icon"><i class='bx bx-run'></i></div>
+                <div class="info">
+                    <h2>STREET RUN</h2>
+                    <p>Corra no lugar para ganhar velocidade.</p>
+                </div>
+            </a>
 
-  <div id="instruction">PREPARE-SE</div>
-
-  <video id="camera" autoplay playsinline></video>
-</div>
-
-<div id="gameover" class="screen hidden">
-  <h1>FIM DE JOGO</h1>
-  <p id="finalScore"></p>
-  <button onclick="location.reload()">JOGAR DE NOVO</button>
-</div>
-
-<script src="game.js"></script>
+            <a href="game.html?mode=dance" class="game-card dance">
+                <div class="icon"><i class='bx bxs-music'></i></div>
+                <div class="info">
+                    <h2>DANCE FIT</h2>
+                    <p>Pegue os orbes de luz com as mãos.</p>
+                </div>
+            </a>
+        </div>
+        
+        <footer>v3.0.0 Stable | Powered by TensorFlow & Three.js</footer>
+    </div>
 </body>
 </html>
