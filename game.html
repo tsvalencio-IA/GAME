@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Jogando...</title>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/DRACOLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+<body class="game-mode">
+
+    <video id="input-video" class="input_video" playsinline></video>
+    <canvas id="output-canvas" class="output_canvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <button class="btn-back" onclick="window.location.href='index.html'">VOLTAR</button>
+            <div class="score-board">
+                <div class="label">PONTOS</div>
+                <div class="value" id="score-val">0</div>
+            </div>
+        </div>
+
+        <div id="tracking-status" class="status-badge waiting">
+            Procurando Corpo...
+        </div>
+
+        <div id="game-message" class="center-msg">CARREGANDO ENGINE...</div>
+    </div>
+
+    <script src="js/vision.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
