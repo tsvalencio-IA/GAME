@@ -1,70 +1,83 @@
 /**
- * thIAguinho Vision v12 (Robust)
+ * Vision System - Versão Simplificada e Robusta
  */
 const Vision = {
     active: false,
     video: null,
     pose: null,
-    camera: null,
-    data: { x: 0, y: 0, visible: false },
+    data: { x: 0, visible: false }, // x vai de -1 (esquerda) a 1 (direita)
 
-    setup: function(videoElemId) {
-        this.video = document.getElementById(videoElemId);
-        if(!this.video) return console.error("Vision: Vídeo não encontrado");
+    init: function() {
+        this.video = document.getElementById('input-video');
+        if(!this.video) return;
 
+        // Configurar MediaPipe Pose
         this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
         this.pose.setOptions({
-            modelComplexity: 1,
+            modelComplexity: 0, // 0 = Lite (Mais rápido no celular)
             smoothLandmarks: true,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
-        this.pose.onResults((res) => this.process(res));
+
+        this.pose.onResults(this.onResults.bind(this));
+
+        // Tentar iniciar câmera
+        this.startCamera();
     },
 
-    start: async function() {
-        if(this.active) return;
+    startCamera: async function() {
         try {
-            // Tenta câmera nativa
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user', width: {ideal: 640}, height: {ideal: 480} },
+                video: { facingMode: 'user', width: 640, height: 480 },
                 audio: false
             });
             this.video.srcObject = stream;
             await this.video.play();
-
-            // Linkar feedback
-            const feed = document.getElementById('camera-feed');
-            if(feed) { feed.srcObject = stream; feed.play(); feed.style.opacity = 1; }
-
+            
+            // Loop de detecção manual usando requestVideoFrameCallback se disponível ou rAF
             this.active = true;
             this.loop();
-            return true;
-        } catch(e) {
-            console.error(e);
-            throw new Error("Permissão de câmera negada");
+            console.log("Câmera iniciada com sucesso.");
+        } catch (e) {
+            console.warn("Câmera não disponível ou negada. Usando modo Touch.");
+            // Não fazemos nada, o jogo continua rodando sem input de câmera
         }
-    },
-
-    stop: function() {
-        this.active = false;
-        const feed = document.getElementById('camera-feed');
-        if(feed) feed.style.opacity = 0;
     },
 
     loop: async function() {
-        if(!this.active) return;
-        if(this.video && this.video.readyState >= 2) {
+        if (!this.active) return;
+        
+        if (this.video && this.video.readyState >= 2) {
             await this.pose.send({image: this.video});
         }
-        requestAnimationFrame(() => this.loop());
+        
+        requestAnimationFrame(this.loop.bind(this));
     },
 
-    process: function(results) {
-        if(!results.poseLandmarks) { this.data.visible = false; return; }
+    onResults: function(results) {
+        if (!results.poseLandmarks) {
+            this.data.visible = false;
+            return;
+        }
+
         const nose = results.poseLandmarks[0];
-        // Normalização Espelhada (-1 a 1)
-        this.data.x = (0.5 - nose.x) * 3.0; 
         this.data.visible = true;
+        
+        // O MediaPipe retorna X entre 0 e 1.
+        // Vamos inverter (espelho) e centralizar.
+        // 0.5 é o centro.
+        // Se nose.x for 0.2 (esquerda na cam), queremos mover para direita (espelho) ou esquerda?
+        // Espelho: se eu vou pra esquerda, minha imagem vai pra esquerda da tela.
+        
+        // Calculo: (0.5 - nose.x) inverte o eixo. Multiplicamos por sensibilidade.
+        this.data.x = (0.5 - nose.x) * 3.5; 
+        
+        // Limites
+        if (this.data.x > 1.5) this.data.x = 1.5;
+        if (this.data.x < -1.5) this.data.x = -1.5;
     }
 };
+
+// Tornar global
+window.Vision = Vision;
