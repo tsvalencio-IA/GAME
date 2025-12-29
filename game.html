@@ -26,16 +26,18 @@
 
     <div id="game-wrapper">
         <video id="input-video" playsinline muted autoplay style="position:absolute; width:1px; height:1px; opacity:0.01; z-index:-1;"></video>
-        
         <video id="camera-feed"></video>
         <canvas id="game-canvas"></canvas>
 
         <div id="hud-layer">
             <div class="hud-header">
                 <button class="hud-btn" onclick="Engine.togglePause()"><i class='bx bx-pause'></i></button>
-                <div class="score-pill">
-                    <div class="score-label">SCORE</div>
-                    <div class="score-val" id="score-display">0</div>
+                <div class="score-container">
+                    <div class="score-pill">
+                        <div class="score-label">SCORE</div>
+                        <div class="score-val" id="score-display">0</div>
+                    </div>
+                    <div id="combo-display"></div>
                 </div>
             </div>
 
@@ -94,9 +96,6 @@
             d.innerHTML = `ERRO: ${msg} <br> ${url}:${line}`;
             return false;
         };
-        function log(msg) {
-            console.log(msg);
-        }
     </script>
 
     <script src="js/vision.js"></script>
