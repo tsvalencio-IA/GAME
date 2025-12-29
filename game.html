@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Engine</title>
+    <title>Game Engine</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
     
@@ -13,68 +13,65 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/GLTFLoader.js"></script>
 </head>
 <body>
-    <video id="input-video" playsinline muted autoplay style="position:absolute; width:1px; height:1px; opacity:0.001; z-index:-10;"></video>
+    <video id="input-video" playsinline muted autoplay></video>
 
     <div id="game-wrapper">
         <video id="camera-feed"></video>
-        
         <canvas id="game-canvas"></canvas>
 
         <div id="hud-layer">
-            <div class="hud-top">
-                <button class="circle-btn" onclick="Engine.togglePause()"><i class='bx bx-pause'></i></button>
-                <div class="score-board">
-                    <small>SCORE</small>
+            <div class="top-bar">
+                <button class="btn-icon" onclick="Engine.togglePause()"><i class='bx bx-pause'></i></button>
+                <div class="score-box">
+                    <small>PONTOS</small>
                     <span id="score-val">0</span>
                 </div>
-                <div class="combo-box" id="combo-box">x1</div>
             </div>
-
-            <div id="center-hint" class="hint-overlay hidden">
-                <i class='bx bxs-hand-up'></i><br>TOQUE PARA INICIAR
+            
+            <div id="touch-zone" class="hidden">
+                <div class="hand-hint"><i class='bx bxs-hand-up'></i><br>ARRASTE</div>
             </div>
-
-            <div id="touch-zone" class="touch-layer hidden"></div>
         </div>
 
-        <div id="reticle-layer" class="overlay-layer hidden">
-            <div class="reticle-box">
-                <div class="corner tl"></div><div class="corner tr"></div>
-                <div class="corner bl"></div><div class="corner br"></div>
-                <div class="scan-line"></div>
-                <div class="reticle-text">ENQUADRE SEU CORPO</div>
-            </div>
-            <button class="btn-cancel" onclick="Input.setMode('TOUCH')">Usar Toque</button>
-        </div>
-
-        <div id="screen-boot" class="overlay-layer">
+        <div id="screen-boot" class="overlay">
             <div class="modal">
                 <div class="spinner"></div>
-                <h1>CARREGANDO...</h1>
-                <p id="boot-status">Inicializando Sistemas...</p>
-                <button id="btn-start" class="btn-main hidden" onclick="Engine.boot()">JOGAR AGORA</button>
+                <h2>CARREGANDO...</h2>
+                <p id="boot-status">Inicializando Motor...</p>
+                <button id="btn-start" class="btn-main hidden" onclick="Engine.bootSystem()">
+                    <i class='bx bx-play'></i> JOGAR AGORA
+                </button>
             </div>
         </div>
 
-        <div id="screen-pause" class="overlay-layer hidden">
+        <div id="screen-calib" class="overlay hidden">
+            <div class="reticle">
+                <div class="corner tl"></div><div class="corner tr"></div>
+                <div class="corner bl"></div><div class="corner br"></div>
+                <div class="scan"></div>
+            </div>
+            <p style="margin-top:20px; color:#fff; font-weight:bold;">ENQUADRE SEU CORPO</p>
+            <button class="btn-sec" onclick="Input.forceTouch()">USAR TOQUE</button>
+        </div>
+
+        <div id="screen-over" class="overlay hidden">
             <div class="modal">
-                <h1>PAUSA</h1>
-                <div class="control-select">
-                    <button onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i><br>Toque</button>
-                    <button onclick="Input.setMode('TILT')"><i class='bx bx-mobile'></i><br>Tilt</button>
-                    <button onclick="Input.setMode('BODY')"><i class='bx bx-body'></i><br>Câmera</button>
-                </div>
-                <button class="btn-main" onclick="Engine.togglePause()">CONTINUAR</button>
+                <h1 style="color:#ff4444">FIM DE JOGO</h1>
+                <p>Pontuação: <span id="final-score">0</span></p>
+                <button class="btn-main" onclick="Engine.restart()">JOGAR DE NOVO</button>
                 <button class="btn-sec" onclick="window.location.href='index.html'">SAIR</button>
             </div>
         </div>
-
-        <div id="screen-over" class="overlay-layer hidden">
+        
+        <div id="screen-pause" class="overlay hidden">
             <div class="modal">
-                <h1 style="color:#ff4444">FIM DE JOGO</h1>
-                <p class="final-score">Pontos: <span id="final-pts">0</span></p>
-                <button class="btn-main" onclick="Engine.restart()">TENTAR DE NOVO</button>
-                <button class="btn-sec" onclick="window.location.href='index.html'">MENU</button>
+                <h2>PAUSA</h2>
+                <div class="ctrl-grid">
+                    <button onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i><br>Toque</button>
+                    <button onclick="Input.setMode('TILT')"><i class='bx bx-mobile'></i><br>Tilt</button>
+                    <button onclick="Input.setMode('BODY')"><i class='bx bx-body'></i><br>Cam</button>
+                </div>
+                <button class="btn-main" onclick="Engine.togglePause()">VOLTAR</button>
             </div>
         </div>
     </div>
