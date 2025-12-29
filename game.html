@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Game Engine</title>
+    <title>thIAguinho Engine</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
     
@@ -11,74 +11,70 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/DRACOLoader.js"></script>
 </head>
 <body>
-    <div id="debug-console" style="display:none;"></div>
+    <video id="input-video" playsinline muted autoplay style="position:absolute; width:1px; height:1px; opacity:0.001; z-index:-10;"></video>
 
     <div id="game-wrapper">
-        <video id="input-video" playsinline muted autoplay style="position:absolute; width:1px; height:1px; opacity:0.01; z-index:-1;"></video>
-        
         <video id="camera-feed"></video>
+        
         <canvas id="game-canvas"></canvas>
 
         <div id="hud-layer">
-            <div class="hud-header">
-                <button class="hud-btn" onclick="Engine.togglePause()"><i class='bx bx-pause'></i></button>
-                <div class="score-container">
-                    <div class="score-pill">
-                        <div class="score-label">SCORE</div>
-                        <div class="score-val" id="score-display">0</div>
-                    </div>
-                    <div id="combo-display"></div>
+            <div class="hud-top">
+                <button class="circle-btn" onclick="Engine.togglePause()"><i class='bx bx-pause'></i></button>
+                <div class="score-board">
+                    <small>SCORE</small>
+                    <span id="score-val">0</span>
                 </div>
+                <div class="combo-box" id="combo-box">x1</div>
             </div>
 
-            <div id="touch-controls" class="touch-zone hidden">
-                <div id="touch-hint-text" class="touch-hint">ARRASTE PARA MOVER</div>
+            <div id="center-hint" class="hint-overlay hidden">
+                <i class='bx bxs-hand-up'></i><br>TOQUE PARA INICIAR
             </div>
-            
-            <div id="toast" class="toast-msg hidden">GO!</div>
+
+            <div id="touch-zone" class="touch-layer hidden"></div>
         </div>
 
-        <div id="screen-loading" class="modal-overlay">
-            <div class="modal-box">
+        <div id="reticle-layer" class="overlay-layer hidden">
+            <div class="reticle-box">
+                <div class="corner tl"></div><div class="corner tr"></div>
+                <div class="corner bl"></div><div class="corner br"></div>
+                <div class="scan-line"></div>
+                <div class="reticle-text">ENQUADRE SEU CORPO</div>
+            </div>
+            <button class="btn-cancel" onclick="Input.setMode('TOUCH')">Usar Toque</button>
+        </div>
+
+        <div id="screen-boot" class="overlay-layer">
+            <div class="modal">
                 <div class="spinner"></div>
-                <h2 class="modal-title">CARREGANDO</h2>
-                <p id="loading-txt" style="color:#888;">Preparando Engine...</p>
-                <button id="btn-boot" class="btn-primary hidden" onclick="Engine.bootSystem()">TOCAR PARA INICIAR</button>
+                <h1>CARREGANDO...</h1>
+                <p id="boot-status">Inicializando Sistemas...</p>
+                <button id="btn-start" class="btn-main hidden" onclick="Engine.boot()">JOGAR AGORA</button>
             </div>
         </div>
 
-        <div id="screen-pause" class="modal-overlay hidden">
-            <div class="modal-box">
-                <h2 class="modal-title">PAUSA</h2>
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin:20px 0;">
-                    <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i></button>
-                    <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('TILT')"><i class='bx bx-mobile-vibration'></i></button>
-                    <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('BODY')"><i class='bx bx-body'></i></button>
+        <div id="screen-pause" class="overlay-layer hidden">
+            <div class="modal">
+                <h1>PAUSA</h1>
+                <div class="control-select">
+                    <button onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i><br>Toque</button>
+                    <button onclick="Input.setMode('TILT')"><i class='bx bx-mobile'></i><br>Tilt</button>
+                    <button onclick="Input.setMode('BODY')"><i class='bx bx-body'></i><br>Câmera</button>
                 </div>
-                <button class="btn-primary" onclick="Engine.togglePause()">CONTINUAR</button>
-                <button class="btn-secondary" onclick="window.location.href='index.html'">SAIR</button>
+                <button class="btn-main" onclick="Engine.togglePause()">CONTINUAR</button>
+                <button class="btn-sec" onclick="window.location.href='index.html'">SAIR</button>
             </div>
         </div>
 
-        <div id="screen-calibration" class="modal-overlay hidden">
-            <div class="modal-box">
-                <i class='bx bx-body' style="font-size:50px; color:var(--wii-blue)"></i>
-                <h2 class="modal-title">CALIBRAÇÃO</h2>
-                <p>Faça uma pose em "T" na frente da câmera.</p>
-                <div id="calib-status" style="margin:20px; font-weight:bold; color:#ccc;">AGUARDANDO...</div>
-                <button class="btn-secondary" onclick="Input.setMode('TOUCH'); Engine.setScreen(null);">CANCELAR</button>
-            </div>
-        </div>
-
-        <div id="screen-gameover" class="modal-overlay hidden">
-            <div class="modal-box">
-                <h2 class="modal-title" style="color:var(--nintendo-red)">FIM DE JOGO</h2>
-                <div class="score-val" id="final-score" style="font-size:40px; margin:20px 0;">0</div>
-                <button class="btn-primary" onclick="Engine.restart()">JOGAR NOVAMENTE</button>
-                <button class="btn-secondary" onclick="window.location.href='index.html'">MENU</button>
+        <div id="screen-over" class="overlay-layer hidden">
+            <div class="modal">
+                <h1 style="color:#ff4444">FIM DE JOGO</h1>
+                <p class="final-score">Pontos: <span id="final-pts">0</span></p>
+                <button class="btn-main" onclick="Engine.restart()">TENTAR DE NOVO</button>
+                <button class="btn-sec" onclick="window.location.href='index.html'">MENU</button>
             </div>
         </div>
     </div>
