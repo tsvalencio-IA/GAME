@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Engine Pro</title>
+    <title>Game Engine</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
     
@@ -14,85 +14,66 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/DRACOLoader.js"></script>
 </head>
 <body>
+    <div id="game-wrapper">
+        <video id="input-video" class="hidden" playsinline muted autoplay></video>
+        <video id="camera-feed"></video> <canvas id="game-canvas"></canvas>
 
-    <video id="input-video" class="hidden-video" playsinline muted autoplay></video>
-
-    <canvas id="camera-canvas" style="opacity: 0; transition: opacity 0.5s;"></canvas>
-
-    <canvas id="game-canvas"></canvas>
-
-    <div id="ui-layer">
-        
-        <div class="hud-top-bar">
-            <button class="icon-btn" onclick="UI.toggleSettings()"><i class='bx bxs-cog'></i></button>
-            <div class="game-info"><span id="mode-badge" class="badge">LOADING...</span></div>
-            <div class="score-container">
-                <span class="score-number" id="score-val">0</span>
+        <div id="hud-layer">
+            <div class="hud-header">
+                <button class="hud-btn" onclick="Engine.togglePause()"><i class='bx bx-pause'></i></button>
+                <div class="score-pill">
+                    <div class="score-label">SCORE</div>
+                    <div class="score-val" id="score-display">0</div>
+                </div>
             </div>
-        </div>
 
-        <div id="control-feedback" class="control-toast hidden">MUDOU PARA TOQUE</div>
-
-        <div id="touch-zone" class="touch-layer hidden">
-            <div class="touch-visual-hint">
-                <i class='bx bxs-hand-up'></i><br>ARRASTE PARA MOVER
-            </div>
-        </div>
-    </div>
-
-    <div id="settings-modal" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>CONTROLES</h2>
-                <button class="close-btn" onclick="UI.toggleSettings()"><i class='bx bx-x'></i></button>
+            <div id="touch-controls" class="touch-zone hidden">
+                <div id="touch-hint-text" class="touch-hint">TOQUE PARA COMEÇAR</div>
             </div>
             
-            <div class="settings-body">
-                <p style="font-size:12px; color:#aaa; margin-bottom:15px;">Toque para ativar o modo desejado:</p>
-                
-                <div class="control-grid">
-                    <button class="ctrl-btn" id="btn-mode-touch" onclick="InputSys.changeMode('TOUCH')">
-                        <i class='bx bxs-hand-up'></i>
-                        <span>TOQUE</span>
-                    </button>
-                    
-                    <button class="ctrl-btn" id="btn-mode-tilt" onclick="InputSys.changeMode('TILT')">
-                        <i class='bx bx-mobile-vibration'></i>
-                        <span>INCLINAR</span>
-                    </button>
-                    
-                    <button class="ctrl-btn" id="btn-mode-body" onclick="InputSys.changeMode('BODY')">
-                        <i class='bx bx-body'></i>
-                        <span>CORPO (IA)</span>
-                    </button>
-                </div>
+            <div id="toast" class="toast-msg hidden">GO!</div>
+        </div>
 
-                <div class="setting-row" style="margin-top:20px;">
-                    <div class="range-header">
-                        <label>SENSIBILIDADE</label>
-                        <span id="sens-display">1.0</span>
-                    </div>
-                    <input type="range" min="0.5" max="3.0" step="0.1" value="1.0" class="slider" oninput="InputSys.setSensitivity(this.value)">
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button class="primary-btn" onclick="UI.toggleSettings()">VOLTAR AO JOGO</button>
+        <div id="screen-loading" class="modal-overlay">
+            <div class="modal-box">
+                <div class="spinner"></div>
+                <h2 class="modal-title">LIGANDO ENGINE</h2>
+                <p id="loading-txt" style="color:#888;">Calibrando Sensores...</p>
             </div>
         </div>
-    </div>
 
-    <div id="loading-screen" class="modal">
-        <div class="loader-spinner"></div>
-        <h3 style="color: white; margin-top: 10px;">INICIANDO...</h3>
-        <p id="loading-text" style="color: #aaa; font-size: 12px;">Carregando Engine...</p>
-    </div>
+        <div id="screen-pause" class="modal-overlay hidden">
+            <div class="modal-box">
+                <h2 class="modal-title">PAUSA</h2>
+                <p>Escolha seu controle:</p>
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin:20px 0;">
+                    <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i></button>
+                    <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('TILT')"><i class='bx bx-mobile-vibration'></i></button>
+                    <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('BODY')"><i class='bx bx-body'></i></button>
+                </div>
+                <button class="btn-primary" onclick="Engine.togglePause()">CONTINUAR</button>
+                <button class="btn-secondary" onclick="window.location.href='index.html'">SAIR</button>
+            </div>
+        </div>
 
-    <div id="game-over-screen" class="modal hidden">
-        <h1 class="game-over-title">FIM DE JOGO</h1>
-        <p class="game-over-score">Score: <span id="final-score">0</span></p>
-        <button class="primary-btn" onclick="Game.restart()">JOGAR DE NOVO</button>
-        <button class="secondary-btn" onclick="window.location.href='index.html'">SAIR</button>
+        <div id="screen-calibration" class="modal-overlay hidden">
+            <div class="modal-box">
+                <i class='bx bx-body' style="font-size:50px; color:var(--wii-blue)"></i>
+                <h2 class="modal-title">CALIBRAÇÃO</h2>
+                <p>Fique visível na câmera e faça uma pose em "T".</p>
+                <div id="calib-status" style="margin:20px; font-weight:bold; color:#ccc;">PROCURANDO...</div>
+                <button class="btn-secondary" onclick="Input.setMode('TOUCH'); Engine.setScreen(null);">CANCELAR (USAR TOQUE)</button>
+            </div>
+        </div>
+
+        <div id="screen-gameover" class="modal-overlay hidden">
+            <div class="modal-box">
+                <h2 class="modal-title" style="color:var(--nintendo-red)">FIM DE JOGO</h2>
+                <div class="score-val" id="final-score" style="font-size:40px; margin:20px 0;">0</div>
+                <button class="btn-primary" onclick="Engine.restart()">JOGAR NOVAMENTE</button>
+                <button class="btn-secondary" onclick="window.location.href='index.html'">MENU</button>
+            </div>
+        </div>
     </div>
 
     <script src="js/vision.js"></script>
