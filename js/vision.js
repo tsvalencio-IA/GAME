@@ -19,15 +19,10 @@ const Vision = {
         isCalibrated: false
     },
 
-    // Dados de Saída (Normalizados para Game Logic)
     data: { 
-        x: 0,         // -1 (Esq) a 1 (Dir)
-        y: 0,         // -1 (Baixo) a 1 (Cima)
-        tilt: 0,      // Inclinação da cabeça (Radianos aprox)
-        presence: false 
+        x: 0, y: 0, tilt: 0, presence: false 
     },
 
-    // Dados Crus (Raw) para Debug e Física Delta
     raw: { x: 0, y: 0 },
 
     init: function() {
@@ -37,7 +32,7 @@ const Vision = {
         try {
             this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
             this.pose.setOptions({
-                modelComplexity: 0, // 0 = Lite (Performance Mobile Crítica)
+                modelComplexity: 0,
                 smoothLandmarks: true,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
@@ -55,7 +50,7 @@ const Vision = {
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { 
                     facingMode: 'user', 
-                    width: {ideal: 480}, // Baixa res para performance
+                    width: {ideal: 480}, 
                     height: {ideal: 640},
                     frameRate: {ideal: 30} 
                 },
@@ -64,7 +59,6 @@ const Vision = {
             this.video.srcObject = stream;
             await this.video.play();
             
-            // Feedback visual (Espelho Mágico)
             const feed = document.getElementById('camera-feed');
             if(feed) {
                 feed.srcObject = stream;
@@ -107,13 +101,10 @@ const Vision = {
         const earL = results.poseLandmarks[7];
         const earR = results.poseLandmarks[8];
 
-        // 1. Normalização Raw (Invertendo X para espelho)
-        // Centro da tela (0.5) vira 0.
         let rawX = (0.5 - nose.x) * 3.0; 
         let rawY = (0.5 - nose.y) * 4.0;
         let rawTilt = (earL.y - earR.y) * 10;
 
-        // 2. Calibração Invisível
         if (!this.calibration.isCalibrated) {
             const delta = Math.abs(rawX - this.calibration.lastX);
             if (delta < this.calibration.threshold) {
@@ -127,23 +118,21 @@ const Vision = {
                 this.calibration.offsetX = rawX;
                 this.calibration.offsetY = rawY;
                 this.calibration.isCalibrated = true;
-                console.log("Vision: Calibrado! Offset:", rawX.toFixed(2), rawY.toFixed(2));
-                Feedback.rumble('ui'); // Feedback tátil sutil ao calibrar
+                console.log("Vision: Calibrado!");
+                Feedback.rumble('ui');
             }
         }
 
-        // 3. Aplicação do Offset (Zero-Point)
         if (this.calibration.isCalibrated) {
             this.data.x = rawX - this.calibration.offsetX;
             this.data.y = rawY - this.calibration.offsetY;
         } else {
-            // Enquanto não calibra, usa raw suavizado
             this.data.x = rawX;
             this.data.y = rawY;
         }
 
         this.data.tilt = rawTilt;
-        this.raw.y = rawY; // Salva para cálculos de Delta (física)
+        this.raw.y = rawY;
     }
 };
 
