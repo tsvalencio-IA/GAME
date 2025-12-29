@@ -1,68 +1,91 @@
 /**
- * thIAguinho HAL v24.0 (Calibration & Stability)
+ * NEO-WII Vision HAL
+ * Abstrai o MediaPipe Pose em dados de controle normalizados.
+ * Implementa Calibração Invisível (Zero-Point automático).
  */
 const Vision = {
     active: false,
     video: null,
     pose: null,
     
+    // Configuração da Calibração Invisível
     calibration: {
-        active: false,
         framesStable: 0,
-        requiredFrames: 10,
-        lastX: 0, xOffset: 0, yOffset: 0,
+        requiredFrames: 15, // ~0.5s de estabilidade
+        threshold: 0.05,    // Tolerância de movimento
+        lastX: 0,
+        offsetX: 0,
+        offsetY: 0,
         isCalibrated: false
     },
 
-    data: { x: 0, y: 0, tilt: 0, presence: false },
-    raw: { x: 0, y: 0, tilt: 0 },
+    // Dados de Saída (Normalizados para Game Logic)
+    data: { 
+        x: 0,         // -1 (Esq) a 1 (Dir)
+        y: 0,         // -1 (Baixo) a 1 (Cima)
+        tilt: 0,      // Inclinação da cabeça (Radianos aprox)
+        presence: false 
+    },
+
+    // Dados Crus (Raw) para Debug e Física Delta
+    raw: { x: 0, y: 0 },
 
     init: function() {
         this.video = document.getElementById('input-video');
+        if (!this.video) return console.error("Vision: Vídeo input não encontrado");
+
         try {
             this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
             this.pose.setOptions({
-                modelComplexity: 0,
+                modelComplexity: 0, // 0 = Lite (Performance Mobile Crítica)
                 smoothLandmarks: true,
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
             this.pose.onResults(this.onResults.bind(this));
-        } catch(e) { console.error("Vision Init Error", e); }
+            console.log("Vision: Engine Pronta");
+        } catch(e) {
+            console.error("Vision: Falha ao carregar MediaPipe", e);
+        }
     },
 
     start: async function() {
         if (!this.video || !this.pose) return false;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user', width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 30} },
+                video: { 
+                    facingMode: 'user', 
+                    width: {ideal: 480}, // Baixa res para performance
+                    height: {ideal: 640},
+                    frameRate: {ideal: 30} 
+                },
                 audio: false
             });
             this.video.srcObject = stream;
             await this.video.play();
             
+            // Feedback visual (Espelho Mágico)
             const feed = document.getElementById('camera-feed');
-            if(feed) { feed.srcObject = stream; feed.play(); feed.style.opacity = 0.4; }
+            if(feed) {
+                feed.srcObject = stream;
+                feed.play();
+                feed.style.opacity = 0.5; // Transparência AR
+            }
 
             this.active = true;
+            this.resetCalibration();
             this.loop();
             return true;
-        } catch(e) { return false; }
-    },
-
-    calibrate: function() {
-        this.calibration.active = true;
-        this.calibration.framesStable = 0;
-        this.calibration.isCalibrated = false;
-    },
-
-    stop: function() {
-        this.active = false;
-        if(this.video && this.video.srcObject) {
-            this.video.srcObject.getTracks().forEach(t => t.stop());
+        } catch(e) {
+            console.warn("Vision: Câmera negada/indisponível", e);
+            return false;
         }
-        const feed = document.getElementById('camera-feed');
-        if(feed) feed.style.opacity = 0;
+    },
+
+    resetCalibration: function() {
+        this.calibration.isCalibrated = false;
+        this.calibration.framesStable = 0;
+        console.log("Vision: Buscando ponto zero...");
     },
 
     loop: async function() {
@@ -78,46 +101,49 @@ const Vision = {
             this.data.presence = false;
             return;
         }
-
         this.data.presence = true;
+
         const nose = results.poseLandmarks[0];
         const earL = results.poseLandmarks[7];
         const earR = results.poseLandmarks[8];
 
-        let currX = (0.5 - nose.x) * 3.5; 
-        let currY = (0.5 - nose.y) * 4.0;
-        let currTilt = (earL.y - earR.y) * 10;
+        // 1. Normalização Raw (Invertendo X para espelho)
+        // Centro da tela (0.5) vira 0.
+        let rawX = (0.5 - nose.x) * 3.0; 
+        let rawY = (0.5 - nose.y) * 4.0;
+        let rawTilt = (earL.y - earR.y) * 10;
 
-        if (this.calibration.active) {
-            const delta = Math.abs(currX - this.calibration.lastX);
-            if (delta < 0.05) this.calibration.framesStable++;
-            else this.calibration.framesStable = 0;
-            
-            this.calibration.lastX = currX;
+        // 2. Calibração Invisível
+        if (!this.calibration.isCalibrated) {
+            const delta = Math.abs(rawX - this.calibration.lastX);
+            if (delta < this.calibration.threshold) {
+                this.calibration.framesStable++;
+            } else {
+                this.calibration.framesStable = 0;
+            }
+            this.calibration.lastX = rawX;
 
             if (this.calibration.framesStable > this.calibration.requiredFrames) {
-                this.calibration.xOffset = currX;
-                this.calibration.yOffset = currY;
+                this.calibration.offsetX = rawX;
+                this.calibration.offsetY = rawY;
                 this.calibration.isCalibrated = true;
-                this.calibration.active = false;
-                console.log("Calibrado!");
+                console.log("Vision: Calibrado! Offset:", rawX.toFixed(2), rawY.toFixed(2));
+                Feedback.rumble('ui'); // Feedback tátil sutil ao calibrar
             }
         }
 
+        // 3. Aplicação do Offset (Zero-Point)
         if (this.calibration.isCalibrated) {
-            currX -= this.calibration.xOffset;
-            currY -= this.calibration.yOffset;
+            this.data.x = rawX - this.calibration.offsetX;
+            this.data.y = rawY - this.calibration.offsetY;
+        } else {
+            // Enquanto não calibra, usa raw suavizado
+            this.data.x = rawX;
+            this.data.y = rawY;
         }
 
-        this.raw.x = currX;
-        this.raw.y = currY;
-        
-        // Suavização
-        this.data.x += (currX - this.data.x) * 0.2;
-        this.data.y += (currY - this.data.y) * 0.2;
-        this.data.tilt = currTilt;
-        
-        this.data.x = Math.max(-1.5, Math.min(1.5, this.data.x));
+        this.data.tilt = rawTilt;
+        this.raw.y = rawY; // Salva para cálculos de Delta (física)
     }
 };
 
