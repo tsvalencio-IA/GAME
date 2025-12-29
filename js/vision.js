@@ -1,38 +1,60 @@
+/**
+ * Vision Module v12.0 (Nintendo Standard)
+ * Gerencia Câmera e Tracking com Fallback Seguro.
+ */
 const Vision = {
-    active: false, pose: null, camera: null, video: null,
-    data: { x: 0, y: 0, gesture: null, confidence: 0 },
+    active: false,
+    video: null,
+    pose: null,
+    camera: null,
+    data: { x: 0, y: 0, visible: false },
 
-    setup: function(videoElemId, feedbackElemId) {
+    // Setup inicial sem ligar câmera
+    setup: function(videoElemId) {
         this.video = document.getElementById(videoElemId);
-        if(!this.video) return console.error("Vision: Vídeo input não encontrado");
-
+        
+        // Configuração do MediaPipe
         this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
         this.pose.setOptions({
-            modelComplexity: 1, smoothLandmarks: true,
-            minDetectionConfidence: 0.5, minTrackingConfidence: 0.5
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
         });
-        this.pose.onResults((res) => this.processFrame(res));
 
-        this.camera = new Camera(this.video, {
-            onFrame: async () => { if(this.active) await this.pose.send({image: this.video}); },
-            width: 480, height: 480
-        });
+        this.pose.onResults((res) => this.process(res));
     },
 
+    // Liga a câmera e o feedback visual
     start: async function() {
         if(this.active) return;
+        
         try {
-            await this.camera.start();
-            this.active = true;
+            // Tenta getUserMedia Nativo primeiro (Mais compatível)
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user', width: {ideal: 640}, height: {ideal: 480} },
+                audio: false
+            });
+
+            this.video.srcObject = stream;
+            await this.video.play();
+
+            // Linkar feedback visual
             const feed = document.getElementById('camera-feed');
-            if(feed && this.video.srcObject) {
-                feed.srcObject = this.video.srcObject;
+            if(feed) {
+                feed.srcObject = stream;
                 feed.play();
                 feed.style.opacity = 1;
             }
+
+            // Iniciar Loop de Processamento Manual
+            this.active = true;
+            this.loop();
+            return true;
+
         } catch(e) {
-            alert("Erro de Câmera: " + e.message);
-            throw e;
+            console.error("Vision Error:", e);
+            throw new Error("Permissão de câmera negada");
         }
     },
 
@@ -40,20 +62,32 @@ const Vision = {
         this.active = false;
         const feed = document.getElementById('camera-feed');
         if(feed) feed.style.opacity = 0;
+        // Não paramos o stream completamente para permitir religamento rápido
     },
 
-    processFrame: function(results) {
-        if(!results.poseLandmarks) { this.data.confidence = 0; return; }
+    loop: async function() {
+        if(!this.active) return;
+        if(this.video && this.video.readyState >= 2) {
+            await this.pose.send({image: this.video});
+        }
+        requestAnimationFrame(() => this.loop());
+    },
+
+    process: function(results) {
+        if(!results.poseLandmarks) {
+            this.data.visible = false;
+            return;
+        }
+
         const lm = results.poseLandmarks;
         const nose = lm[0];
-        const lWrist = lm[15];
-        const rWrist = lm[16];
+        const left = lm[11]; // Ombro
+        const right = lm[12]; // Ombro
 
-        this.data.x = (0.5 - nose.x) * 3.0; // Espelho
-        this.data.confidence = nose.visibility;
-
-        const armSpan = Math.abs(lWrist.x - rWrist.x);
-        if (armSpan > 0.65) this.data.gesture = 'T-POSE';
-        else this.data.gesture = null;
+        // Normalização (-1 a 1)
+        // Inverter X para efeito espelho
+        this.data.x = (0.5 - nose.x) * 3.0; 
+        this.data.y = (left.y + right.y) / 2; // Altura média
+        this.data.visible = true;
     }
 };
