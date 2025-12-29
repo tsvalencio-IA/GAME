@@ -1,206 +1,173 @@
 /**
- * thIAguinho Game Engine v6.0 (Distinct Gameplay)
- * Três lógicas de jogo separadas e únicas.
+ * thIAguinho Game Engine v7.0 (Nintendo Polish)
+ * Inclui Sintetizador de Áudio, Física Arcade e Game Loops Distintos.
  */
 
-// --- 1. SISTEMA DE INPUT (Hardware Manager) ---
-const InputSys = {
-    mode: 'TOUCH', 
-    sensitivity: 1.2,
-    axisX: 0,      // -1 (Esq) a 1 (Dir)
-    isAction: false, // Pulso de ação (Tap ou Pulo)
-
+// --- 1. SOUND MANAGER (SINTETIZADOR EMBUTIDO) ---
+// Sem arquivos externos, som garantido.
+const AudioSys = {
+    ctx: null,
     init: function() {
-        // TILT
-        window.addEventListener('deviceorientation', (e) => {
-            if (this.mode === 'TILT') {
-                const gamma = e.gamma || 0; 
-                this.axisX = (gamma / 40) * this.sensitivity; 
-                this.axisX = Math.max(-1, Math.min(1, this.axisX));
-            }
-        });
-
-        // TOUCH
-        const touchZone = document.getElementById('touch-zone');
-        if(touchZone) {
-            touchZone.addEventListener('touchmove', (e) => {
-                if (this.mode !== 'TOUCH') return;
-                e.preventDefault();
-                const screenX = e.touches[0].clientX / window.innerWidth;
-                this.axisX = (screenX - 0.5) * 2.5 * this.sensitivity;
-                this.axisX = Math.max(-1, Math.min(1, this.axisX));
-            }, {passive: false});
-
-            touchZone.addEventListener('touchstart', () => { 
-                if(this.mode === 'TOUCH') this.isAction = true; 
-            });
-            touchZone.addEventListener('touchend', () => { this.isAction = false; });
-        }
-
-        // Vision Setup
-        if(typeof Vision !== 'undefined') {
-            const cvs = document.getElementById('camera-canvas');
-            if(cvs) {
-                cvs.width = window.innerWidth; cvs.height = window.innerHeight;
-                Vision.setup('input-video', 'camera-canvas');
-            }
-        }
+        window.AudioContext = window.AudioContext || window.webkitAudioContext;
+        this.ctx = new AudioContext();
     },
-
-    changeMode: function(newMode) {
-        this.mode = newMode;
-        
-        // Tilt Permissions (iOS)
-        if (newMode === 'TILT' && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            DeviceOrientationEvent.requestPermission().then(r => {
-                if(r !== 'granted') this.changeMode('TOUCH');
-            });
-        }
-
-        // Camera Power Management
-        if (newMode === 'BODY') Vision.start();
-        else Vision.stop();
-
-        // UI Updates
-        const tZone = document.getElementById('touch-zone');
-        if (tZone) {
-            if (newMode === 'TOUCH') tZone.classList.remove('hidden');
-            else tZone.classList.add('hidden');
-        }
-
-        document.querySelectorAll('.ctrl-btn').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.getElementById(`btn-mode-${newMode.toLowerCase()}`);
-        if(activeBtn) activeBtn.classList.add('active');
-
-        // Feedback
-        if(typeof UI !== 'undefined' && UI.showToast) UI.showToast(`MODO: ${newMode}`);
+    playTone: function(freq, type, duration, vol=0.1) {
+        if(!this.ctx) this.init();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
     },
-
-    update: function() {
-        // Body Tracking Update
-        if (this.mode === 'BODY' && Vision.active && Vision.results.visible) {
-            const rawX = (Vision.results.x - 0.5) * 2.5; // Amplifica movimento
-            this.axisX = rawX * this.sensitivity;
-            
-            // Detectar "Corrida no Lugar" (Sobe e desce dos ombros)
-            if (Vision.results.activity > 1.5) {
-                this.isAction = true;
-            } else {
-                this.isAction = false;
-            }
-        }
-    },
-
-    setSensitivity: function(val) {
-        this.sensitivity = parseFloat(val);
-        const el = document.getElementById('sens-display');
-        if(el) el.innerText = this.sensitivity.toFixed(1);
+    sfx: {
+        coin: () => { AudioSys.playTone(1200, 'sine', 0.1); setTimeout(()=>AudioSys.playTone(1800, 'sine', 0.2), 50); },
+        crash: () => AudioSys.playTone(100, 'sawtooth', 0.5, 0.3),
+        start: () => AudioSys.playTone(600, 'square', 0.5),
+        tap: () => AudioSys.playTone(400, 'triangle', 0.05)
     }
 };
 
-// --- 2. GAME ENGINE ---
-const Game = {
-    config: { mode: 'race' },
-    scene: null, camera: null, renderer: null,
-    mascot: null, floor: null,
-    entities: [], // Obstáculos ou Coletáveis
+// --- 2. INPUT MANAGER (TOUCH / TILT / BODY) ---
+const Input = {
+    mode: 'TOUCH', 
+    x: 0, // -1 a 1
+    action: false, // Jump/Tap
     
-    // Estado
-    isPlaying: false,
-    score: 0,
-    speed: 0,
-    combo: 0, // Para o modo Dance
-
     init: function() {
-        const params = new URLSearchParams(window.location.search);
-        this.config.mode = params.get('mode') || 'race';
+        // Touch
+        const zone = document.getElementById('touch-controls');
+        zone.addEventListener('touchmove', (e) => {
+            if(this.mode !== 'TOUCH') return;
+            e.preventDefault();
+            const tx = e.touches[0].clientX / window.innerWidth;
+            this.x = (tx - 0.5) * 2.5; // Sensibilidade
+        }, {passive:false});
         
-        const badge = document.getElementById('mode-badge');
-        if(badge) badge.innerText = this.config.mode.toUpperCase();
+        zone.addEventListener('touchstart', () => { if(this.mode==='TOUCH') { this.action = true; AudioSys.sfx.tap(); } });
+        zone.addEventListener('touchend', () => { this.action = false; });
 
-        // Ajustes de UI por modo
-        this.setupGameModeUI();
-
-        InputSys.init();
-        
-        // Padrão de input por modo
-        if(this.config.mode === 'dance') InputSys.changeMode('BODY');
-        else if(this.config.mode === 'run') InputSys.changeMode('TOUCH');
-        else InputSys.changeMode('TOUCH'); // Race
-
-        this.init3D();
-    },
-
-    setupGameModeUI: function() {
-        const hint = document.querySelector('.touch-visual-hint');
-        if(!hint) return;
-
-        if(this.config.mode === 'run') {
-            hint.innerHTML = "<i class='bx bx-run'></i><br>TOQUE RÁPIDO PARA CORRER!";
-        } else if (this.config.mode === 'race') {
-            hint.innerHTML = "<i class='bx bxs-car-crash'></i><br>DESLIZE PARA DESVIAR";
-        } else {
-            hint.innerHTML = "<i class='bx bxs-music'></i><br>MOVA-SE PARA PEGAR ORBES";
-        }
-    },
-
-    init3D: function() {
-        const loadText = document.getElementById('loading-text');
-        if(loadText) loadText.innerText = "Carregando Engine...";
-
-        this.scene = new THREE.Scene();
-        // Fog diferente para cada modo
-        if(this.config.mode === 'race') this.scene.fog = new THREE.Fog(0x000000, 10, 50); // Escuro/Tenso
-        if(this.config.mode === 'dance') this.scene.fog = new THREE.FogExp2(0x100020, 0.03); // Neon/Disco
-        if(this.config.mode === 'run') this.scene.fog = new THREE.Fog(0x87CEEB, 20, 80); // Dia/Claro
-
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
-        this.camera.position.set(0, 2.5, 6);
-        this.camera.lookAt(0, 0, -4);
-
-        const canvas = document.getElementById('game-canvas');
-        this.renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.shadowMap.enabled = true;
-
-        // Luzes
-        const amb = new THREE.AmbientLight(0xffffff, 0.6);
-        const dir = new THREE.DirectionalLight(0xffffff, 1.2);
-        dir.position.set(5, 10, 7);
-        dir.castShadow = true;
-        this.scene.add(amb, dir);
-
-        this.createEnvironment();
-        this.loadMascot();
-
-        const screen = document.getElementById('loading-screen');
-        if(screen) screen.classList.add('hidden');
-        this.isPlaying = true;
-        this.animate();
-    },
-
-    createEnvironment: function() {
-        const texLoader = new THREE.TextureLoader();
-        // Texturas diferentes? Por enquanto usamos a mesma estrada
-        texLoader.load('assets/estrada.jpg', (tex) => {
-            tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 20);
-            const mat = new THREE.MeshPhongMaterial({ map: tex });
-            this.floor = new THREE.Mesh(new THREE.PlaneGeometry(8, 200), mat);
-            this.floor.rotation.x = -Math.PI / 2;
-            this.floor.position.z = -80;
-            this.floor.receiveShadow = true;
-            this.scene.add(this.floor);
-        }, undefined, () => {
-            // Fallback cinza
-            const mat = new THREE.MeshPhongMaterial({ color: 0x333333 });
-            this.floor = new THREE.Mesh(new THREE.PlaneGeometry(8, 200), mat);
-            this.floor.rotation.x = -Math.PI / 2;
-            this.floor.position.z = -80;
-            this.scene.add(this.floor);
+        // Tilt
+        window.addEventListener('deviceorientation', (e) => {
+            if(this.mode !== 'TILT') return;
+            this.x = (e.gamma || 0) / 30; // 30 graus = max
         });
     },
 
-    loadMascot: function() {
+    setMode: function(m) {
+        this.mode = m;
+        // UX Updates
+        const zone = document.getElementById('touch-controls');
+        const cam = document.getElementById('camera-feed');
+        
+        if(m === 'TOUCH') {
+            zone.classList.remove('hidden');
+            cam.style.opacity = 0;
+            Vision.stop();
+        } else if (m === 'BODY') {
+            zone.classList.add('hidden');
+            // Mostra tela de calibração antes de começar
+            Engine.setScreen('screen-calibration');
+            Vision.start().then(() => {
+                // Loop de calibração
+                const checkCalib = setInterval(() => {
+                    document.getElementById('calib-status').innerText = `Pose Atual: ${Vision.data.gesture || '...'}`;
+                    if(Vision.data.gesture === 'T-POSE') {
+                        clearInterval(checkCalib);
+                        Engine.setScreen(null); // Fecha modal
+                        AudioSys.sfx.start();
+                        Engine.toast("CALIBRADO!");
+                    }
+                }, 500);
+            }).catch(() => {
+                alert("Câmera não disponível. Usando Touch.");
+                this.setMode('TOUCH');
+            });
+        } else { // TILT
+            zone.classList.add('hidden');
+            cam.style.opacity = 0;
+            Vision.stop();
+            // Permissão iOS
+            if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission();
+            }
+        }
+    },
+
+    update: function() {
+        if(this.mode === 'BODY') {
+            this.x = Vision.data.x;
+            // Detecta pulo (Ação)
+            // (Logica simplificada para demo)
+        }
+        // Clamping
+        this.x = Math.max(-1.5, Math.min(1.5, this.x));
+    }
+};
+
+// --- 3. ENGINE PRINCIPAL ---
+const Engine = {
+    mode: 'kart',
+    scene: null, camera: null, renderer: null,
+    mascot: null, floor: null,
+    objects: [],
+    
+    state: { playing: false, paused: false, speed: 0, score: 0, distance: 0 },
+
+    init: function() {
+        const p = new URLSearchParams(window.location.search);
+        this.mode = p.get('mode') || 'kart';
+        
+        Input.init();
+        
+        // Configura Input Padrão por Modo
+        if(this.mode === 'run' || this.mode === 'zen') Input.setMode('BODY'); 
+        else Input.setMode('TOUCH'); // Kart padrão
+
+        this.initGraphics();
+        this.startGame();
+    },
+
+    initGraphics: function() {
+        const cvs = document.getElementById('game-canvas');
+        this.renderer = new THREE.WebGLRenderer({ canvas:cvs, alpha:true, antialias:true });
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.shadowMap.enabled = true;
+
+        this.scene = new THREE.Scene();
+        // Fog Nintendo (Azul Céu)
+        this.scene.fog = new THREE.Fog(0xdcdcdc, 10, 60);
+
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+        this.camera.position.set(0, 3, 6);
+        this.camera.lookAt(0, 0, -5);
+
+        // Luzes "Wii Bright"
+        const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.8);
+        const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+        dir.position.set(5, 10, 5);
+        dir.castShadow = true;
+        this.scene.add(hemi, dir);
+
+        // Chão Infinito
+        const tex = new THREE.TextureLoader().load('assets/estrada.jpg');
+        tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 20);
+        const mat = new THREE.MeshPhongMaterial({ map: tex });
+        this.floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 200), mat);
+        this.floor.rotation.x = -Math.PI/2; 
+        this.floor.position.z = -80;
+        this.floor.receiveShadow = true;
+        this.scene.add(this.floor);
+
+        // Carrega Mascote
+        this.loadAssets();
+    },
+
+    loadAssets: function() {
         const loader = new THREE.GLTFLoader();
         const draco = new THREE.DRACOLoader();
         draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.5/');
@@ -208,194 +175,177 @@ const Game = {
 
         loader.load('assets/mascote.glb', (gltf) => {
             this.mascot = gltf.scene;
-            this.normalizeMascot();
-            this.scene.add(this.mascot);
+            this.prepareMascot();
+            document.getElementById('screen-loading').classList.add('hidden');
         }, undefined, () => {
-            // Fallback Cube
-            this.mascot = new THREE.Mesh(new THREE.BoxGeometry(1,2,1), new THREE.MeshNormalMaterial());
-            this.normalizeMascot();
-            this.scene.add(this.mascot);
+            // Fallback Cube (Nintendo Block Style)
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
+            this.mascot = new THREE.Mesh(geo, mat);
+            this.prepareMascot();
+            document.getElementById('screen-loading').classList.add('hidden');
         });
     },
 
-    normalizeMascot: function() {
-        const box = new THREE.Box3().setFromObject(this.mascot);
-        const scale = 1.8 / box.getSize(new THREE.Vector3()).y;
-        this.mascot.scale.setScalar(scale);
+    prepareMascot: function() {
         this.mascot.position.set(0, 0, -2);
         this.mascot.rotation.y = Math.PI;
+        this.mascot.traverse(o => { if(o.isMesh) o.castShadow = true; });
+        this.scene.add(this.mascot);
+        this.animate();
     },
 
-    // --- LOOP LÓGICO PRINCIPAL ---
-    update: function() {
-        if (!this.isPlaying) return;
-        InputSys.update();
+    startGame: function() {
+        this.state.playing = true;
+        this.state.score = 0;
+        this.state.speed = 0;
+        AudioSys.sfx.start();
+        this.toast("GO!");
+    },
 
-        // Roteamento de Lógica por Modo
-        if (this.config.mode === 'race') this.updateRaceMode();
-        else if (this.config.mode === 'run') this.updateRunMode();
-        else if (this.config.mode === 'dance') this.updateDanceMode();
+    // --- GAME LOOP ---
+    animate: function() {
+        requestAnimationFrame(() => this.animate());
+        if(!this.state.playing || this.state.paused) return;
 
-        // Física Global (Chão)
-        if (this.floor && this.floor.material.map) {
-            this.floor.material.map.offset.y -= this.speed * 0.05;
-        }
+        Input.update();
+        
+        // Roteador de Lógica
+        if(this.mode === 'kart') this.updateKart();
+        else if(this.mode === 'run') this.updateRun();
+        else this.updateZen();
 
-        // Movimento Global do Mascote (Lateral)
-        if (this.mascot) {
-            // No modo Run, o mascote fica mais centralizado
-            let targetX = InputSys.axisX * 3.0;
-            if(this.config.mode === 'run') targetX = 0; // Run é reto
-
-            this.mascot.position.x += (targetX - this.mascot.position.x) * 0.15;
-            this.mascot.rotation.z = -this.mascot.position.x * 0.1;
+        // Física Global
+        if(this.mascot) {
+            // Lerp Suave (Nintendo Feel)
+            this.mascot.position.x += (Input.x * 3 - this.mascot.position.x) * 0.1;
+            // Tilt do corpo na curva
+            this.mascot.rotation.z = -this.mascot.position.x * 0.2;
             this.mascot.rotation.y = Math.PI;
         }
+
+        if(this.floor) this.floor.material.map.offset.y -= this.state.speed * 0.05;
+
+        // Render
+        this.renderer.render(this.scene, this.camera);
     },
 
-    // --- LÓGICA 1: RACE (Sobrevivência) ---
-    updateRaceMode: function() {
-        // Aceleração automática constante
-        if (this.speed < 1.0) this.speed += 0.0005;
-        
-        // Pontuação por distância
-        this.score += Math.round(this.speed * 2);
-        
-        // Spawn Inimigos (Cones Vermelhos)
-        if (Math.random() < 0.02) this.spawnEntity('obstacle');
-        
-        this.manageEntities(true); // true = Game Over se bater
-        this.updateUI();
+    // --- LÓGICA 1: KART (Arcade) ---
+    updateKart: function() {
+        // Aceleração Auto
+        if(this.state.speed < 1.2) this.state.speed += 0.001;
+        this.state.score += Math.round(this.state.speed);
+
+        // Spawns
+        if(Math.random() < 0.02) this.spawnObj('obstacle');
+        if(Math.random() < 0.01) this.spawnObj('coin');
+
+        this.manageObjects(true); // Deadly
+        this.updateHUD();
     },
 
-    // --- LÓGICA 2: RUN (Resistência Física) ---
-    updateRunMode: function() {
-        // Decaimento Rápido (Atrito)
-        this.speed *= 0.96; 
-        
-        // Input de Ação (Tap ou Pulo) aumenta velocidade
-        if (InputSys.isAction) {
-            this.speed += 0.08;
-            // Visual de pulo
-            if(this.mascot && this.mascot.position.y < 0.5) this.mascot.position.y += 0.1;
+    // --- LÓGICA 2: MARATHON (Stamina) ---
+    updateRun: function() {
+        // Precisa de Ação (Tap ou Movimento) para manter velocidade
+        if(Input.action || (Input.mode==='BODY' && Vision.data.y < 0.4)) { // Lógica simples de "pulo/corrida"
+             this.state.speed += 0.05;
         } else {
-            // Gravidade
-            if(this.mascot && this.mascot.position.y > 0) this.mascot.position.y -= 0.1;
+             this.state.speed *= 0.95; // Atrito forte
         }
-
-        // Limite
-        this.speed = Math.min(this.speed, 1.5);
-        if(this.speed < 0.01) this.speed = 0;
-
-        // Pontuação baseada na velocidade mantida
-        if(this.speed > 0.1) this.score += Math.round(this.speed * 5);
+        this.state.speed = Math.min(this.state.speed, 1.5);
+        this.state.score += Math.round(this.state.speed * 5);
         
-        // Sem obstáculos, apenas corrida contra a exaustão
-        this.updateUI();
+        this.updateHUD();
     },
 
-    // --- LÓGICA 3: DANCE (Coleta Rítmica) ---
-    updateDanceMode: function() {
-        this.speed = 0.6; // Velocidade constante e confortável
-        
-        // Spawn Itens Bons (Orbes Azuis)
-        if (Math.random() < 0.025) this.spawnEntity('collectible');
-        
-        this.manageEntities(false); // false = Não morre, apenas coleta
-        this.updateUI();
+    // --- LÓGICA 3: ZEN (Poses) ---
+    updateZen: function() {
+        this.state.speed = 0.6; // Lento e constante
+        if(Math.random() < 0.03) this.spawnObj('coin'); // Apenas coisas boas
+        this.manageObjects(false);
+        this.updateHUD();
     },
 
-    updateUI: function() {
-        const sEl = document.getElementById('score-val');
-        if(sEl) sEl.innerText = this.score;
-    },
-
-    // --- GERENCIADOR DE OBJETOS ---
-    spawnEntity: function(type) {
-        let obj;
-        if (type === 'obstacle') {
-            const geo = new THREE.ConeGeometry(0.5, 1.5, 16);
-            const mat = new THREE.MeshPhongMaterial({ color: 0xff0000 }); // Vermelho
-            obj = new THREE.Mesh(geo, mat);
-            obj.userData = { type: 'bad' };
-            // Posições fixas: Esquerda, Meio, Direita
-            const lanes = [-2.5, 0, 2.5];
-            obj.position.set(lanes[Math.floor(Math.random()*3)], 0.75, -70);
-        
-        } else if (type === 'collectible') {
-            const geo = new THREE.SphereGeometry(0.4);
-            const mat = new THREE.MeshPhongMaterial({ color: 0x00ffff, emissive: 0x00ffff }); // Azul Neon
-            obj = new THREE.Mesh(geo, mat);
-            obj.userData = { type: 'good' };
-            // Posição aleatória suave
-            obj.position.set((Math.random()*6)-3, 1.5, -70);
+    // --- OBJECT POOL ---
+    spawnObj: function(type) {
+        let mesh;
+        if(type === 'obstacle') {
+            mesh = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1, 16), new THREE.MeshPhongMaterial({color:0xff3333}));
+            mesh.userData = {type:'bad'};
+        } else {
+            mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.1, 16), new THREE.MeshPhongMaterial({color:0xffd700}));
+            mesh.rotation.x = Math.PI/2; // Moeda em pé
+            mesh.userData = {type:'good'};
         }
-
-        this.scene.add(obj);
-        this.entities.push(obj);
+        
+        // Pistas: -2, 0, 2
+        const lane = [-2.5, 0, 2.5][Math.floor(Math.random()*3)];
+        mesh.position.set(lane, 0.5, -60);
+        this.scene.add(mesh);
+        this.objects.push(mesh);
     },
 
-    manageEntities: function(isDeadly) {
-        for (let i = this.entities.length - 1; i >= 0; i--) {
-            let e = this.entities[i];
-            e.position.z += this.speed * 1.5; // Aproximação
+    manageObjects: function(deadly) {
+        for(let i=this.objects.length-1; i>=0; i--) {
+            let o = this.objects[i];
+            o.position.z += this.state.speed * 1.5;
+            
+            // Giro da moeda
+            if(o.userData.type === 'good') o.rotation.z += 0.1;
 
-            // Check Colisão
-            if (this.mascot) {
-                const dx = Math.abs(e.position.x - this.mascot.position.x);
-                const dz = Math.abs(e.position.z - this.mascot.position.z);
-                
-                // Zona de colisão
-                if (dz < 1.0 && dx < 0.9) {
-                    if (e.userData.type === 'bad' && isDeadly) {
-                        this.gameOver(); // Bateu no cone
-                    } else if (e.userData.type === 'good') {
-                        this.score += 500; // Pegou orbe
-                        this.removeEntity(e, i);
-                        this.flashScreen('#00ffff');
+            // Colisão
+            if(this.mascot && Math.abs(o.position.z - this.mascot.position.z) < 1.0) {
+                if(Math.abs(o.position.x - this.mascot.position.x) < 0.8) {
+                    if(o.userData.type === 'bad' && deadly) {
+                        AudioSys.sfx.crash();
+                        this.gameOver();
+                    } else if (o.userData.type === 'good') {
+                        AudioSys.sfx.coin();
+                        this.state.score += 500;
+                        this.removeObj(o, i);
+                        this.toast("+500");
                     }
                 }
             }
-
-            // Remove se passou
-            if (e.position.z > 5) this.removeEntity(e, i);
+            if(o.position.z > 5) this.removeObj(o, i);
         }
     },
 
-    removeEntity: function(e, index) {
-        this.scene.remove(e);
-        this.entities.splice(index, 1);
+    removeObj: function(o, i) {
+        this.scene.remove(o);
+        this.objects.splice(i, 1);
     },
 
-    flashScreen: function(color) {
-        // Efeito visual rápido (opcional)
+    // --- UI & STATE ---
+    updateHUD: function() {
+        document.getElementById('score-display').innerText = this.state.score;
     },
-
+    toast: function(msg) {
+        const t = document.getElementById('toast');
+        t.innerText = msg; t.classList.remove('hidden');
+        setTimeout(()=>t.classList.add('hidden'), 1000);
+    },
+    togglePause: function() {
+        this.state.paused = !this.state.paused;
+        const s = document.getElementById('screen-pause');
+        if(this.state.paused) s.classList.remove('hidden');
+        else s.classList.add('hidden');
+    },
+    setScreen: function(id) {
+        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.add('hidden'));
+        if(id) document.getElementById(id).classList.remove('hidden');
+    },
     gameOver: function() {
-        this.isPlaying = false;
-        const go = document.getElementById('game-over-screen');
-        if(go) {
-            go.classList.remove('hidden');
-            document.getElementById('final-score').innerText = this.score;
-        }
+        this.state.playing = false;
+        document.getElementById('final-score').innerText = this.state.score;
+        this.setScreen('screen-gameover');
     },
-
     restart: function() {
-        this.entities.forEach(e => this.scene.remove(e));
-        this.entities = [];
-        this.score = 0;
-        this.speed = 0;
-        document.getElementById('game-over-screen').classList.add('hidden');
-        this.isPlaying = true;
-    },
-
-    animate: function() {
-        requestAnimationFrame(() => this.animate());
-        this.update();
-        if(this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera);
-        }
+        this.objects.forEach(o => this.scene.remove(o));
+        this.objects = [];
+        this.setScreen(null);
+        this.startGame();
     }
 };
 
-window.onload = () => Game.init();
+window.onload = () => Engine.init();
