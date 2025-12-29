@@ -134,3 +134,8 @@ body {
     border-radius: 50%; animation: spin 1s infinite linear; margin: 0 auto 20px;
 }
 @keyframes spin { 100% { transform: rotate(360deg); } }
+
+/* Combo Display — estilo definido via JS, mas mantemos placeholder limpo */
+#combo-display {
+    /* Estilo aplicado dinamicamente em game.js */
+}
