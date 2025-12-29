@@ -3,52 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Console | System Menu</title>
+    <title>thIAguinho Console</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="wii-menu">
-        <div class="profile-header">
-            <div class="avatar-container">
-                <img src="assets/mascote_perfil.jpg" onerror="this.style.display='none'; this.parentElement.style.backgroundColor='#00bebd'" alt="User">
-                <i class='bx bxs-user' style="font-size:40px; color:white; position:absolute; top:20px; left:20px; z-index:-1;"></i>
+        <div class="header-box">
+            <div class="avatar">
+                <img src="assets/mascote_perfil.jpg" onerror="this.style.display='none'">
             </div>
-            <h1 class="console-title">thIAguinho <span class="highlight">Wii</span></h1>
-            <p class="console-subtitle">Ready to Start</p>
+            <h1>thIAguinho <span style="color:var(--neon)">Wii</span></h1>
         </div>
 
-        <a href="game.html?mode=kart" class="channel-card hover-sfx">
-            <div class="card-icon"><i class='bx bxs-car-crash'></i></div>
-            <div class="card-body">
+        <a href="game.html?mode=kart" class="card">
+            <i class='bx bxs-car-crash icon'></i>
+            <div class="info">
                 <h2>Turbo Kart</h2>
                 <p>Corrida Arcade</p>
-                <div class="tags">
-                    <span><i class='bx bx-mobile-vibration'></i> TILT</span>
-                    <span><i class='bx bxs-hand-up'></i> TOUCH</span>
-                </div>
+                <div class="tags"><span>TILT</span><span>TOUCH</span></div>
             </div>
         </a>
 
-        <a href="game.html?mode=run" class="channel-card hover-sfx">
-            <div class="card-icon"><i class='bx bx-run'></i></div>
-            <div class="card-body">
+        <a href="game.html?mode=run" class="card">
+            <i class='bx bx-run icon'></i>
+            <div class="info">
                 <h2>Marathon</h2>
                 <p>Resistência Física</p>
-                <div class="tags">
-                    <span><i class='bx bx-body'></i> CAMERA</span>
-                </div>
+                <div class="tags"><span>BODY CAM</span></div>
             </div>
         </a>
 
-        <a href="game.html?mode=zen" class="channel-card hover-sfx">
-            <div class="card-icon"><i class='bx bx-spa'></i></div>
-            <div class="card-body">
+        <a href="game.html?mode=zen" class="card">
+            <i class='bx bx-body icon'></i>
+            <div class="info">
                 <h2>Zen Yoga</h2>
                 <p>Foco e Poses</p>
-                <div class="tags">
-                    <span><i class='bx bx-camera'></i> AR</span>
-                </div>
+                <div class="tags"><span>AR</span></div>
             </div>
         </a>
     </div>
