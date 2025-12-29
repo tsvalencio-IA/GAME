@@ -1,5 +1,5 @@
 /**
- * thIAguinho Game Engine v9.3 — Corrigido e Funcional
+ * thIAguinho Game Engine v9.0 (Production Ready)
  */
 
 // --- SOUND MANAGER ---
@@ -35,117 +35,6 @@ const AudioSys = {
     }
 };
 
-// --- COMBO SYSTEM ---
-const Combo = {
-    count: 0,
-    timer: null,
-    element: null,
-
-    init: function() {
-        this.element = document.createElement('div');
-        this.element.id = 'combo-display';
-        this.element.style.position = 'absolute';
-        this.element.style.top = '50%';
-        this.element.style.left = '50%';
-        this.element.style.transform = 'translate(-50%, -50%)';
-        this.element.style.fontSize = '32px';
-        this.element.style.fontWeight = 'bold';
-        this.element.style.color = 'gold';
-        this.element.style.textShadow = '0 0 10px rgba(255,215,0,0.8)';
-        this.element.style.pointerEvents = 'none';
-        this.element.style.zIndex = '20';
-        this.element.style.opacity = '0';
-        this.element.style.transition = 'opacity 0.2s, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-        document.getElementById('hud-layer').appendChild(this.element);
-    },
-
-    add: function() {
-        this.count++;
-        this.show();
-
-        if (this.timer) clearTimeout(this.timer);
-        this.timer = setTimeout(() => {
-            this.reset();
-        }, 1200);
-
-        // Feedback sonoro progressivo
-        AudioSys.sfx.combo = AudioSys.sfx.combo || function(level) {
-            AudioSys.playTone(800 + level * 100, 'sine', 0.15);
-        };
-        AudioSys.sfx.combo(Math.min(this.count, 5));
-    },
-
-    show: function() {
-        const texts = ["", "BOM!", "MELHOR!", "INCRÍVEL!", "LENDÁRIO!", "DEUS DO JOGO!"];
-        const msg = this.count > 1 ? `${texts[Math.min(this.count, 5)]} x${this.count}` : "";
-        
-        this.element.innerText = msg;
-        this.element.style.opacity = msg ? "1" : "0";
-        this.element.style.transform = msg ? "translate(-50%, -50%) scale(1.2)" : "translate(-50%, -50%) scale(1)";
-        setTimeout(() => {
-            if (this.element.innerText === msg) {
-                this.element.style.transform = "translate(-50%, -50%) scale(1)";
-            }
-        }, 200);
-    },
-
-    reset: function() {
-        this.count = 0;
-        this.element.style.opacity = "0";
-    },
-
-    isActive: function() {
-        return this.count > 0;
-    }
-};
-
-// --- PARTICLE SYSTEM ---
-const ParticleSys = {
-    scene: null,
-    particles: [],
-
-    init: function(scene) {
-        this.scene = scene;
-    },
-
-    create: function(pos, color, count = 8) {
-        for (let i = 0; i < count; i++) {
-            const geo = new THREE.SphereGeometry(0.05, 6, 6);
-            const mat = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.9 });
-            const p = new THREE.Mesh(geo, mat);
-            p.position.copy(pos);
-            p.userData = {
-                vel: new THREE.Vector3(
-                    (Math.random() - 0.5) * 2,
-                    Math.random() * 1.5,
-                    (Math.random() - 0.5) * 1
-                ),
-                life: 1.0,
-                decay: 0.016 * (0.8 + Math.random() * 0.4)
-            };
-            this.scene.add(p);
-            this.particles.push(p);
-        }
-    },
-
-    update: function(delta = 0.016) {
-        for (let i = this.particles.length - 1; i >= 0; i--) {
-            const p = this.particles[i];
-            p.userData.life -= p.userData.decay;
-            if (p.userData.life <= 0) {
-                this.scene.remove(p);
-                this.particles.splice(i, 1);
-                continue;
-            }
-
-            p.position.add(p.userData.vel.clone().multiplyScalar(delta * 60));
-            p.userData.vel.y -= delta * 30;
-            p.material.opacity = p.userData.life;
-            p.scale.setScalar(1 + p.userData.life * 2);
-        }
-    }
-};
-
 // --- INPUT MANAGER ---
 const Input = {
     mode: 'TOUCH', x: 0, action: false,
@@ -170,6 +59,7 @@ const Input = {
             if(this.mode === 'TILT') this.x = (e.gamma || 0) / 30;
         });
 
+        // Setup Vision apenas se existir
         if(typeof Vision !== 'undefined') Vision.setup('input-video', 'camera-feed');
     },
 
@@ -230,7 +120,6 @@ const Engine = {
         const p = new URLSearchParams(window.location.search);
         this.mode = p.get('mode') || 'kart';
         
-        Combo.init();
         Input.init();
         if(this.mode === 'run' || this.mode === 'zen') Input.setMode('BODY'); 
         else Input.setMode('TOUCH'); 
@@ -257,7 +146,6 @@ const Engine = {
         dir.castShadow = true;
         this.scene.add(hemi, dir);
 
-        ParticleSys.init(this.scene);
         this.createEnvironment();
         this.loadAssets();
     },
@@ -339,7 +227,6 @@ const Engine = {
             this.floor.material.map.offset.y -= this.state.speed * 0.05;
         }
 
-        ParticleSys.update(1/60);
         this.renderer.render(this.scene, this.camera);
     },
 
@@ -379,7 +266,6 @@ const Engine = {
         }
         const lane = [-2.5, 0, 2.5][Math.floor(Math.random()*3)];
         mesh.position.set(lane, 0.5, -60);
-        mesh.userData.bbox = new THREE.Box3().setFromObject(mesh);
         this.scene.add(mesh);
         this.objects.push(mesh);
     },
@@ -390,25 +276,14 @@ const Engine = {
             o.position.z += this.state.speed * 1.5;
             if(o.userData.type === 'good') o.rotation.z += 0.1;
 
-            // COLISÃO PRECISA COM BOX3
-            if (this.mascot && o.userData.bbox) {
-                // Atualiza bbox do objeto (opcional, mas recomendado para movimento)
-                const objBox = o.userData.bbox.clone();
-                objBox.translate(o.position);
-
-                // Cria bbox do mascote
-                const mascotBox = new THREE.Box3().setFromObject(this.mascot);
-
-                if (mascotBox.intersectsBox(objBox)) {
+            if(this.mascot && Math.abs(o.position.z - this.mascot.position.z) < 1.0) {
+                if(Math.abs(o.position.x - this.mascot.position.x) < 0.8) {
                     if(o.userData.type === 'bad' && deadly) {
                         AudioSys.sfx.crash();
-                        ParticleSys.create(o.position.clone(), 0xff3333, 12);
                         this.gameOver();
                     } else if (o.userData.type === 'good') {
                         AudioSys.sfx.coin();
                         this.state.score += 500;
-                        Combo.add(); // Ativa combo
-                        ParticleSys.create(o.position.clone(), 0xffff00, 16);
                         this.removeObj(o, i);
                         this.toast("+500");
                     }
