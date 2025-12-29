@@ -1,8 +1,3 @@
-/**
- * thIAguinho Vision System v9.0 (GitHub Pages Safe)
- * Correção: Conversão automática de ID para Elemento DOM e Logs de Erro.
- */
-
 const Vision = {
     active: false,
     pose: null,
@@ -11,9 +6,7 @@ const Vision = {
     
     data: { x: 0, y: 0, gesture: null, confidence: 0 },
 
-    // CORREÇÃO: Aceita string (ID) ou Elemento direto
     setup: function(videoElem, feedbackElem) {
-        // Se veio string, converte para objeto HTML
         if (typeof videoElem === 'string') {
             this.video = document.getElementById(videoElem);
         } else {
@@ -40,7 +33,6 @@ const Vision = {
             this.processFrame(res);
         });
 
-        // Configuração segura da Câmera
         this.camera = new Camera(this.video, {
             onFrame: async () => { 
                 if(this.active) {
@@ -65,7 +57,6 @@ const Vision = {
             await this.camera.start();
             this.active = true;
             
-            // Conecta feedback visual
             const feed = document.getElementById('camera-feed');
             if(feed && this.video.srcObject) {
                 feed.srcObject = this.video.srcObject;
@@ -84,7 +75,6 @@ const Vision = {
         this.active = false;
         const feed = document.getElementById('camera-feed');
         if(feed) feed.style.opacity = 0;
-        // Não paramos totalmente a track para evitar delay ao religar
     },
 
     processFrame: function(results) {
@@ -98,11 +88,9 @@ const Vision = {
         const lWrist = lm[15];
         const rWrist = lm[16];
 
-        // Lógica Espelho: (0.5 - x) inverte o eixo
         this.data.x = (0.5 - nose.x) * 3.0; 
         this.data.confidence = nose.visibility;
 
-        // Gesto T-POSE
         const armSpan = Math.abs(lWrist.x - rWrist.x);
         if (armSpan > 0.65) {
             this.data.gesture = 'T-POSE';
