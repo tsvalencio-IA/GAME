@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Game Engine</title>
+    <title>thIAguinho Engine Pro</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
     
@@ -12,11 +12,24 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/DRACOLoader.js"></script>
+
+    <style>
+        /* Console de Debug para Celular */
+        #debug-console {
+            position: fixed; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.8);
+            color: lime; font-family: monospace; font-size: 10px; padding: 5px;
+            z-index: 9999; display: none; pointer-events: none; max-height: 100px; overflow: hidden;
+        }
+    </style>
 </head>
 <body>
+    <div id="debug-console">Init...</div>
+
     <div id="game-wrapper">
-        <video id="input-video" class="hidden" playsinline muted autoplay></video>
-        <video id="camera-feed"></video> <canvas id="game-canvas"></canvas>
+        <video id="input-video" playsinline muted autoplay style="position:absolute; width:1px; height:1px; opacity:0.01; z-index:-1;"></video>
+        
+        <video id="camera-feed"></video>
+        <canvas id="game-canvas"></canvas>
 
         <div id="hud-layer">
             <div class="hud-header">
@@ -37,15 +50,14 @@
         <div id="screen-loading" class="modal-overlay">
             <div class="modal-box">
                 <div class="spinner"></div>
-                <h2 class="modal-title">LIGANDO ENGINE</h2>
-                <p id="loading-txt" style="color:#888;">Calibrando Sensores...</p>
+                <h2 class="modal-title">CARREGANDO</h2>
+                <p id="loading-txt" style="color:#888;">Inicializando Engine...</p>
             </div>
         </div>
 
         <div id="screen-pause" class="modal-overlay hidden">
             <div class="modal-box">
                 <h2 class="modal-title">PAUSA</h2>
-                <p>Escolha seu controle:</p>
                 <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin:20px 0;">
                     <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i></button>
                     <button class="hud-btn" style="width:100%; border-radius:15px;" onclick="Input.setMode('TILT')"><i class='bx bx-mobile-vibration'></i></button>
@@ -60,9 +72,9 @@
             <div class="modal-box">
                 <i class='bx bx-body' style="font-size:50px; color:var(--wii-blue)"></i>
                 <h2 class="modal-title">CALIBRAÇÃO</h2>
-                <p>Fique visível na câmera e faça uma pose em "T".</p>
-                <div id="calib-status" style="margin:20px; font-weight:bold; color:#ccc;">PROCURANDO...</div>
-                <button class="btn-secondary" onclick="Input.setMode('TOUCH'); Engine.setScreen(null);">CANCELAR (USAR TOQUE)</button>
+                <p>Afaste-se e faça uma pose em "T".</p>
+                <div id="calib-status" style="margin:20px; font-weight:bold; color:#ccc;">AGUARDANDO CÂMERA...</div>
+                <button class="btn-secondary" onclick="Input.setMode('TOUCH'); Engine.setScreen(null);">CANCELAR</button>
             </div>
         </div>
 
@@ -75,6 +87,19 @@
             </div>
         </div>
     </div>
+
+    <script>
+        window.onerror = function(msg, url, line) {
+            const d = document.getElementById('debug-console');
+            d.style.display = 'block';
+            d.innerHTML = `ERRO: ${msg} <br> ${url}:${line}`;
+            return false;
+        };
+        function log(msg) {
+            console.log(msg);
+            // document.getElementById('debug-console').innerText = msg; // Descomente para ver logs na tela
+        }
+    </script>
 
     <script src="js/vision.js"></script>
     <script src="js/game.js"></script>
