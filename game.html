@@ -3,75 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Game Engine</title>
+    <title>thIAguinho Engine</title>
     <link rel="stylesheet" href="./css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/DRACOLoader.js"></script>
 </head>
-<body>
-    <video id="input-video" playsinline muted autoplay style="position:absolute; top:0; left:0; width:1px; height:1px; opacity:0.001; z-index:-10;"></video>
+<body style="background: #000; overflow: hidden; margin: 0;">
 
-    <div id="game-wrapper">
-        <video id="camera-feed"></video>
-        <canvas id="game-canvas"></canvas>
-
-        <div id="hud-layer">
-            <div class="top-bar">
-                <button class="btn-circle" onclick="Game.togglePause()"><i class='bx bx-pause'></i></button>
-                <div class="score-board">
-                    <small>SCORE</small>
-                    <span id="score-val">0</span>
-                </div>
-            </div>
-            
-            <div id="touch-zone" class="hidden">
-                <div class="hint-box">ARRASTE PARA MOVER</div>
-            </div>
-        </div>
-
-        <div id="screen-calib" class="overlay hidden">
-            <div class="reticle-box">
-                <div class="corner tl"></div><div class="corner tr"></div>
-                <div class="corner bl"></div><div class="corner br"></div>
-                <div class="scan-line"></div>
-            </div>
-            <p style="margin-top:20px; font-weight:bold; color:white; text-shadow:0 2px 4px black;">ENQUADRE SEU CORPO</p>
-            <button class="btn-sec" onclick="Input.forceTouch()">USAR TOQUE</button>
-        </div>
-
-        <div id="screen-boot" class="overlay">
-            <div class="modal">
-                <div class="loader"></div>
-                <h2>CARREGANDO</h2>
-                <p id="boot-status">Inicializando...</p>
-                <button id="btn-start" class="btn-main hidden" onclick="Game.boot()">JOGAR</button>
-            </div>
-        </div>
-
-        <div id="screen-over" class="overlay hidden">
-            <div class="modal">
-                <h1 style="color:#ff4444">FIM DE JOGO</h1>
-                <p>Pontos: <span id="final-score">0</span></p>
-                <button class="btn-main" onclick="Game.restart()">RETRY</button>
-                <button class="btn-sec" onclick="window.location.href='./index.html'">MENU</button>
-            </div>
-        </div>
+    <div id="game-container" style="position: relative; width: 100vw; height: 100vh;">
+        <video id="input-video" playsinline muted style="position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0;"></video>
         
-        <div id="screen-pause" class="overlay hidden">
-            <div class="modal">
-                <h2>PAUSA</h2>
-                <div class="grid-3">
-                    <button onclick="Input.setMode('TOUCH')"><i class='bx bxs-hand-up'></i><br>Touch</button>
-                    <button onclick="Input.setMode('TILT')"><i class='bx bx-mobile'></i><br>Tilt</button>
-                    <button onclick="Input.setMode('BODY')"><i class='bx bx-body'></i><br>Cam</button>
-                </div>
-                <button class="btn-main" onclick="Game.togglePause()">VOLTAR</button>
-            </div>
+        <canvas id="game-canvas" style="display: block; width: 100%; height: 100%;"></canvas>
+
+        <div style="position: absolute; top: 20px; left: 20px; color: white; font-family: sans-serif; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000;">
+            PONTOS: <span id="score-val">0</span>
+        </div>
+
+        <button onclick="Engine.togglePause()" style="position: absolute; top: 20px; right: 20px; background: white; border: none; width: 50px; height: 50px; border-radius: 50%; font-size: 24px; cursor: pointer;">
+            <i class='bx bx-pause'></i>
+        </button>
+
+        <div id="touch-controls" style="position: absolute; bottom: 0; width: 100%; height: 30%; display: flex; z-index: 10;">
+            <div ontouchstart="Vision.data.x = -1" ontouchend="Vision.data.x = 0" style="flex: 1; opacity: 0.1; background: cyan;"></div>
+            <div ontouchstart="Vision.data.x = 1" ontouchend="Vision.data.x = 0" style="flex: 1; opacity: 0.1; background: yellow;"></div>
+        </div>
+
+        <div id="screen-intro" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 20;">
+            <h1 style="font-family: sans-serif; font-style: italic;">thIAguinho Racer</h1>
+            <p id="loading-text" style="color: #ccc;">Carregando...</p>
+            <button id="btn-play" class="hidden" onclick="Engine.boot()" style="padding: 15px 40px; font-size: 20px; background: #00bebd; color: white; border: none; border-radius: 30px; cursor: pointer; font-weight: bold; margin-top: 20px;">
+                JOGAR AGORA
+            </button>
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">Use seu CORPO na frente da câmera<br>ou toque nas laterais da tela.</p>
         </div>
     </div>
 
