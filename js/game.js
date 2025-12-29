@@ -459,5 +459,4 @@ const Game = {
     }
 };
 
-// Start
 window.onload = () => Game.init();
