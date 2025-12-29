@@ -1,0 +1,21 @@
+{
+  "name": "thIAguinho Wii",
+  "short_name": "thIAguinho",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#00bebd",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/mascote_perfil.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "assets/mascote_perfil.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
