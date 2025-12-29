@@ -1,7 +1,7 @@
 /**
- * NEO-WII Game Engine v26.1 (PLATINUM FINAL)
- * Status: GOLDEN MASTER 🟢
- * Fixes: CVS variable bug, Physics Stability, Nintendo Feel Math.
+ * NEO-WII Game Engine v27.0 (UX FIXED)
+ * Status: WAITING FOR PLAYER
+ * Fixes: Auto-start removed. Explicit Start Ritual implemented.
  */
 
 const AudioSys = {
@@ -12,6 +12,7 @@ const AudioSys = {
         this.ctx = new AudioContext();
     },
     play: function(type) {
+        // Tenta iniciar contexto se não existir (no clique do usuário)
         if(!this.ctx) this.init();
         if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
         if(!this.ctx) return;
@@ -23,17 +24,23 @@ const AudioSys = {
         osc.connect(gain); gain.connect(this.ctx.destination);
         
         if (type === 'start') {
-            osc.frequency.setValueAtTime(440, t); osc.frequency.exponentialRampToValueAtTime(880, t+0.4);
-            gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.4);
+            osc.frequency.setValueAtTime(440, t); 
+            osc.frequency.exponentialRampToValueAtTime(880, t+0.4);
+            gain.gain.setValueAtTime(0.1, t); 
+            gain.gain.linearRampToValueAtTime(0, t+0.4);
             osc.type = 'sine';
-            this.vibrate(50);
+            this.vibrate(100); // Vibração longa de confirmação
         } else if (type === 'coin') {
-            osc.frequency.setValueAtTime(1200, t); osc.frequency.linearRampToValueAtTime(1800, t+0.08);
-            gain.gain.setValueAtTime(0.08, t); gain.gain.linearRampToValueAtTime(0, t+0.08);
+            osc.frequency.setValueAtTime(1200, t); 
+            osc.frequency.linearRampToValueAtTime(1800, t+0.08);
+            gain.gain.setValueAtTime(0.08, t); 
+            gain.gain.linearRampToValueAtTime(0, t+0.08);
             osc.type = 'square';
         } else if (type === 'crash') {
-            osc.frequency.setValueAtTime(150, t); osc.frequency.exponentialRampToValueAtTime(10, t+0.4);
-            gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.01, t+0.4);
+            osc.frequency.setValueAtTime(150, t); 
+            osc.frequency.exponentialRampToValueAtTime(10, t+0.4);
+            gain.gain.setValueAtTime(0.2, t); 
+            gain.gain.exponentialRampToValueAtTime(0.01, t+0.4);
             osc.type = 'sawtooth';
             this.vibrate([30, 50, 30]);
         }
@@ -44,28 +51,106 @@ const AudioSys = {
     }
 };
 
+const Input = {
+    x: 0, y: 0, steering: 0, throttle: 0.5, action: 0,
+    lastY: 0, lastTime: 0, velocityY: 0, source: 'TOUCH',
+    // Constantes de suavização
+    SMOOTHING: { kart: 0.18, run: 0.22, zen: 0.06 },
+
+    init: function() {
+        const zone = document.getElementById('touch-controls');
+        if(zone) {
+            zone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                this.source = 'TOUCH';
+                this.x = ((e.touches[0].clientX / window.innerWidth) - 0.5) * 3.0;
+                this.throttle = 1.0;
+            }, {passive: false});
+            
+            zone.addEventListener('touchend', () => { 
+                if(this.source==='TOUCH') { this.x = 0; } 
+            });
+        }
+        
+        window.addEventListener('deviceorientation', (e) => {
+            if(this.source === 'TOUCH' || this.source === 'CAM') return;
+            this.source = 'TILT';
+            this.x = (e.gamma || 0) / 20;
+            this.throttle = 1.0;
+        });
+        
+        this.lastTime = Date.now();
+    },
+
+    forceMode: function(mode) {
+        this.source = mode;
+        console.log("🎮 Input Force:", mode);
+        if(mode === 'CAM') {
+            if(typeof Vision !== 'undefined') Vision.start().catch(console.error);
+        } else {
+            if(typeof Vision !== 'undefined' && Vision.stop) Vision.stop();
+        }
+        Game.togglePause(false);
+    },
+
+    update: function(mode) {
+        let rawSteering = 0;
+
+        if (typeof Vision !== 'undefined' && Vision.active && Vision.data.presence) {
+            this.source = 'CAM';
+            rawSteering = Vision.data.x;
+            this.y = Vision.data.y; 
+
+            const now = Date.now();
+            const dt = now - this.lastTime;
+            
+            if (dt > 60) { 
+                const rawDelta = Math.abs(Vision.raw.y - this.lastY);
+                const effectiveDelta = (rawDelta > 0.03) ? rawDelta : 0;
+                const effort = Math.min(1.0, effectiveDelta * 5); 
+                const curvedEffort = 1 - Math.pow(1 - effort, 2);
+                this.velocityY = curvedEffort * 1.5; 
+                this.lastY = Vision.raw.y;
+                this.lastTime = now;
+            }
+            if(mode === 'run') this.throttle = this.velocityY;
+            
+        } else {
+            rawSteering = Math.max(-1.5, Math.min(1.5, this.x));
+            if(this.source === 'TOUCH' && this.x === 0) this.throttle = 0.5;
+            else if(this.source === 'TILT') this.throttle = 1.0;
+        }
+
+        // EMA Smoothing
+        const alpha = this.SMOOTHING[mode] || 0.15;
+        this.steering += (rawSteering - this.steering) * alpha;
+        
+        if (Math.abs(rawSteering) < 0.05) {
+             this.steering += (0 - this.steering) * 0.1;
+        }
+        this.action += (this.throttle - this.action) * 0.1;
+    }
+};
+
 const Game = {
     mode: 'kart', state: 'BOOT', score: 0, speed: 0,
     clock: new THREE.Clock(),
-    
-    // PHYSICS STATE
-    playerVelX: 0, 
-    fatigue: 0,    
-    
+    playerVelX: 0, fatigue: 0,
     scene: null, camera: null, renderer: null, player: null, floor: null, objects: [],
     debugClickCount: 0, fps: 0, frames: 0, lastFpsTime: 0,
 
     init: function() {
-        console.log("⚙️ Engine: Booting v26.1...");
+        console.log("⚙️ Engine: Waiting for Player...");
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 
         const p = new URLSearchParams(window.location.search);
         this.mode = p.get('mode') || 'kart';
         
+        // 1. Configura UI de Boot
         const config = { 
-            'kart': { t: 'TURBO KART', msg: 'Use o celular como volante' }, 
-            'run':  { t: 'MARATHON',  msg: 'Corra no lugar (Pule/Agache)' }, 
-            'zen':  { t: 'ZEN GLIDER',msg: 'Incline a cabeça para flutuar' } 
+            'kart': { t: 'TURBO KART', msg: 'Toque para Iniciar' }, 
+            'run':  { t: 'MARATHON',  msg: 'Toque para Iniciar' }, 
+            'zen':  { t: 'ZEN GLIDER',msg: 'Toque para Iniciar' } 
         };
         const c = config[this.mode];
         if(document.getElementById('game-title')) {
@@ -73,22 +158,34 @@ const Game = {
             document.getElementById('boot-msg').innerText = c.msg;
         }
         
+        // 2. Prepara Motor (Mas não liga)
         if(typeof Vision !== 'undefined') Vision.init();
         if(typeof Input !== 'undefined') Input.init();
-        AudioSys.init();
-
+        
+        // 3. Prepara Gráficos (Renderiza o primeiro frame estático)
         this.setup3D();
         
-        setTimeout(() => {
-            console.log("🚀 Engine: Ignition");
-            this.forceStart();
-        }, 300);
+        // 4. MOSTRA O BOTÃO DE START (O Convite)
+        // Remove loaders, spinners, e deixa o botão visível
+        const btn = document.getElementById('btn-start');
+        if(btn) btn.classList.remove('hidden');
+        
+        const bootScreen = document.getElementById('screen-boot');
+        if(bootScreen) bootScreen.classList.remove('hidden');
+
+        // Debug trigger
+        const board = document.querySelector('.score-board');
+        if(board) board.addEventListener('click', () => {
+            this.debugClickCount++;
+            if(this.debugClickCount === 5) this.toggleDebug();
+        });
+        
+        // NOTA: Não chamamos forceStart() aqui. O HTML chama startRequest() no clique.
     },
 
     setup3D: function() {
         const cvs = document.getElementById('game-canvas');
-        // FIX 1: Verificação correta da variável 'cvs'
-        if (!cvs) return console.error("Canvas not found");
+        if (!cvs) return;
 
         this.renderer = new THREE.WebGLRenderer({ canvas: cvs, alpha: true, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -108,6 +205,9 @@ const Game = {
         this.scene.add(amb, dir);
 
         this.createWorld();
+        
+        // Renderiza um frame inicial para não ficar tela preta
+        this.renderer.render(this.scene, this.camera);
     },
 
     createWorld: function() {
@@ -139,28 +239,63 @@ const Game = {
         this.player.position.set(0, 0, 0);
         this.player.rotation.y = Math.PI;
         this.scene.add(this.player);
+        // Render de atualização
+        if(this.renderer && this.scene && this.camera) 
+            this.renderer.render(this.scene, this.camera);
+    },
+
+    // --- O RITUAL DE INÍCIO (Chamado pelo botão) ---
+    startRequest: function() {
+        console.log("👆 Player Clicked Start");
+        
+        // 1. Feedback Imediato (Som + Vibração)
+        // Isso confirma que o jogo "sentiu" o toque
+        AudioSys.init(); // Garante contexto no clique
+        AudioSys.play('start');
+
+        // 2. Solicita Hardware
+        if (this.mode === 'kart') {
+            if(typeof Input.requestTiltPermission === 'function') {
+                Input.requestTiltPermission().then(() => this.forceStart());
+            } else {
+                this.forceStart();
+            }
+        } else {
+            // Run/Zen usam Câmera
+            if(typeof Vision !== 'undefined') {
+                Vision.start().then(ok => {
+                    if(ok) {
+                        Vision.resetCalibration(); 
+                        this.forceStart();
+                    } else {
+                        alert("Câmera bloqueada. Usando Toque.");
+                        Input.source = 'TOUCH';
+                        this.forceStart();
+                    }
+                });
+            } else {
+                this.forceStart();
+            }
+        }
     },
 
     forceStart: function() {
+        // Transição Visual
         const boot = document.getElementById('screen-boot');
         if(boot) boot.classList.add('hidden');
+        
         const hud = document.getElementById('hud-layer');
         if(hud) hud.classList.remove('hidden');
 
-        AudioSys.play('start');
-        
-        if(typeof Vision !== 'undefined') {
-            Vision.start().then(() => console.log("📸 Vision: Active"))
-                  .catch(e => console.warn("Vision: Passive"));
-        }
-
+        // Injeção de Estado
         this.state = 'PLAY';
         this.score = 0;
-        this.speed = 0.3;
+        this.speed = 0.3; // Velocidade inicial para "Kick" visual
         
         this.playerVelX = 0;
         this.fatigue = 0;
         
+        // Inicia Loop Real
         this.lastFpsTime = performance.now();
         this.loop();
     },
@@ -176,7 +311,8 @@ const Game = {
         const dt = delta * 60; 
 
         if (this.state !== 'PLAY') {
-            this.renderer.render(this.scene, this.camera);
+            // Se pausado ou em boot, renderiza mas não roda lógica
+            if(this.renderer) this.renderer.render(this.scene, this.camera);
             return;
         }
 
@@ -191,10 +327,9 @@ const Game = {
             this.floor.material.map.needsUpdate = true;
         }
 
-        // SPRING-DAMPER PHYSICS (Nintendo Feel)
+        // SPRING-DAMPER PHYSICS
         if (this.player && typeof Input !== 'undefined') {
             const targetX = Input.steering * 3.5;
-            
             const STIFFNESS = 0.18 * dt; 
             const DAMPING = 0.78;        
 
@@ -240,9 +375,7 @@ const Game = {
         if(this.player) {
             const time = performance.now() / 1000;
             const breathe = Math.sin(time * 0.8) * 0.12;
-            // Usa Input.action para flutuação (Agora alimentado)
             const inputBias = 1 + Input.action * 1.5;
-            
             this.player.position.y += ((inputBias + breathe) - this.player.position.y) * (0.04 * dt);
         }
     },
