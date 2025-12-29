@@ -1,441 +1,455 @@
 /**
- * thIAguinho Game Engine v9.3 — "Nintendo Spirit"
- * Objetivo: Fazer o jogador sorrir ao abrir, vibrar ao tocar, e se emocionar ao jogar.
+ * thIAguinho Game Engine v9.3 — Corrigido e Funcional
  */
 
-// === SOUND SYSTEM ===
+// --- SOUND MANAGER ---
 const AudioSys = {
     ctx: null,
-    init() {
+    init: function() {
         try {
-            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-        } catch (e) { console.warn("Web Audio não disponível"); }
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+        } catch(e) { console.warn("Audio não suportado"); }
     },
-    play(freq, type, time, vol = 0.1, decay = 0.3) {
-        if (!this.ctx) this.init();
-        if (this.ctx?.state === 'suspended') this.ctx.resume();
-        if (!this.ctx) return;
+    playTone: function(freq, type, duration) {
+        if(!this.ctx) this.init();
+        if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+        if(!this.ctx) return;
 
-        const now = this.ctx.currentTime;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = type;
-        osc.frequency.setValueAtTime(freq, now);
-        gain.gain.setValueAtTime(vol, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + decay);
-        osc.connect(gain).connect(this.ctx.destination);
-        osc.start(now);
-        osc.stop(now + decay);
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
     },
     sfx: {
-        coin: () => AudioSys.play(1800 + Math.random() * 600, 'sine', 0.1, 0.12, 0.15),
-        crash: () => {
-            AudioSys.play(120, 'sawtooth', 0.4, 0.3, 0.6);
-            AudioSys.play(60, 'sine', 0.4, 0.2, 0.8);
-        },
-        start: () => {
-            AudioSys.play(500, 'square', 0.2, 0.2, 0.25);
-            setTimeout(() => AudioSys.play(800, 'square', 0.2, 0.2, 0.25), 100);
-        },
-        combo: (level) => AudioSys.play(900 + level * 150, 'sine', 0.15, 0.15, 0.2),
-        whoosh: () => AudioSys.play(300, 'triangle', 0.2, 0.05, 0.3)
+        coin: () => AudioSys.playTone(1200, 'sine', 0.1),
+        crash: () => AudioSys.playTone(100, 'sawtooth', 0.4),
+        start: () => AudioSys.playTone(600, 'square', 0.5),
+        tap: () => AudioSys.playTone(400, 'triangle', 0.05)
     }
 };
 
-// === VISUAL FEEDBACK SYSTEM ===
-const FX = {
-    create(pos, type) {
-        const el = document.createElement('div');
-        el.style.position = 'absolute';
-        el.style.left = (pos.x * 50 + 50) + '%';
-        el.style.top = (100 - (pos.y * 50 + 50)) + '%';
-        el.style.transform = 'translate(-50%, -50%)';
-        el.style.pointerEvents = 'none';
-        el.style.zIndex = '30';
-        el.style.fontWeight = 'bold';
-        el.style.textShadow = '0 0 8px currentColor';
-        el.style.fontSize = '28px';
-        el.style.opacity = '1';
-        el.style.transition = 'opacity 0.8s, transform 0.8s';
-        document.getElementById('hud-layer').appendChild(el);
-
-        if (type === 'coin') {
-            el.textContent = '+500';
-            el.style.color = '#FFD700';
-            el.style.fontSize = '32px';
-            el.style.transform = 'translate(-50%, -50%) scale(1.2)';
-        } else if (type === 'combo') {
-            el.textContent = `x${Combo.count}!`;
-            el.style.color = '#FF5722';
-            el.style.fontSize = '40px';
-            el.style.transform = 'translate(-50%, -50%) scale(1.5)';
-        }
-
-        setTimeout(() => {
-            el.style.opacity = '0';
-            el.style.transform = `translate(-50%, -100%) scale(0.5)`;
-        }, 100);
-
-        setTimeout(() => el.remove(), 900);
-    }
-};
-
-// === COMBO SYSTEM ===
+// --- COMBO SYSTEM ---
 const Combo = {
     count: 0,
     timer: null,
-    add() {
-        this.count++;
-        FX.create({x: 0, y: 0}, 'combo');
-        AudioSys.sfx.combo(Math.min(this.count, 5));
-        if (this.timer) clearTimeout(this.timer);
-        this.timer = setTimeout(() => this.reset(), 1000);
+    element: null,
+
+    init: function() {
+        this.element = document.createElement('div');
+        this.element.id = 'combo-display';
+        this.element.style.position = 'absolute';
+        this.element.style.top = '50%';
+        this.element.style.left = '50%';
+        this.element.style.transform = 'translate(-50%, -50%)';
+        this.element.style.fontSize = '32px';
+        this.element.style.fontWeight = 'bold';
+        this.element.style.color = 'gold';
+        this.element.style.textShadow = '0 0 10px rgba(255,215,0,0.8)';
+        this.element.style.pointerEvents = 'none';
+        this.element.style.zIndex = '20';
+        this.element.style.opacity = '0';
+        this.element.style.transition = 'opacity 0.2s, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+        document.getElementById('hud-layer').appendChild(this.element);
     },
-    reset() {
+
+    add: function() {
+        this.count++;
+        this.show();
+
+        if (this.timer) clearTimeout(this.timer);
+        this.timer = setTimeout(() => {
+            this.reset();
+        }, 1200);
+
+        // Feedback sonoro progressivo
+        AudioSys.sfx.combo = AudioSys.sfx.combo || function(level) {
+            AudioSys.playTone(800 + level * 100, 'sine', 0.15);
+        };
+        AudioSys.sfx.combo(Math.min(this.count, 5));
+    },
+
+    show: function() {
+        const texts = ["", "BOM!", "MELHOR!", "INCRÍVEL!", "LENDÁRIO!", "DEUS DO JOGO!"];
+        const msg = this.count > 1 ? `${texts[Math.min(this.count, 5)]} x${this.count}` : "";
+        
+        this.element.innerText = msg;
+        this.element.style.opacity = msg ? "1" : "0";
+        this.element.style.transform = msg ? "translate(-50%, -50%) scale(1.2)" : "translate(-50%, -50%) scale(1)";
+        setTimeout(() => {
+            if (this.element.innerText === msg) {
+                this.element.style.transform = "translate(-50%, -50%) scale(1)";
+            }
+        }, 200);
+    },
+
+    reset: function() {
         this.count = 0;
+        this.element.style.opacity = "0";
+    },
+
+    isActive: function() {
+        return this.count > 0;
     }
 };
 
-// === PARTICLE SYSTEM ===
-const Particles = {
-    list: [],
-    create(pos, color, count = 10, direction = new THREE.Vector3(0, 1, 0)) {
+// --- PARTICLE SYSTEM ---
+const ParticleSys = {
+    scene: null,
+    particles: [],
+
+    init: function(scene) {
+        this.scene = scene;
+    },
+
+    create: function(pos, color, count = 8) {
         for (let i = 0; i < count; i++) {
-            const speed = 0.8 + Math.random() * 1.2;
-            const p = {
-                pos: new THREE.Vector3().copy(pos),
+            const geo = new THREE.SphereGeometry(0.05, 6, 6);
+            const mat = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.9 });
+            const p = new THREE.Mesh(geo, mat);
+            p.position.copy(pos);
+            p.userData = {
                 vel: new THREE.Vector3(
-                    (Math.random() - 0.5) * 1.5 + direction.x * 2,
-                    Math.random() * 1.5 + direction.y * 2,
-                    (Math.random() - 0.5) * 0.5 + direction.z * 0.5
-                ).multiplyScalar(speed),
-                color: color,
-                size: 0.03 + Math.random() * 0.04,
+                    (Math.random() - 0.5) * 2,
+                    Math.random() * 1.5,
+                    (Math.random() - 0.5) * 1
+                ),
                 life: 1.0,
-                decay: 0.02
+                decay: 0.016 * (0.8 + Math.random() * 0.4)
             };
-            this.list.push(p);
+            this.scene.add(p);
+            this.particles.push(p);
         }
     },
-    update(scene) {
-        for (let i = this.list.length - 1; i >= 0; i--) {
-            const p = this.list[i];
-            p.life -= p.decay;
-            if (p.life <= 0) {
-                this.list.splice(i, 1);
+
+    update: function(delta = 0.016) {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.userData.life -= p.userData.decay;
+            if (p.userData.life <= 0) {
+                this.scene.remove(p);
+                this.particles.splice(i, 1);
                 continue;
             }
 
-            p.pos.add(p.vel.clone().multiplyScalar(Engine.delta));
-            p.vel.y -= Engine.delta * 20;
-            p.vel.multiplyScalar(0.98);
-
-            const material = new THREE.MeshBasicMaterial({
-                color: p.color,
-                transparent: true,
-                opacity: p.life * 0.9,
-                depthWrite: false
-            });
-            const geo = new THREE.SphereGeometry(p.size * (0.5 + p.life), 4, 4);
-            const mesh = new THREE.Mesh(geo, material);
-            mesh.position.copy(p.pos);
-            scene.add(mesh);
-            setTimeout(() => scene.remove(mesh), 16);
+            p.position.add(p.userData.vel.clone().multiplyScalar(delta * 60));
+            p.userData.vel.y -= delta * 30;
+            p.material.opacity = p.userData.life;
+            p.scale.setScalar(1 + p.userData.life * 2);
         }
     }
 };
 
-// === INPUT SYSTEM ===
+// --- INPUT MANAGER ---
 const Input = {
-    mode: 'TOUCH',
-    x: 0,
-    action: false,
-    init() {
+    mode: 'TOUCH', x: 0, action: false,
+    
+    init: function() {
         const zone = document.getElementById('touch-controls');
-        if (zone) {
-            zone.addEventListener('touchstart', (e) => {
-                if (this.mode !== 'TOUCH') return;
-                e.preventDefault();
-                this.action = true;
-                AudioSys.sfx.whoosh();
-            }, { passive: false });
+        if(zone) {
             zone.addEventListener('touchmove', (e) => {
-                if (this.mode !== 'TOUCH') return;
+                if(this.mode !== 'TOUCH') return;
                 e.preventDefault();
-                this.x = (e.touches[0].clientX / window.innerWidth - 0.5) * 3;
-            }, { passive: false });
-            zone.addEventListener('touchend', () => this.action = false);
+                const tx = e.touches[0].clientX / window.innerWidth;
+                this.x = (tx - 0.5) * 2.5;
+            }, {passive:false});
+            
+            zone.addEventListener('touchstart', () => { 
+                if(this.mode==='TOUCH') { this.action = true; AudioSys.sfx.tap(); } 
+            });
+            zone.addEventListener('touchend', () => { this.action = false; });
         }
-        window.addEventListener('deviceorientation', e => {
-            if (this.mode === 'TILT') this.x = (e.gamma || 0) / 20;
+
+        window.addEventListener('deviceorientation', (e) => {
+            if(this.mode === 'TILT') this.x = (e.gamma || 0) / 30;
         });
-        if (typeof Vision !== 'undefined') Vision.setup('input-video', 'camera-feed');
+
+        if(typeof Vision !== 'undefined') Vision.setup('input-video', 'camera-feed');
     },
-    setMode(m) {
+
+    setMode: function(m) {
         this.mode = m;
         const zone = document.getElementById('touch-controls');
         const cam = document.getElementById('camera-feed');
-        if (m === 'TOUCH') {
-            zone?.classList.remove('hidden');
-            cam && (cam.style.opacity = '0');
+        
+        if(m === 'TOUCH') {
+            if(zone) zone.classList.remove('hidden');
+            if(cam) cam.style.opacity = 0;
             Vision.stop();
         } else if (m === 'BODY') {
-            zone?.classList.add('hidden');
+            if(zone) zone.classList.add('hidden');
             Engine.setScreen('screen-calibration');
             Vision.start().then(() => {
-                const iv = setInterval(() => {
-                    if (Vision.data.gesture === 'T-POSE') {
-                        clearInterval(iv);
+                const checkCalib = setInterval(() => {
+                    const status = document.getElementById('calib-status');
+                    if(status) status.innerText = `Pose: ${Vision.data.gesture || '...'}`;
+                    
+                    if(Vision.data.gesture === 'T-POSE') {
+                        clearInterval(checkCalib);
                         Engine.setScreen(null);
                         AudioSys.sfx.start();
-                        Engine.toast("PRONTO!");
+                        Engine.toast("CALIBRADO!");
                     }
-                }, 300);
-            }).catch(() => { alert("Câmera negada. Usando toque."); this.setMode('TOUCH'); });
-        } else {
-            zone?.classList.add('hidden');
-            cam && (cam.style.opacity = '0');
+                }, 500);
+            }).catch(() => {
+                alert("Falha na câmera. Usando toque.");
+                this.setMode('TOUCH');
+            });
+        } else { // TILT
+            if(zone) zone.classList.add('hidden');
+            if(cam) cam.style.opacity = 0;
             Vision.stop();
-            if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+            if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission();
             }
         }
     },
-    update() {
-        if (this.mode === 'BODY' && Vision.active) this.x = Vision.data.x;
-        this.x = Math.max(-1.8, Math.min(1.8, this.x));
+
+    update: function() {
+        if(this.mode === 'BODY' && Vision.active) {
+            this.x = Vision.data.x;
+        }
+        this.x = Math.max(-1.5, Math.min(1.5, this.x));
     }
 };
 
-// === ENGINE PRINCIPAL ===
+// --- ENGINE PRINCIPAL ---
 const Engine = {
-    mode: 'kart',
-    scene: null,
-    camera: null,
-    renderer: null,
-    mascot: null,
-    floor: null,
-    objects: [],
-    state: { playing: false, paused: false, speed: 0, score: 0, time: 0 },
-    mascotBox: null,
-    lastFrame: 0,
-    delta: 0,
+    mode: 'kart', scene: null, camera: null, renderer: null,
+    mascot: null, floor: null, objects: [],
+    state: { playing: false, paused: false, speed: 0, score: 0 },
 
-    init() {
+    init: function() {
+        console.log("Engine: Init...");
         const p = new URLSearchParams(window.location.search);
         this.mode = p.get('mode') || 'kart';
+        
+        Combo.init();
         Input.init();
-        if (['run', 'zen'].includes(this.mode)) Input.setMode('BODY');
-        else Input.setMode('TOUCH');
+        if(this.mode === 'run' || this.mode === 'zen') Input.setMode('BODY'); 
+        else Input.setMode('TOUCH'); 
+
         this.initGraphics();
     },
 
-    initGraphics() {
+    initGraphics: function() {
         const cvs = document.getElementById('game-canvas');
-        this.renderer = new THREE.WebGLRenderer({ canvas: cvs, alpha: true, antialias: true });
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer = new THREE.WebGLRenderer({ canvas:cvs, alpha:true, antialias:true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.shadowMap.enabled = true;
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x88ccff);
-        this.scene.fog = new THREE.Fog(0x88ccff, 15, 70);
+        this.scene.fog = new THREE.Fog(0xdcdcdc, 10, 60);
 
-        this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-        this.camera.position.set(0, 2.5, 5);
-        this.camera.lookAt(0, 0, -10);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+        this.camera.position.set(0, 3, 6);
+        this.camera.lookAt(0, 0, -5);
 
-        const hemi = new THREE.HemisphereLight(0xffffff, 0x66aaff, 1.2);
-        const sun = new THREE.DirectionalLight(0xffeeaa, 1.3);
-        sun.position.set(10, 15, 5);
-        sun.castShadow = true;
-        sun.shadow.mapSize.set(1024, 1024);
-        this.scene.add(hemi, sun);
+        const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.8);
+        const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+        dir.position.set(5, 10, 5);
+        dir.castShadow = true;
+        this.scene.add(hemi, dir);
 
+        ParticleSys.init(this.scene);
         this.createEnvironment();
-        this.loadMascot();
+        this.loadAssets();
     },
 
-    createEnvironment() {
-        const geo = new THREE.PlaneGeometry(15, 300);
-        const mat = new THREE.MeshPhongMaterial({ color: 0x336699, shininess: 80 });
-        this.floor = new THREE.Mesh(geo, mat);
-        this.floor.rotation.x = -Math.PI / 2;
-        this.floor.position.z = -100;
+    createEnvironment: function() {
+        const texLoader = new THREE.TextureLoader();
+        texLoader.load('assets/estrada.jpg', (tex) => {
+            tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 20);
+            const mat = new THREE.MeshPhongMaterial({ map: tex });
+            this.spawnFloor(mat);
+        }, undefined, () => {
+            const mat = new THREE.MeshPhongMaterial({ color: 0x555555 });
+            this.spawnFloor(mat);
+        });
+    },
+
+    spawnFloor: function(mat) {
+        this.floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 200), mat);
+        this.floor.rotation.x = -Math.PI/2; 
+        this.floor.position.z = -80;
         this.floor.receiveShadow = true;
         this.scene.add(this.floor);
     },
 
-    loadMascot() {
+    loadAssets: function() {
         const loader = new THREE.GLTFLoader();
-        loader.load('assets/mascote.glb', gltf => {
+        const draco = new THREE.DRACOLoader();
+        draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.5/');
+        loader.setDRACOLoader(draco);
+
+        loader.load('assets/mascote.glb', (gltf) => {
+            console.log("Assets: Mascote OK");
             this.mascot = gltf.scene;
-            this.mascot.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
-            this.scene.add(this.mascot);
-            this.startGame();
-        }, undefined, () => {
-            // Fallback visualmente atraente
-            const geo = new THREE.CapsuleGeometry(0.4, 0.8, 4, 8);
-            const mat = new THREE.MeshStandardMaterial({ color: 0xff5722, metalness: 0.2, roughness: 0.3 });
+            this.prepareMascot();
+        }, undefined, (err) => {
+            console.warn("Assets: Falha no Mascote, usando fallback");
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
             this.mascot = new THREE.Mesh(geo, mat);
-            this.mascot.castShadow = true;
-            this.scene.add(this.mascot);
-            this.startGame();
+            this.prepareMascot();
         });
     },
 
-    startGame() {
-        this.state = { playing: true, paused: false, speed: 0.4, score: 0, time: 0 };
-        Combo.reset();
-        document.getElementById('screen-loading')?.classList.add('hidden');
-        AudioSys.sfx.start();
-        this.lastFrame = performance.now();
+    prepareMascot: function() {
+        this.mascot.position.set(0, 0, -2);
+        this.mascot.rotation.y = Math.PI;
+        this.scene.add(this.mascot);
+        
+        document.getElementById('screen-loading').classList.add('hidden');
+        this.startGame();
         this.animate();
     },
 
-    animate(now) {
-        requestAnimationFrame(this.animate.bind(this));
-        if (!this.state.playing || this.state.paused) return;
+    startGame: function() {
+        this.state.playing = true;
+        this.state.score = 0;
+        this.state.speed = 0;
+        AudioSys.sfx.start();
+        this.toast("GO!");
+    },
 
-        this.delta = Math.min((now - this.lastFrame) / 1000, 0.1);
-        this.lastFrame = now;
-        this.state.time += this.delta;
+    animate: function() {
+        requestAnimationFrame(() => this.animate());
+        if(!this.state.playing || this.state.paused) return;
 
         Input.update();
-        this.updateGameLogic();
-        this.updateMascot();
-        this.updateEnvironment();
-        Particles.update(this.scene);
+        
+        if(this.mode === 'kart') this.updateKart();
+        else if(this.mode === 'run') this.updateRun();
+        else this.updateZen();
+
+        if(this.mascot) {
+            this.mascot.position.x += (Input.x * 3 - this.mascot.position.x) * 0.1;
+            this.mascot.rotation.z = -this.mascot.position.x * 0.2;
+            this.mascot.rotation.y = Math.PI;
+        }
+
+        if(this.floor && this.floor.material.map) {
+            this.floor.material.map.offset.y -= this.state.speed * 0.05;
+        }
+
+        ParticleSys.update(1/60);
         this.renderer.render(this.scene, this.camera);
     },
 
-    updateGameLogic() {
-        if (this.mode === 'kart') {
-            this.state.speed = 0.4 + this.state.time * 0.08;
-            this.state.score += Math.floor(this.state.speed * 10);
-            if (Math.random() < 0.02 + this.state.time * 0.001) this.spawn('obstacle');
-            if (Math.random() < 0.015 + this.state.time * 0.0008) this.spawn('coin');
-            this.manage(true);
-        } else if (this.mode === 'run') {
-            if (Input.action) this.state.speed = Math.min(this.state.speed + 0.3 * this.delta, 2.5);
-            else this.state.speed *= 0.92;
-            this.state.score += Math.floor(this.state.speed * 30 * this.delta);
-            this.manage(false);
-        } else {
-            this.state.speed = 0.7;
-            if (Math.random() < 0.04) this.spawn('coin');
-            this.manage(false);
-        }
+    updateKart: function() {
+        if(this.state.speed < 1.2) this.state.speed += 0.001;
+        this.state.score += Math.round(this.state.speed);
+        if(Math.random() < 0.02) this.spawnObj('obstacle');
+        if(Math.random() < 0.01) this.spawnObj('coin');
+        this.manageObjects(true);
         this.updateHUD();
     },
 
-    updateMascot() {
-        if (!this.mascot) return;
-        const targetX = Input.x * 1.8;
-        this.mascot.position.x += (targetX - this.mascot.position.x) * (8 * this.delta);
-        this.mascot.rotation.z = -this.mascot.position.x * 0.4;
-        this.mascot.rotation.y = Math.PI;
-
-        // Squash & stretch visual (sutil)
-        const speedFactor = Math.min(this.state.speed / 2, 1);
-        this.mascot.scale.y = 1 - speedFactor * 0.15;
-        this.mascot.scale.z = 1 + speedFactor * 0.15;
-
-        // Atualiza caixa de colisão
-        if (!this.mascotBox) this.mascotBox = new THREE.Box3();
-        this.mascotBox.setFromObject(this.mascot);
-        this.mascotBox.min.x -= 0.3;
-        this.mascotBox.max.x += 0.3;
-        this.mascotBox.min.z -= 0.4;
-        this.mascotBox.max.z += 0.2;
+    updateRun: function() {
+        if(Input.action) this.state.speed += 0.05;
+        else this.state.speed *= 0.95;
+        this.state.speed = Math.min(this.state.speed, 1.5);
+        this.state.score += Math.round(this.state.speed * 5);
+        this.updateHUD();
     },
 
-    updateEnvironment() {
-        if (this.floor) this.floor.position.z = -100 + (this.state.time * this.state.speed * 40) % 300;
+    updateZen: function() {
+        this.state.speed = 0.6;
+        if(Math.random() < 0.03) this.spawnObj('coin');
+        this.manageObjects(false);
+        this.updateHUD();
     },
 
-    spawn(type) {
-        const mesh = type === 'obstacle'
-            ? new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.2, 8), new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0x440022 }))
-            : new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.15, 12, 24), new THREE.MeshStandardMaterial({ color: 0xffd700, emissive: 0x664400, metalness: 0.8 }));
-        
-        mesh.position.set([-3, 0, 3][Math.floor(Math.random() * 3)], type === 'obstacle' ? 0.6 : 0.5, -60);
-        mesh.castShadow = true;
-        mesh.userData = { type, bbox: new THREE.Box3().setFromObject(mesh) };
+    spawnObj: function(type) {
+        let mesh;
+        if(type === 'obstacle') {
+            mesh = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1, 16), new THREE.MeshPhongMaterial({color:0xff3333}));
+            mesh.userData = {type:'bad'};
+        } else {
+            mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.1, 16), new THREE.MeshPhongMaterial({color:0xffd700}));
+            mesh.rotation.x = Math.PI/2;
+            mesh.userData = {type:'good'};
+        }
+        const lane = [-2.5, 0, 2.5][Math.floor(Math.random()*3)];
+        mesh.position.set(lane, 0.5, -60);
+        mesh.userData.bbox = new THREE.Box3().setFromObject(mesh);
         this.scene.add(mesh);
         this.objects.push(mesh);
     },
 
-    manage(deadly) {
-        for (let i = this.objects.length - 1; i >= 0; i--) {
-            const obj = this.objects[i];
-            obj.position.z += this.state.speed * 2.5;
-            if (obj.userData.type === 'coin') obj.rotation.x += 0.2;
+    manageObjects: function(deadly) {
+        for(let i=this.objects.length-1; i>=0; i--) {
+            let o = this.objects[i];
+            o.position.z += this.state.speed * 1.5;
+            if(o.userData.type === 'good') o.rotation.z += 0.1;
 
-            const objBox = obj.userData.bbox.clone().translate(obj.position);
-            if (this.mascotBox?.intersectsBox(objBox)) {
-                if (obj.userData.type === 'obstacle' && deadly) {
-                    this.crash(obj.position);
-                } else if (obj.userData.type === 'coin') {
-                    this.collect(obj.position);
-                    this.scene.remove(obj);
-                    this.objects.splice(i, 1);
+            // COLISÃO PRECISA COM BOX3
+            if (this.mascot && o.userData.bbox) {
+                // Atualiza bbox do objeto (opcional, mas recomendado para movimento)
+                const objBox = o.userData.bbox.clone();
+                objBox.translate(o.position);
+
+                // Cria bbox do mascote
+                const mascotBox = new THREE.Box3().setFromObject(this.mascot);
+
+                if (mascotBox.intersectsBox(objBox)) {
+                    if(o.userData.type === 'bad' && deadly) {
+                        AudioSys.sfx.crash();
+                        ParticleSys.create(o.position.clone(), 0xff3333, 12);
+                        this.gameOver();
+                    } else if (o.userData.type === 'good') {
+                        AudioSys.sfx.coin();
+                        this.state.score += 500;
+                        Combo.add(); // Ativa combo
+                        ParticleSys.create(o.position.clone(), 0xffff00, 16);
+                        this.removeObj(o, i);
+                        this.toast("+500");
+                    }
                 }
-            } else if (obj.position.z > 10) {
-                this.scene.remove(obj);
-                this.objects.splice(i, 1);
             }
+            if(o.position.z > 5) this.removeObj(o, i);
         }
     },
 
-    collect(pos) {
-        this.state.score += 500 + Combo.count * 100;
-        Combo.add();
-        FX.create({ x: (pos.x / 5), y: (pos.z / 20) }, 'coin');
-        Particles.create(pos, 0xffee00, 16, new THREE.Vector3(0, 1, 1));
-        AudioSys.sfx.coin();
+    removeObj: function(o, i) {
+        this.scene.remove(o);
+        this.objects.splice(i, 1);
     },
 
-    crash(pos) {
-        AudioSys.sfx.crash();
-        Particles.create(pos, 0xff3366, 25, new THREE.Vector3(0, 1, 2));
-        this.gameOver();
-    },
-
-    updateHUD() {
+    updateHUD: function() {
         const el = document.getElementById('score-display');
-        if (el) el.textContent = this.state.score.toLocaleString('pt-BR');
+        if(el) el.innerText = this.state.score;
     },
-
-    toast(msg) {
+    toast: function(msg) {
         const t = document.getElementById('toast');
-        if (t) {
-            t.textContent = msg;
-            t.classList.remove('hidden');
-            setTimeout(() => t.classList.add('hidden'), 800);
+        if(t) { t.innerText = msg; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'), 1000); }
+    },
+    togglePause: function() {
+        this.state.paused = !this.state.paused;
+        const s = document.getElementById('screen-pause');
+        if(s) {
+            if(this.state.paused) s.classList.remove('hidden');
+            else s.classList.add('hidden');
         }
     },
-
-    togglePause() {
-        this.state.paused = !this.state.paused;
-        Combo.reset();
-        const s = document.getElementById('screen-pause');
-        s?.classList.toggle('hidden', !this.state.paused);
-    },
-
-    setScreen(id) {
+    setScreen: function(id) {
         document.querySelectorAll('.modal-overlay').forEach(el => el.classList.add('hidden'));
-        if (id) document.getElementById(id)?.classList.remove('hidden');
+        if(id) document.getElementById(id).classList.remove('hidden');
     },
-
-    gameOver() {
+    gameOver: function() {
         this.state.playing = false;
-        const final = document.getElementById('final-score');
-        if (final) final.textContent = this.state.score.toLocaleString('pt-BR');
+        const el = document.getElementById('final-score');
+        if(el) el.innerText = this.state.score;
         this.setScreen('screen-gameover');
     },
-
-    restart() {
+    restart: function() {
         this.objects.forEach(o => this.scene.remove(o));
         this.objects = [];
         this.setScreen(null);
