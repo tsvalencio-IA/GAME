@@ -1,83 +1,139 @@
 /**
- * Vision System - Versão Simplificada e Robusta
+ * thIAguinho HAL v23.0 (Smart Calibration & Telemetry)
+ * Features: Detecção de Estabilidade, Telemetria e Zero-Point Inteligente.
  */
 const Vision = {
     active: false,
     video: null,
     pose: null,
-    data: { x: 0, visible: false }, // x vai de -1 (esquerda) a 1 (direita)
+    
+    // Calibração Inteligente
+    calibration: {
+        active: false,
+        framesStable: 0,
+        requiredFrames: 10, // ~300ms de estabilidade
+        lastX: 0,
+        xOffset: 0,
+        yOffset: 0,
+        isCalibrated: false
+    },
+
+    data: { x: 0, y: 0, tilt: 0, presence: false },
+    raw: { x: 0, y: 0, tilt: 0 },
+    telemetry: { fps: 0, latency: 0, state: 'IDLE' },
 
     init: function() {
         this.video = document.getElementById('input-video');
-        if(!this.video) return;
-
-        // Configurar MediaPipe Pose
-        this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
-        this.pose.setOptions({
-            modelComplexity: 0, // 0 = Lite (Mais rápido no celular)
-            smoothLandmarks: true,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-
-        this.pose.onResults(this.onResults.bind(this));
-
-        // Tentar iniciar câmera
-        this.startCamera();
+        try {
+            this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
+            this.pose.setOptions({
+                modelComplexity: 0,
+                smoothLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            this.pose.onResults(this.onResults.bind(this));
+        } catch(e) { console.error("Vision Init Error", e); }
     },
 
-    startCamera: async function() {
+    start: async function() {
+        if (!this.video || !this.pose) return false;
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user', width: 640, height: 480 },
+                video: { facingMode: 'user', width: {ideal: 640}, height: {ideal: 480}, frameRate: {ideal: 30} },
                 audio: false
             });
             this.video.srcObject = stream;
             await this.video.play();
             
-            // Loop de detecção manual usando requestVideoFrameCallback se disponível ou rAF
+            const feed = document.getElementById('camera-feed');
+            if(feed) { feed.srcObject = stream; feed.play(); feed.style.opacity = 0.4; }
+
             this.active = true;
             this.loop();
-            console.log("Câmera iniciada com sucesso.");
-        } catch (e) {
-            console.warn("Câmera não disponível ou negada. Usando modo Touch.");
-            // Não fazemos nada, o jogo continua rodando sem input de câmera
+            return true;
+        } catch(e) { return false; }
+    },
+
+    calibrate: function() {
+        this.calibration.active = true;
+        this.calibration.framesStable = 0;
+        this.calibration.isCalibrated = false;
+        console.log("Vision: Buscando estabilidade para calibração...");
+    },
+
+    stop: function() {
+        this.active = false;
+        if(this.video && this.video.srcObject) {
+            this.video.srcObject.getTracks().forEach(t => t.stop());
         }
     },
 
     loop: async function() {
-        if (!this.active) return;
-        
-        if (this.video && this.video.readyState >= 2) {
+        if(!this.active) return;
+        const t0 = performance.now();
+        if(this.video && this.video.readyState >= 2) {
             await this.pose.send({image: this.video});
         }
-        
+        this.telemetry.latency = Math.round(performance.now() - t0);
         requestAnimationFrame(this.loop.bind(this));
     },
 
     onResults: function(results) {
         if (!results.poseLandmarks) {
-            this.data.visible = false;
+            this.data.presence = false;
+            this.telemetry.state = 'NO_USER';
             return;
         }
 
+        this.data.presence = true;
+        this.telemetry.state = 'TRACKING';
+
         const nose = results.poseLandmarks[0];
-        this.data.visible = true;
+        const earL = results.poseLandmarks[7];
+        const earR = results.poseLandmarks[8];
+
+        // 1. Raw Data (Invertendo X)
+        let currX = (0.5 - nose.x) * 3.5; 
+        let currY = (0.5 - nose.y) * 4.0;
+        let currTilt = (earL.y - earR.y) * 10;
+
+        // 2. Lógica de Calibração "Invisível"
+        if (this.calibration.active) {
+            const delta = Math.abs(currX - this.calibration.lastX);
+            if (delta < 0.05) {
+                this.calibration.framesStable++;
+            } else {
+                this.calibration.framesStable = 0;
+            }
+            this.calibration.lastX = currX;
+
+            if (this.calibration.framesStable > this.calibration.requiredFrames) {
+                this.calibration.xOffset = currX;
+                this.calibration.yOffset = currY;
+                this.calibration.isCalibrated = true;
+                this.calibration.active = false;
+                console.log("Vision: Calibrado em", currX, currY);
+            }
+        }
+
+        // 3. Aplica Offset
+        if (this.calibration.isCalibrated) {
+            currX -= this.calibration.xOffset;
+            currY -= this.calibration.yOffset;
+        }
+
+        this.raw.x = currX;
+        this.raw.y = currY;
+        this.raw.tilt = currTilt;
+
+        // 4. Suavização Básica
+        this.data.x += (currX - this.data.x) * 0.2;
+        this.data.y += (currY - this.data.y) * 0.2;
+        this.data.tilt += (currTilt - this.data.tilt) * 0.2;
         
-        // O MediaPipe retorna X entre 0 e 1.
-        // Vamos inverter (espelho) e centralizar.
-        // 0.5 é o centro.
-        // Se nose.x for 0.2 (esquerda na cam), queremos mover para direita (espelho) ou esquerda?
-        // Espelho: se eu vou pra esquerda, minha imagem vai pra esquerda da tela.
-        
-        // Calculo: (0.5 - nose.x) inverte o eixo. Multiplicamos por sensibilidade.
-        this.data.x = (0.5 - nose.x) * 3.5; 
-        
-        // Limites
-        if (this.data.x > 1.5) this.data.x = 1.5;
-        if (this.data.x < -1.5) this.data.x = -1.5;
+        this.data.x = Math.max(-1.5, Math.min(1.5, this.data.x));
     }
 };
 
-// Tornar global
 window.Vision = Vision;
