@@ -3,61 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Arcade | Hub Central</title>
+    <title>thIAguinho Console</title>
     <link rel="stylesheet" href="css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 </head>
-<body class="menu-bg">
-    <div class="menu-container">
-        <div class="profile-header">
-            <div class="avatar-frame">
-                <img src="assets/mascote_perfil.jpg" onerror="this.src='https://via.placeholder.com/150/FFD700/000?text=TH'" alt="Avatar">
+<body>
+    <div class="wii-menu">
+        <div style="grid-column: 1 / -1; text-align: center; margin-bottom: 20px;">
+            <div style="width: 80px; height: 80px; background: white; border-radius: 50%; margin: 0 auto 15px; border: 4px solid var(--wii-blue); overflow: hidden;">
+                <img src="assets/mascote_perfil.jpg" onerror="this.src='https://via.placeholder.com/150/00bebd/fff?text=M'" style="width:100%; height:100%; object-fit:cover;">
             </div>
-            <h1 class="brand-title">ARCADE <span class="highlight">thIAguinho</span></h1>
-            <p class="brand-subtitle">Escolha seu Desafio AR</p>
+            <h1 style="color: #333; font-weight: 900; letter-spacing: -1px;">thIAguinho <span style="color:var(--wii-blue)">Wii</span></h1>
+            <p style="color: #999;">Select your experience</p>
         </div>
 
-        <div class="cards-grid">
-            
-            <a href="game.html?mode=race" class="game-card theme-race">
-                <div class="card-icon"><i class='bx bxs-car-crash'></i></div>
-                <div class="card-info">
-                    <h2>GRAND PRIX</h2>
-                    <p>Desvie dos obstáculos em alta velocidade.</p>
-                    <div class="card-tags">
-                        <span><i class='bx bx-mobile-vibration'></i> Tilt</span>
-                        <span><i class='bx bx-body'></i> Body</span>
-                    </div>
-                </div>
-            </a>
+        <a href="game.html?mode=kart" class="channel-card">
+            <div class="card-icon"><i class='bx bxs-car-crash'></i></div>
+            <div class="card-title">Turbo Kart</div>
+            <div class="card-desc">Corrida de alta velocidade com obstáculos.</div>
+            <div class="card-pill">Tilt / Touch</div>
+        </a>
 
-            <a href="game.html?mode=run" class="game-card theme-run">
-                <div class="card-icon"><i class='bx bx-run'></i></div>
-                <div class="card-info">
-                    <h2>STREET RUN</h2>
-                    <p>Corra no lugar para ganhar energia.</p>
-                    <div class="card-tags">
-                        <span><i class='bx bxs-hand-up'></i> Tap</span>
-                        <span><i class='bx bx-body'></i> Motion</span>
-                    </div>
-                </div>
-            </a>
+        <a href="game.html?mode=run" class="channel-card">
+            <div class="card-icon"><i class='bx bx-run'></i></div>
+            <div class="card-title">Marathon Pro</div>
+            <div class="card-desc">Teste de resistência física e ritmo.</div>
+            <div class="card-pill">Body Cam</div>
+        </a>
 
-            <a href="game.html?mode=dance" class="game-card theme-dance">
-                <div class="card-icon"><i class='bx bxs-music'></i></div>
-                <div class="card-info">
-                    <h2>DANCE FIT</h2>
-                    <p>Pegue os orbes de luz com as mãos.</p>
-                    <div class="card-tags">
-                        <span><i class='bx bx-body'></i> Full Body</span>
-                    </div>
-                </div>
-            </a>
-        </div>
-        
-        <footer class="app-footer">
-            Versão 4.0.0 (Gold Master) | thIAguinho Soluções
-        </footer>
+        <a href="game.html?mode=zen" class="channel-card">
+            <div class="card-icon"><i class='bx bx-body'></i></div>
+            <div class="card-title">Zen Yoga</div>
+            <div class="card-desc">Alinhe seu corpo com as formas.</div>
+            <div class="card-pill">Full Body</div>
+        </a>
     </div>
 </body>
 </html>
