@@ -14,7 +14,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/DRACOLoader.js"></script>
 
     <style>
-        /* Console de Debug para Celular */
         #debug-console {
             position: fixed; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.8);
             color: lime; font-family: monospace; font-size: 10px; padding: 5px;
@@ -84,6 +83,7 @@
                 <div class="score-val" id="final-score" style="font-size:40px; margin:20px 0;">0</div>
                 <button class="btn-primary" onclick="Engine.restart()">JOGAR NOVAMENTE</button>
                 <button class="btn-secondary" onclick="window.location.href='index.html'">MENU</button>
+                <p style="color: #aaa; font-size: 12px; margin-top: 20px;">thIAguinho Wii — Powered by Nintendo Spirit</p>
             </div>
         </div>
     </div>
@@ -97,7 +97,6 @@
         };
         function log(msg) {
             console.log(msg);
-            // document.getElementById('debug-console').innerText = msg; // Descomente para ver logs na tela
         }
     </script>
 
