@@ -4,41 +4,39 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>thIAguinho Console</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="./css/style.css">
     <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 </head>
 <body>
     <div class="wii-menu">
         <div class="header-box">
-            <div class="avatar">
-                <img src="assets/mascote_perfil.jpg" onerror="this.style.display='none'">
+            <div class="avatar-container">
+                <img src="./assets/mascote_perfil.jpg" onerror="this.style.display='none'; this.parentElement.style.backgroundColor='#00bebd'">
             </div>
-            <h1>thIAguinho <span style="color:var(--neon)">Wii</span></h1>
+            <h1 class="console-title">thIAguinho <span class="highlight">Wii</span></h1>
+            <p>Ready.</p>
         </div>
 
-        <a href="game.html?mode=kart" class="card">
-            <i class='bx bxs-car-crash icon'></i>
-            <div class="info">
+        <a href="./game.html?mode=kart" class="channel-card">
+            <div class="card-icon"><i class='bx bxs-car-crash'></i></div>
+            <div class="card-info">
                 <h2>Turbo Kart</h2>
-                <p>Corrida Arcade</p>
                 <div class="tags"><span>TILT</span><span>TOUCH</span></div>
             </div>
         </a>
 
-        <a href="game.html?mode=run" class="card">
-            <i class='bx bx-run icon'></i>
-            <div class="info">
+        <a href="./game.html?mode=run" class="channel-card">
+            <div class="card-icon"><i class='bx bx-run'></i></div>
+            <div class="card-info">
                 <h2>Marathon</h2>
-                <p>Resistência Física</p>
                 <div class="tags"><span>BODY CAM</span></div>
             </div>
         </a>
 
-        <a href="game.html?mode=zen" class="card">
-            <i class='bx bx-body icon'></i>
-            <div class="info">
+        <a href="./game.html?mode=zen" class="channel-card">
+            <div class="card-icon"><i class='bx bx-body'></i></div>
+            <div class="card-info">
                 <h2>Zen Yoga</h2>
-                <p>Foco e Poses</p>
                 <div class="tags"><span>AR</span></div>
             </div>
         </a>
