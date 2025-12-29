@@ -4,7 +4,6 @@
  */
 
 const Game = {
-    // Configuração e Estado
     mode: 'kart',
     state: 'BOOT', // BOOT, PLAY, PAUSE, OVER
     score: 0,
@@ -18,14 +17,11 @@ const Game = {
     clock: new THREE.Clock(),
 
     init: function() {
-        // 1. Setup PWA Service Worker
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 
-        // 2. Parse URL Mode
         const params = new URLSearchParams(window.location.search);
         this.mode = params.get('mode') || 'kart';
 
-        // 3. UI Setup (Textos Dinâmicos)
         const config = {
             'kart': { t: 'TURBO KART', msg: 'Use o celular como volante.' },
             'run':  { t: 'MARATHON',  msg: 'Corra no lugar para mover.' },
@@ -35,35 +31,27 @@ const Game = {
         document.getElementById('game-title').innerText = c.t;
         document.getElementById('boot-msg').innerText = c.msg;
 
-        // 4. Inicializa Subsistemas (Sem ligar hardware ainda)
         Vision.init();
         Input.init();
 
-        // 5. Setup 3D
         this.setupGraphics();
 
-        // 6. Libera Botão de Start
         document.getElementById('btn-start').classList.remove('hidden');
     },
 
     setupGraphics: function() {
         const canvas = document.getElementById('game-canvas');
-        
-        // Renderizador Transparente (Crucial para AR)
         this.renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap em 2x para performance
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         
         this.scene = new THREE.Scene();
-        // Fog esconde o "fim do mundo" e dá profundidade
         this.scene.fog = new THREE.FogExp2(0x000000, 0.02);
 
-        // Câmera Dinâmica
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
         this.camera.position.set(0, 3, 6);
         this.camera.lookAt(0, 0, -4);
 
-        // Iluminação
         const amb = new THREE.AmbientLight(0xffffff, 0.6);
         const dir = new THREE.DirectionalLight(0xffffff, 0.8);
         dir.position.set(5, 10, 7);
@@ -73,26 +61,20 @@ const Game = {
     },
 
     buildWorld: function() {
-        // Assets Procedurais ou Carregados
         const texLoader = new THREE.TextureLoader();
-        
-        // Chão Infinito (Textura em Loop)
         texLoader.load('./assets/estrada.jpg', (tex) => {
             tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
             tex.repeat.set(1, 20);
             this.spawnFloor(new THREE.MeshPhongMaterial({ map: tex }));
         }, null, () => {
-            // Fallback elegante
             this.spawnFloor(new THREE.MeshPhongMaterial({ color: 0x222222 }));
         });
 
-        // Player (Mascote)
         const gltfLoader = new THREE.GLTFLoader();
         gltfLoader.load('./assets/mascote.glb', (gltf) => {
             this.player = gltf.scene;
             this.setupPlayerMesh();
         }, null, () => {
-            // Fallback Geométrico (Cubo de Teste)
             this.player = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2), new THREE.MeshPhongMaterial({ color: 0x00bebd }));
             this.setupPlayerMesh();
         });
@@ -107,24 +89,22 @@ const Game = {
 
     setupPlayerMesh: function() {
         this.player.position.set(0, 0, 0);
-        this.player.rotation.y = Math.PI; // De costas para câmera
+        this.player.rotation.y = Math.PI; 
         this.scene.add(this.player);
     },
 
-    // --- BOOT SEQUENCE (A "Correia de Segurança" do Wii) ---
+    // --- BOOT SEQUENCE ---
     startRequest: function() {
-        // 1. Inicializa Audio Context (User Gesture)
         Feedback.init();
         Feedback.sfx('start');
 
-        // 2. Solicita Hardware
         if (this.mode === 'kart') {
             Input.requestTiltPermission().then(() => this.launch());
         } else {
-            // Run/Zen usam Câmera
             Vision.start().then(success => {
                 if (success) {
-                    Vision.calibrate(); // Inicia calibração silenciosa
+                    // --- CORREÇÃO CRÍTICA: Nome correto da função ---
+                    Vision.resetCalibration(); 
                     this.launch();
                 } else {
                     alert("Câmera indisponível. Alternando para modo Toque.");
@@ -136,7 +116,6 @@ const Game = {
     },
 
     launch: function() {
-        // Transição de UI
         document.getElementById('screen-boot').classList.add('hidden');
         document.getElementById('hud-layer').classList.remove('hidden');
         
@@ -149,91 +128,63 @@ const Game = {
     // --- MAIN GAME LOOP ---
     loop: function() {
         requestAnimationFrame(() => this.loop());
-        
         const delta = this.clock.getDelta();
 
         if (this.state !== 'PLAY') return;
 
-        // 1. INPUT PHASE
         Input.update(this.mode);
 
-        // 2. LOGIC PHASE (Modo Específico)
         if (this.mode === 'kart') this.logicKart(delta);
         else if (this.mode === 'run') this.logicRun(delta);
         else if (this.mode === 'zen') this.logicZen(delta);
 
-        // 3. WORLD PHASE
-        // Mover Chão (Ilusão de velocidade)
         if (this.floor && this.floor.material.map) {
             this.floor.material.map.offset.y -= this.speed * 0.05;
         }
 
-        // Mover Player (Interpolação para suavidade)
         if (this.player) {
-            const targetX = Input.steering * 3.5; // Largura da pista
-            
-            // Lerp para movimento lateral (Suaviza inputs bruscos)
+            const targetX = Input.steering * 3.5;
             this.player.position.x += (targetX - this.player.position.x) * 0.1;
-            
-            // Banking (Inclinação do carro/corpo nas curvas)
             this.player.rotation.z = -(this.player.position.x * 0.25);
-            this.player.rotation.y = Math.PI; // Mantém frente
+            this.player.rotation.y = Math.PI;
             
-            // Zen Mode Float
             if (this.mode === 'zen') {
                 this.player.position.y = 1 + Input.action * 1.5;
             }
         }
 
-        // 4. OBSTACLE PHASE
         this.manageObstacles();
-
-        // 5. RENDER PHASE
         this.renderer.render(this.scene, this.camera);
     },
 
-    // --- LÓGICA DE MODOS ---
-    
     logicKart: function(dt) {
-        // Aceleração linear arcade
         const targetSpeed = Input.throttle;
-        this.speed += (targetSpeed - this.speed) * 0.02; // Aceleração gradual
+        this.speed += (targetSpeed - this.speed) * 0.02;
         this.score += Math.round(this.speed * 10);
     },
 
     logicRun: function(dt) {
-        // Velocidade baseada na física do esforço (Input.throttle vem da Vision Delta)
         const targetSpeed = Input.throttle;
-        
-        // Inércia: Demora para acelerar, demora para parar
         this.speed += (targetSpeed - this.speed) * 0.05;
-        
-        // Clamp
         if (this.speed > 1.2) this.speed = 1.2;
         if (this.speed < 0) this.speed = 0;
-        
         this.score += Math.round(this.speed * 20);
     },
 
     logicZen: function(dt) {
-        this.speed = 0.4; // Velocidade constante de cruzeiro
+        this.speed = 0.4;
         this.score += 1;
-        // Zen foca em coletar orbs, lógica tratada em manageObstacles
     },
 
     manageObstacles: function() {
-        // Spawner
         if (Math.random() < 0.02 && this.speed > 0.1) this.spawnObj();
 
-        // Updater
         for (let i = this.objects.length - 1; i >= 0; i--) {
             let o = this.objects[i];
-            o.position.z += this.speed * 1.5 + 0.2; // Move em direção à câmera
+            o.position.z += this.speed * 1.5 + 0.2;
 
-            // Colisão (AABB simples)
             if (o.visible && Math.abs(o.position.z - this.player.position.z) < 1.0) {
                 if (Math.abs(o.position.x - this.player.position.x) < 1.0) {
-                    
                     if (o.userData.type === 'bad') {
                         if (this.mode !== 'zen') {
                             Feedback.sfx('crash');
@@ -248,8 +199,6 @@ const Game = {
                     }
                 }
             }
-
-            // Cleanup
             if (o.position.z > 5) {
                 this.scene.remove(o);
                 this.objects.splice(i, 1);
@@ -265,7 +214,6 @@ const Game = {
         const mesh = new THREE.Mesh(geo, mat);
         
         mesh.rotation.x = isBad ? 0 : Math.PI / 2;
-        // Posições de Pista: Esquerda, Centro, Direita
         const lane = [-2.5, 0, 2.5][Math.floor(Math.random() * 3)];
         mesh.position.set(lane, 0.5, -80);
         mesh.userData = { type: isBad ? 'bad' : 'good' };
@@ -274,7 +222,6 @@ const Game = {
         this.objects.push(mesh);
     },
 
-    // --- SYSTEM STATES ---
     togglePause: function(forceState) {
         if (typeof forceState !== 'undefined') this.state = forceState ? 'PAUSE' : 'PLAY';
         else this.state = (this.state === 'PLAY') ? 'PAUSE' : 'PLAY';
@@ -291,5 +238,4 @@ const Game = {
     }
 };
 
-// Ponto de Entrada Seguro
 window.onload = () => Game.init();
