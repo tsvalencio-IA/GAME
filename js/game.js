@@ -1,11 +1,8 @@
 /**
- * thIAguinho Game Engine v12.0 (Gold Master)
- * - Safe Asset Loading
- * - Procedural Fallback
- * - Audio Synthesis
+ * thIAguinho Game Engine v12.0
  */
 
-// --- 1. AUDIO (Sintetizador) ---
+// --- AUDIO (SINTETIZADOR) ---
 const AudioSys = {
     ctx: null,
     init: function() {
@@ -13,35 +10,34 @@ const AudioSys = {
         try {
             window.AudioContext = window.AudioContext || window.webkitAudioContext;
             this.ctx = new AudioContext();
-        } catch(e) {}
+        } catch(e){}
     },
     play: function(type) {
         if(!this.ctx || this.ctx.state === 'suspended') this.ctx?.resume();
         if(!this.ctx) return;
-        
         const t = this.ctx.currentTime;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         
         if(type==='coin') {
             osc.frequency.setValueAtTime(1200, t);
-            osc.frequency.linearRampToValueAtTime(2000, t+0.1);
+            osc.frequency.exponentialRampToValueAtTime(2000, t+0.1);
             gain.gain.setValueAtTime(0.1, t);
-            gain.gain.linearRampToValueAtTime(0, t+0.1);
+            gain.gain.linearRampToValueAtTime(0, t+0.15);
             osc.type = 'sine';
         } else if(type==='crash') {
             osc.frequency.setValueAtTime(100, t);
-            osc.frequency.exponentialRampToValueAtTime(10, t+0.4);
-            gain.gain.setValueAtTime(0.3, t);
-            gain.gain.linearRampToValueAtTime(0, t+0.4);
+            osc.frequency.linearRampToValueAtTime(50, t+0.3);
+            gain.gain.setValueAtTime(0.2, t);
+            gain.gain.linearRampToValueAtTime(0, t+0.3);
             osc.type = 'sawtooth';
         }
         osc.connect(gain); gain.connect(this.ctx.destination);
-        osc.start(); osc.stop(t+0.5);
+        osc.start(); osc.stop(t+0.4);
     }
 };
 
-// --- 2. INPUT ---
+// --- INPUT ---
 const Input = {
     mode: 'TOUCH', x: 0,
     init: function() {
@@ -51,7 +47,7 @@ const Input = {
             e.preventDefault();
             const tx = e.touches[0].clientX / window.innerWidth;
             this.x = (tx - 0.5) * 3.0;
-        }, {passive:false});
+        }, {passive: false});
 
         window.addEventListener('deviceorientation', (e) => {
             if(this.mode === 'TILT') this.x = (e.gamma || 0) / 30;
@@ -72,122 +68,117 @@ const Input = {
         if(m === 'TOUCH') {
             zone.classList.remove('hidden');
         } else if (m === 'BODY') {
-            Engine.setScreen(null); // Limpa
-            calib.classList.remove('hidden'); // Mostra Mira
+            Game.setScreen(null);
+            calib.classList.remove('hidden');
             Vision.start().then(() => {
-                setTimeout(() => { // Simula calibração rápida
-                    calib.classList.add('hidden');
-                }, 2500);
-            }).catch(e => {
-                alert("Câmera indisponível. Usando Toque.");
+                setTimeout(() => { calib.classList.add('hidden'); }, 3000);
+            }).catch(() => {
+                alert("Erro Câmera. Usando Toque.");
                 this.setMode('TOUCH');
             });
         } else if (m === 'TILT') {
             if(typeof DeviceOrientationEvent.requestPermission === 'function') DeviceOrientationEvent.requestPermission();
         }
-        Engine.togglePause(false);
+        Game.togglePause(false);
     },
     update: function() {
         if(this.mode === 'BODY' && Vision.active) {
-            this.x += (Vision.data.x - this.x) * 0.15; // Suavização
+            this.x += (Vision.data.x - this.x) * 0.15;
         }
         this.x = Math.max(-1.5, Math.min(1.5, this.x));
     },
     forceTouch: function() { this.setMode('TOUCH'); }
 };
 
-// --- 3. ENGINE ---
-const Engine = {
+// --- GAME LOGIC ---
+const Game = {
     scene: null, camera: null, renderer: null,
     player: null, floor: null, objects: [],
     state: { playing: false, paused: false, speed: 0, score: 0 },
 
-    bootSystem: function() {
-        // Ponto de entrada do usuário
-        AudioSys.init();
+    boot: function() {
+        AudioSys.init(); // Desbloqueia som
         document.getElementById('screen-boot').classList.add('hidden');
-        this.init3D();
         this.startGame();
     },
 
-    init3D: function() {
+    init: function() {
+        const p = new URLSearchParams(window.location.search);
+        const mode = p.get('mode') || 'kart';
+        
+        // Setup 3D
         const cvs = document.getElementById('game-canvas');
         this.renderer = new THREE.WebGLRenderer({ canvas:cvs, alpha:true, antialias:true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.shadowMap.enabled = true;
-
+        
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0x000000, 10, 60);
-
+        
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
         this.camera.position.set(0, 3, 6);
         this.camera.lookAt(0, 0, -5);
 
         const amb = new THREE.AmbientLight(0xffffff, 0.6);
         const dir = new THREE.DirectionalLight(0xffffff, 1);
-        dir.position.set(5,10,5); dir.castShadow = true;
+        dir.position.set(5,10,5);
         this.scene.add(amb, dir);
 
         this.createWorld();
-        
         Input.init();
-        const p = new URLSearchParams(window.location.search);
-        const mode = p.get('mode') || 'kart';
         
+        // Input Padrão
         if(mode === 'run' || mode === 'zen') Input.setMode('BODY');
         else Input.setMode('TOUCH');
 
+        // Loop
         this.animate();
     },
 
     createWorld: function() {
-        // Tenta carregar textura, senão cria grid
+        // Chão
         const texLoader = new THREE.TextureLoader();
-        texLoader.load('assets/estrada.jpg', (tex) => {
+        texLoader.load('./assets/estrada.jpg', (tex) => {
             tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 20);
             const mat = new THREE.MeshPhongMaterial({ map: tex });
             this.spawnFloor(mat);
-        }, undefined, () => {
-            const mat = new THREE.MeshPhongMaterial({ color: 0x333333 }); // Fallback cinza
+        }, () => {
+            // Fallback se a textura falhar
+            const mat = new THREE.MeshPhongMaterial({ color: 0x333333 });
             this.spawnFloor(mat);
         });
 
-        // Tenta carregar Mascote, senão cria carro procedural
+        // Player (Tenta GLB, senão Procedural)
         const loader = new THREE.GLTFLoader();
         const draco = new THREE.DRACOLoader();
         draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.5/');
         loader.setDRACOLoader(draco);
 
-        loader.load('assets/mascote.glb', (gltf) => {
+        loader.load('./assets/mascote.glb', (gltf) => {
             this.player = gltf.scene;
             this.setupPlayer();
-        }, undefined, () => {
-            this.createProceduralKart(); // FALLBACK INTELIGENTE
+        }, () => {
+            this.createProceduralKart(); // SEGURANÇA MÁXIMA
         });
     },
 
     spawnFloor: function(mat) {
         this.floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 200), mat);
         this.floor.rotation.x = -Math.PI/2; this.floor.position.z = -80;
-        this.floor.receiveShadow = true; this.scene.add(this.floor);
+        this.scene.add(this.floor);
     },
 
     createProceduralKart: function() {
-        // Cria um carro caso o arquivo 3D falhe
         this.player = new THREE.Group();
         const body = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2), new THREE.MeshPhongMaterial({color: 0x00bebd}));
-        body.position.y = 0.5; body.castShadow = true;
-        
-        const wMat = new THREE.MeshBasicMaterial({color:0x222});
+        body.position.y = 0.5;
         const wGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
-        const pos = [[0.6, 0.3, 0.8], [-0.6, 0.3, 0.8], [0.6, 0.3, -0.8], [-0.6, 0.3, -0.8]];
+        const wMat = new THREE.MeshBasicMaterial({color:0x222});
         
-        pos.forEach(p => {
+        [ [0.6,0.3,0.8], [-0.6,0.3,0.8], [0.6,0.3,-0.8], [-0.6,0.3,-0.8] ].forEach(pos => {
             const w = new THREE.Mesh(wGeo, wMat);
-            w.rotation.z = Math.PI/2; w.position.set(...p);
+            w.rotation.z = Math.PI/2; w.position.set(...pos);
             this.player.add(w);
         });
-        
         this.setupPlayer();
     },
 
@@ -195,6 +186,10 @@ const Engine = {
         this.player.position.set(0, 0, -2);
         this.player.rotation.y = Math.PI;
         this.scene.add(this.player);
+        // Libera botão de start
+        document.querySelector('.loader').classList.add('hidden');
+        document.getElementById('boot-status').innerText = "Pronto.";
+        document.getElementById('btn-start').classList.remove('hidden');
     },
 
     startGame: function() {
@@ -209,7 +204,7 @@ const Engine = {
 
         Input.update();
 
-        // Lógica
+        // Velocidade
         if(this.state.speed < 1.2) this.state.speed += 0.001;
         
         if(this.player) {
@@ -220,7 +215,6 @@ const Engine = {
 
         if(this.floor && this.floor.material.map) this.floor.material.map.offset.y -= this.state.speed * 0.05;
 
-        // Obstáculos
         if(Math.random() < 0.02) this.spawnObj();
         this.manageObjects();
 
@@ -285,8 +279,5 @@ const Engine = {
     }
 };
 
-window.onload = () => {
-    document.querySelector('.spinner').classList.add('hidden');
-    document.getElementById('boot-status').innerText = "Sistema Pronto.";
-    document.getElementById('btn-start').classList.remove('hidden');
-};
+// Inicialização segura corrigida: Chama Game.init()
+window.onload = () => Game.init();
