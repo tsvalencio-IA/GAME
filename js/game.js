@@ -1,462 +1,295 @@
 /**
- * thIAguinho Game Engine v24.0 (FIXED & COMPLETE)
- * Architecture: Nintendo Style AR (Passthrough)
+ * NEO-WII Game Engine v25.0 (Golden Master)
+ * Arquitetura: SPA / Loop Unificado / Three.js
  */
 
-const AudioSys = {
-    ctx: null,
-    init: function() {
-        window.AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AudioContext();
-    },
-    play: function(type) {
-        if(!this.ctx) return;
-        if(this.ctx.state === 'suspended') this.ctx.resume();
-        
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        const t = this.ctx.currentTime;
-        
-        osc.connect(gain); 
-        gain.connect(this.ctx.destination);
-        
-        if (type === 'start') {
-            osc.frequency.setValueAtTime(440, t); 
-            osc.frequency.exponentialRampToValueAtTime(880, t+0.4);
-            gain.gain.setValueAtTime(0.1, t); 
-            gain.gain.linearRampToValueAtTime(0, t+0.4);
-            osc.type = 'sine';
-            this.vibrate(50);
-        } else if (type === 'coin') {
-            osc.frequency.setValueAtTime(1200, t); 
-            osc.frequency.linearRampToValueAtTime(1800, t+0.08);
-            gain.gain.setValueAtTime(0.08, t); 
-            gain.gain.linearRampToValueAtTime(0, t+0.08);
-            osc.type = 'square';
-        } else if (type === 'crash') {
-            osc.frequency.setValueAtTime(150, t); 
-            osc.frequency.exponentialRampToValueAtTime(10, t+0.4);
-            gain.gain.setValueAtTime(0.2, t); 
-            gain.gain.exponentialRampToValueAtTime(0.01, t+0.4);
-            osc.type = 'sawtooth';
-            this.vibrate([30, 50, 30]);
-        }
-        osc.start(); 
-        osc.stop(t + 0.5);
-    },
-    vibrate: function(pattern) {
-        if (navigator.vibrate) navigator.vibrate(pattern);
-    }
-};
-
-const Input = {
-    x: 0, y: 0, 
-    lastY: 0, lastTime: 0,
-    velocityY: 0,
-    source: 'TOUCH',
-
-    init: function() {
-        const zone = document.getElementById('touch-controls');
-        if(zone) {
-            zone.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                this.source = 'TOUCH';
-                // Mapeia toque: Centro da tela = 0
-                this.x = ((e.touches[0].clientX / window.innerWidth) - 0.5) * 3.0;
-            }, {passive: false});
-            
-            zone.addEventListener('touchend', () => { 
-                if(this.source==='TOUCH') this.x = 0; 
-            });
-        }
-        
-        // Tilt Setup (Permissão é pedida no Boot do Game)
-        window.addEventListener('deviceorientation', (e) => {
-            if(this.source === 'TOUCH') return;
-            // Se o modo for CAM, a câmera sobrepõe o tilt
-            if(this.source === 'CAM') return;
-            
-            this.source = 'TILT';
-            this.x = (e.gamma || 0) / 20;
-        });
-        
-        this.lastTime = Date.now();
-    },
-
-    // --- CORREÇÃO 2: forceMode EXISTENTE ---
-    forceMode: function(mode) {
-        this.source = mode;
-        console.log("Input Mode Forçado:", mode);
-        
-        if(mode === 'CAM') {
-            Vision.start().catch(console.error);
-        } else {
-            Vision.stop();
-        }
-        
-        // Fecha o menu de pause ao selecionar
-        Game.togglePause(false);
-    },
-
-    update: function(mode) {
-        // Prioridade: Câmera > Tilt > Toque (se Câmera estiver ativa e detectando)
-        if (Vision.active && Vision.data.presence) {
-            this.source = 'CAM';
-            
-            // Smoothing Dinâmico
-            const lerp = (mode === 'zen') ? 0.05 : 0.2;
-            this.x += (Vision.data.x - this.x) * lerp;
-            this.y += (Vision.data.y - this.y) * lerp;
-
-            // Física de Esforço (Delta Y) para modo Run
-            const now = Date.now();
-            const dt = now - this.lastTime;
-            
-            if (dt > 60) { 
-                const rawDelta = Math.abs(Vision.raw.y - this.lastY);
-                const effectiveDelta = (rawDelta > 0.03) ? rawDelta : 0;
-                
-                // Ease-Out Curve (Esforço não linear)
-                const effort = Math.min(1.0, effectiveDelta * 5); 
-                const curvedEffort = 1 - Math.pow(1 - effort, 2);
-                
-                this.velocityY = curvedEffort * 1.5; 
-                this.lastY = Vision.raw.y;
-                this.lastTime = now;
-            }
-        } else {
-            // Fallback físico
-            this.x = Math.max(-1.5, Math.min(1.5, this.x));
-            this.velocityY = 0.5; // Auto-run se não tiver câmera
-        }
-    }
-};
-
 const Game = {
+    // Configuração e Estado
     mode: 'kart',
-    running: false, paused: false,
-    score: 0, speed: 0,
+    state: 'BOOT', // BOOT, PLAY, PAUSE, OVER
+    score: 0,
+    speed: 0,
+    
+    // Three.js Core
     scene: null, camera: null, renderer: null,
     player: null, floor: null, objects: [],
     
     // Telemetria
-    debugClickCount: 0,
-    fps: 0, frames: 0, lastFpsTime: 0,
+    clock: new THREE.Clock(),
 
-    // --- CORREÇÃO 1: INIT COMPLETO E SEGURO ---
     init: function() {
-        // PWA Check
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(e => console.log("SW Error:", e));
-        }
+        // 1. Setup PWA Service Worker
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 
-        const p = new URLSearchParams(window.location.search);
-        this.mode = p.get('mode') || 'kart';
-        
-        // Configuração de Títulos
-        const config = { 
-            'kart': { t: 'TURBO KART', msg: 'Use o celular como volante' }, 
-            'run':  { t: 'MARATHON',  msg: 'Corra no lugar (Pule/Agache)' }, 
-            'zen':  { t: 'ZEN GLIDER',msg: 'Incline a cabeça para flutuar' } 
+        // 2. Parse URL Mode
+        const params = new URLSearchParams(window.location.search);
+        this.mode = params.get('mode') || 'kart';
+
+        // 3. UI Setup (Textos Dinâmicos)
+        const config = {
+            'kart': { t: 'TURBO KART', msg: 'Use o celular como volante.' },
+            'run':  { t: 'MARATHON',  msg: 'Corra no lugar para mover.' },
+            'zen':  { t: 'ZEN GLIDER',msg: 'Incline o corpo para flutuar.' }
         };
-        
-        const modeConfig = config[this.mode] || config['kart'];
-        
-        const titleEl = document.getElementById('game-title');
-        if(titleEl) titleEl.innerText = modeConfig.t;
-        
-        const msgEl = document.getElementById('boot-msg');
-        if(msgEl) msgEl.innerText = modeConfig.msg;
-        
-        // Inicializa Vision (mas não liga câmera ainda)
-        if(typeof Vision !== 'undefined') Vision.init();
-        
-        // Botão Play aparece
-        const btn = document.getElementById('btn-start');
-        if(btn) btn.classList.remove('hidden');
-        
-        // Debug Secret
-        const scoreBoard = document.querySelector('.score-board');
-        if(scoreBoard) {
-            scoreBoard.addEventListener('click', () => {
-                this.debugClickCount++;
-                if(this.debugClickCount === 5) this.toggleDebug();
-            });
-        }
+        const c = config[this.mode];
+        document.getElementById('game-title').innerText = c.t;
+        document.getElementById('boot-msg').innerText = c.msg;
 
-        this.setup3D();
-        this.lastFpsTime = performance.now();
+        // 4. Inicializa Subsistemas (Sem ligar hardware ainda)
+        Vision.init();
+        Input.init();
+
+        // 5. Setup 3D
+        this.setupGraphics();
+
+        // 6. Libera Botão de Start
+        document.getElementById('btn-start').classList.remove('hidden');
     },
 
-    setup3D: function() {
-        const cvs = document.getElementById('game-canvas');
-        // ALPHA: TRUE é crucial para o AR funcionar (fundo transparente)
-        this.renderer = new THREE.WebGLRenderer({ canvas:cvs, alpha:true, antialias:true });
+    setupGraphics: function() {
+        const canvas = document.getElementById('game-canvas');
+        
+        // Renderizador Transparente (Crucial para AR)
+        this.renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        this.renderer.setClearColor(0x000000, 0); // Transparente!
-
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap em 2x para performance
+        
         this.scene = new THREE.Scene();
-        // Neblina para profundidade
+        // Fog esconde o "fim do mundo" e dá profundidade
         this.scene.fog = new THREE.FogExp2(0x000000, 0.02);
 
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+        // Câmera Dinâmica
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
         this.camera.position.set(0, 3, 6);
-        this.camera.lookAt(0, 0, -5);
+        this.camera.lookAt(0, 0, -4);
 
+        // Iluminação
         const amb = new THREE.AmbientLight(0xffffff, 0.6);
-        const dir = new THREE.DirectionalLight(0xffffff, 1);
-        dir.position.set(10, 20, 10);
+        const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+        dir.position.set(5, 10, 7);
         this.scene.add(amb, dir);
 
-        this.createWorld();
+        this.buildWorld();
     },
 
-    createWorld: function() {
+    buildWorld: function() {
+        // Assets Procedurais ou Carregados
         const texLoader = new THREE.TextureLoader();
-        // Carrega Textura ou usa Cor Sólida
+        
+        // Chão Infinito (Textura em Loop)
         texLoader.load('./assets/estrada.jpg', (tex) => {
             tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
             tex.repeat.set(1, 20);
-            this.spawnFloor(new THREE.MeshPhongMaterial({map:tex}));
+            this.spawnFloor(new THREE.MeshPhongMaterial({ map: tex }));
         }, null, () => {
-            this.spawnFloor(new THREE.MeshPhongMaterial({color:0x333}));
+            // Fallback elegante
+            this.spawnFloor(new THREE.MeshPhongMaterial({ color: 0x222222 }));
         });
 
-        // Carrega Modelo ou usa Cubo
-        const loader = new THREE.GLTFLoader();
-        loader.load('./assets/mascote.glb', (gltf) => {
+        // Player (Mascote)
+        const gltfLoader = new THREE.GLTFLoader();
+        gltfLoader.load('./assets/mascote.glb', (gltf) => {
             this.player = gltf.scene;
-            this.setupPlayer();
+            this.setupPlayerMesh();
         }, null, () => {
-            this.player = new THREE.Mesh(new THREE.BoxGeometry(1,0.5,2), new THREE.MeshPhongMaterial({color:0x00bebd}));
-            this.setupPlayer();
+            // Fallback Geométrico (Cubo de Teste)
+            this.player = new THREE.Mesh(new THREE.BoxGeometry(1, 0.5, 2), new THREE.MeshPhongMaterial({ color: 0x00bebd }));
+            this.setupPlayerMesh();
         });
     },
 
     spawnFloor: function(mat) {
-        // Plano da estrada
         this.floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 200), mat);
-        this.floor.rotation.x = -Math.PI/2; 
+        this.floor.rotation.x = -Math.PI / 2;
         this.floor.position.z = -80;
         this.scene.add(this.floor);
     },
 
-    setupPlayer: function() {
+    setupPlayerMesh: function() {
         this.player.position.set(0, 0, 0);
-        this.player.rotation.y = Math.PI;
+        this.player.rotation.y = Math.PI; // De costas para câmera
         this.scene.add(this.player);
     },
 
+    // --- BOOT SEQUENCE (A "Correia de Segurança" do Wii) ---
     startRequest: function() {
-        // Desbloqueia Audio e Contextos
-        AudioSys.init();
-        AudioSys.play('start');
-        Input.init();
+        // 1. Inicializa Audio Context (User Gesture)
+        Feedback.init();
+        Feedback.sfx('start');
 
-        // Permissão iOS Tilt
-        if (this.mode === 'kart' && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            DeviceOrientationEvent.requestPermission().catch(console.warn);
-        }
-
+        // 2. Solicita Hardware
         if (this.mode === 'kart') {
-            this.finishBoot();
+            Input.requestTiltPermission().then(() => this.launch());
         } else {
-            // Modos de Câmera (Run/Zen)
-            Vision.start().then(ok => {
-                if(ok) {
-                    Vision.calibrate(); 
-                    this.finishBoot();
+            // Run/Zen usam Câmera
+            Vision.start().then(success => {
+                if (success) {
+                    Vision.calibrate(); // Inicia calibração silenciosa
+                    this.launch();
                 } else {
-                    alert("Câmera indisponível. Alternando para Toque.");
+                    alert("Câmera indisponível. Alternando para modo Toque.");
                     Input.source = 'TOUCH';
-                    this.finishBoot();
+                    this.launch();
                 }
             });
         }
     },
 
-    finishBoot: function() {
-        const bootScreen = document.getElementById('screen-boot');
-        if(bootScreen) bootScreen.classList.add('hidden');
+    launch: function() {
+        // Transição de UI
+        document.getElementById('screen-boot').classList.add('hidden');
+        document.getElementById('hud-layer').classList.remove('hidden');
         
-        const hud = document.getElementById('hud-layer');
-        if(hud) hud.classList.remove('hidden');
-        
-        this.running = true;
-        this.animate();
+        this.state = 'PLAY';
+        this.score = 0;
+        this.speed = 0;
+        this.loop();
     },
 
-    animate: function() {
-        requestAnimationFrame(() => this.animate());
-        if(!this.running || this.paused) return;
+    // --- MAIN GAME LOOP ---
+    loop: function() {
+        requestAnimationFrame(() => this.loop());
+        
+        const delta = this.clock.getDelta();
 
-        // FPS Calc
-        const now = performance.now();
-        this.frames++;
-        if (now >= this.lastFpsTime + 1000) {
-            this.fps = this.frames;
-            this.frames = 0;
-            this.lastFpsTime = now;
-        }
+        if (this.state !== 'PLAY') return;
 
+        // 1. INPUT PHASE
         Input.update(this.mode);
 
-        // State Machine dos Modos
-        if(this.mode === 'kart') this.updateKart();
-        else if(this.mode === 'run') this.updateRun();
-        else if(this.mode === 'zen') this.updateZen();
+        // 2. LOGIC PHASE (Modo Específico)
+        if (this.mode === 'kart') this.logicKart(delta);
+        else if (this.mode === 'run') this.logicRun(delta);
+        else if (this.mode === 'zen') this.logicZen(delta);
 
-        // Movimento do Chão
-        if(this.floor && this.floor.material.map) {
+        // 3. WORLD PHASE
+        // Mover Chão (Ilusão de velocidade)
+        if (this.floor && this.floor.material.map) {
             this.floor.material.map.offset.y -= this.speed * 0.05;
         }
 
-        this.renderPhysics();
+        // Mover Player (Interpolação para suavidade)
+        if (this.player) {
+            const targetX = Input.steering * 3.5; // Largura da pista
+            
+            // Lerp para movimento lateral (Suaviza inputs bruscos)
+            this.player.position.x += (targetX - this.player.position.x) * 0.1;
+            
+            // Banking (Inclinação do carro/corpo nas curvas)
+            this.player.rotation.z = -(this.player.position.x * 0.25);
+            this.player.rotation.y = Math.PI; // Mantém frente
+            
+            // Zen Mode Float
+            if (this.mode === 'zen') {
+                this.player.position.y = 1 + Input.action * 1.5;
+            }
+        }
+
+        // 4. OBSTACLE PHASE
         this.manageObstacles();
-        this.updateTelemetry();
-        
+
+        // 5. RENDER PHASE
         this.renderer.render(this.scene, this.camera);
     },
 
-    updateKart: function() {
-        // Aceleração constante
-        if(this.speed < 1.0) this.speed += 0.005;
+    // --- LÓGICA DE MODOS ---
+    
+    logicKart: function(dt) {
+        // Aceleração linear arcade
+        const targetSpeed = Input.throttle;
+        this.speed += (targetSpeed - this.speed) * 0.02; // Aceleração gradual
         this.score += Math.round(this.speed * 10);
     },
 
-    updateRun: function() {
-        // Velocidade baseada no esforço físico
-        const target = Input.velocityY; 
-        this.speed += (target - this.speed) * 0.05; // Lerp
+    logicRun: function(dt) {
+        // Velocidade baseada na física do esforço (Input.throttle vem da Vision Delta)
+        const targetSpeed = Input.throttle;
         
-        // Clamps
-        if(this.speed > 1.2) this.speed = 1.2;
-        if(this.speed < 0.0) this.speed = 0.0;
+        // Inércia: Demora para acelerar, demora para parar
+        this.speed += (targetSpeed - this.speed) * 0.05;
+        
+        // Clamp
+        if (this.speed > 1.2) this.speed = 1.2;
+        if (this.speed < 0) this.speed = 0;
         
         this.score += Math.round(this.speed * 20);
     },
 
-    updateZen: function() {
-        // Velocidade calma constante
-        this.speed = 0.4;
+    logicZen: function(dt) {
+        this.speed = 0.4; // Velocidade constante de cruzeiro
         this.score += 1;
-        
-        // Flutuação Zen (Senoide + Input Y)
-        if(this.player) {
-            const bias = 1.0 + (Input.y * 1.5);
-            const breathe = Math.sin(Date.now() / 800) * 0.2; 
-            this.player.position.y += ((bias + breathe) - this.player.position.y) * 0.05;
-        }
-    },
-
-    renderPhysics: function() {
-        if(!this.player) return;
-        
-        // Movimento Lateral
-        const targetX = Input.x * 3.5;
-        this.player.position.x += (targetX - this.player.position.x) * 0.1;
-        
-        // Inclinação Visual (Banking)
-        this.player.rotation.z = -(this.player.position.x * 0.2); 
-        this.player.rotation.y = Math.PI;
+        // Zen foca em coletar orbs, lógica tratada em manageObstacles
     },
 
     manageObstacles: function() {
-        // Spawn Aleatório
-        if(Math.random() < 0.02 && this.speed > 0.2) this.spawnObj();
+        // Spawner
+        if (Math.random() < 0.02 && this.speed > 0.1) this.spawnObj();
 
-        for(let i=this.objects.length-1; i>=0; i--) {
+        // Updater
+        for (let i = this.objects.length - 1; i >= 0; i--) {
             let o = this.objects[i];
-            o.position.z += this.speed * 1.5 + 0.2;
+            o.position.z += this.speed * 1.5 + 0.2; // Move em direção à câmera
 
-            // Colisão
-            if(o.visible && Math.abs(o.position.z - this.player.position.z) < 1.0) {
-                if(Math.abs(o.position.x - this.player.position.x) < 1.2) {
-                    if(o.userData.type === 'bad') {
-                        if(this.mode !== 'zen') { 
-                            AudioSys.play('crash'); 
-                            this.gameOver(); 
+            // Colisão (AABB simples)
+            if (o.visible && Math.abs(o.position.z - this.player.position.z) < 1.0) {
+                if (Math.abs(o.position.x - this.player.position.x) < 1.0) {
+                    
+                    if (o.userData.type === 'bad') {
+                        if (this.mode !== 'zen') {
+                            Feedback.sfx('crash');
+                            Feedback.rumble('impact');
+                            this.gameOver();
                         }
                     } else {
-                        AudioSys.play('coin'); 
-                        this.score += 500; 
+                        Feedback.sfx('coin');
+                        Feedback.rumble('bump');
+                        this.score += 500;
                         o.visible = false;
                     }
                 }
             }
-            // Limpeza
-            if(o.position.z > 5) { 
-                this.scene.remove(o); 
-                this.objects.splice(i,1); 
+
+            // Cleanup
+            if (o.position.z > 5) {
+                this.scene.remove(o);
+                this.objects.splice(i, 1);
             }
         }
-        
-        const scoreEl = document.getElementById('score-val');
-        if(scoreEl) scoreEl.innerText = this.score;
+        document.getElementById('score-val').innerText = this.score;
     },
 
     spawnObj: function() {
         const isBad = Math.random() > 0.3;
         const geo = isBad ? new THREE.ConeGeometry(0.5, 1, 16) : new THREE.TorusGeometry(0.4, 0.1, 8, 16);
-        const mat = new THREE.MeshPhongMaterial({color: isBad ? 0xff4444 : 0xffd700});
+        const mat = new THREE.MeshPhongMaterial({ color: isBad ? 0xff4444 : 0xffd700 });
         const mesh = new THREE.Mesh(geo, mat);
         
-        mesh.rotation.x = isBad ? 0 : Math.PI/2;
-        mesh.position.set([-2.5, 0, 2.5][Math.floor(Math.random()*3)], 0.5, -80);
-        mesh.userData = {type: isBad ? 'bad' : 'good'};
-        this.scene.add(mesh); 
+        mesh.rotation.x = isBad ? 0 : Math.PI / 2;
+        // Posições de Pista: Esquerda, Centro, Direita
+        const lane = [-2.5, 0, 2.5][Math.floor(Math.random() * 3)];
+        mesh.position.set(lane, 0.5, -80);
+        mesh.userData = { type: isBad ? 'bad' : 'good' };
+        
+        this.scene.add(mesh);
         this.objects.push(mesh);
     },
 
+    // --- SYSTEM STATES ---
     togglePause: function(forceState) {
-        if (typeof forceState !== 'undefined') {
-            this.paused = forceState;
-        } else {
-            this.paused = !this.paused;
-        }
-        
-        const s = document.getElementById('screen-pause');
-        if(s) {
-            if(this.paused) s.classList.remove('hidden'); 
-            else s.classList.add('hidden');
-        }
+        if (typeof forceState !== 'undefined') this.state = forceState ? 'PAUSE' : 'PLAY';
+        else this.state = (this.state === 'PLAY') ? 'PAUSE' : 'PLAY';
+
+        const el = document.getElementById('screen-pause');
+        if (this.state === 'PAUSE') el.classList.remove('hidden');
+        else el.classList.add('hidden');
     },
 
     gameOver: function() {
-        this.running = false;
-        const finalScoreEl = document.getElementById('final-score');
-        if(finalScoreEl) finalScoreEl.innerText = this.score;
-        
-        const overScreen = document.getElementById('screen-over');
-        if(overScreen) overScreen.classList.remove('hidden');
-    },
-
-    toggleDebug: function() {
-        this.debugMode = !this.debugMode;
-        let d = document.getElementById('debug-overlay');
-        if(!d) {
-            d = document.createElement('div');
-            d.id = 'debug-overlay';
-            d.style.cssText = "position:absolute; top:80px; left:10px; color:#0f0; font-family:monospace; font-size:12px; background:rgba(0,0,0,0.8); padding:10px; pointer-events:none; z-index:100;";
-            document.body.appendChild(d);
-        }
-        d.style.display = this.debugMode ? 'block' : 'none';
-    },
-
-    updateTelemetry: function() {
-        if(!this.debugMode) return;
-        const d = document.getElementById('debug-overlay');
-        if(d) {
-            d.innerHTML = `
-                MODE: ${this.mode.toUpperCase()}<br>
-                SRC: ${Input.source}<br>
-                FPS: ${this.fps}<br>
-                X: ${Input.x.toFixed(2)}<br>
-                V: ${Input.velocityY.toFixed(2)}
-            `;
-        }
+        this.state = 'OVER';
+        document.getElementById('final-score').innerText = this.score;
+        document.getElementById('screen-over').classList.remove('hidden');
     }
 };
 
+// Ponto de Entrada Seguro
 window.onload = () => Game.init();
