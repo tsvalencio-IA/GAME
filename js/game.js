@@ -1,8 +1,9 @@
 /**
- * thIAguinho Game Engine v9.2 — "FEEL IT IN YOUR BONES"
- * Objetivo: Fazer o jogador sorrir ao coletar a primeira moeda.
+ * thIAguinho Game Engine v9.3 — "Nintendo Spirit"
+ * Objetivo: Fazer o jogador sorrir ao abrir, vibrar ao tocar, e se emocionar ao jogar.
  */
 
+// === SOUND SYSTEM ===
 const AudioSys = {
     ctx: null,
     init() {
@@ -41,7 +42,7 @@ const AudioSys = {
     }
 };
 
-// === FEEDBACK VISUAL DINÂMICO ===
+// === VISUAL FEEDBACK SYSTEM ===
 const FX = {
     create(pos, type) {
         const el = document.createElement('div');
@@ -79,14 +80,12 @@ const FX = {
     }
 };
 
-// === COMBO SYSTEM (RITMO + RECOMPENSA) ===
+// === COMBO SYSTEM ===
 const Combo = {
     count: 0,
     timer: null,
-    streak: 0,
     add() {
         this.count++;
-        this.streak++;
         FX.create({x: 0, y: 0}, 'combo');
         AudioSys.sfx.combo(Math.min(this.count, 5));
         if (this.timer) clearTimeout(this.timer);
@@ -94,11 +93,10 @@ const Combo = {
     },
     reset() {
         this.count = 0;
-        this.streak = 0;
     }
 };
 
-// === PARTICLE SYSTEM (LEVE + DIRECIONAL) ===
+// === PARTICLE SYSTEM ===
 const Particles = {
     list: [],
     create(pos, color, count = 10, direction = new THREE.Vector3(0, 1, 0)) {
@@ -147,7 +145,7 @@ const Particles = {
     }
 };
 
-// === INPUT ===
+// === INPUT SYSTEM ===
 const Input = {
     mode: 'TOUCH',
     x: 0,
@@ -312,7 +310,6 @@ const Engine = {
     },
 
     updateGameLogic() {
-        // Ritmo acelerado: velocidade aumenta com tempo
         if (this.mode === 'kart') {
             this.state.speed = 0.4 + this.state.time * 0.08;
             this.state.score += Math.floor(this.state.speed * 10);
