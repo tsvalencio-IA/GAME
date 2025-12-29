@@ -1,7 +1,7 @@
 /**
- * NEO-WII Game Engine v27.0 (UX FIXED)
- * Status: WAITING FOR PLAYER
- * Fixes: Auto-start removed. Explicit Start Ritual implemented.
+ * NEO-WII Game Engine v27.1 (NINTENDO FEEL CERTIFIED)
+ * Status: FINAL RELEASE 🟢
+ * Fixes: Immediate Gameplay Loop (Kickstart & Instant Spawn).
  */
 
 const AudioSys = {
@@ -12,7 +12,6 @@ const AudioSys = {
         this.ctx = new AudioContext();
     },
     play: function(type) {
-        // Tenta iniciar contexto se não existir (no clique do usuário)
         if(!this.ctx) this.init();
         if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
         if(!this.ctx) return;
@@ -29,7 +28,7 @@ const AudioSys = {
             gain.gain.setValueAtTime(0.1, t); 
             gain.gain.linearRampToValueAtTime(0, t+0.4);
             osc.type = 'sine';
-            this.vibrate(100); // Vibração longa de confirmação
+            this.vibrate(100);
         } else if (type === 'coin') {
             osc.frequency.setValueAtTime(1200, t); 
             osc.frequency.linearRampToValueAtTime(1800, t+0.08);
@@ -54,7 +53,6 @@ const AudioSys = {
 const Input = {
     x: 0, y: 0, steering: 0, throttle: 0.5, action: 0,
     lastY: 0, lastTime: 0, velocityY: 0, source: 'TOUCH',
-    // Constantes de suavização
     SMOOTHING: { kart: 0.18, run: 0.22, zen: 0.06 },
 
     init: function() {
@@ -66,19 +64,16 @@ const Input = {
                 this.x = ((e.touches[0].clientX / window.innerWidth) - 0.5) * 3.0;
                 this.throttle = 1.0;
             }, {passive: false});
-            
             zone.addEventListener('touchend', () => { 
                 if(this.source==='TOUCH') { this.x = 0; } 
             });
         }
-        
         window.addEventListener('deviceorientation', (e) => {
             if(this.source === 'TOUCH' || this.source === 'CAM') return;
             this.source = 'TILT';
             this.x = (e.gamma || 0) / 20;
             this.throttle = 1.0;
         });
-        
         this.lastTime = Date.now();
     },
 
@@ -121,7 +116,6 @@ const Input = {
             else if(this.source === 'TILT') this.throttle = 1.0;
         }
 
-        // EMA Smoothing
         const alpha = this.SMOOTHING[mode] || 0.15;
         this.steering += (rawSteering - this.steering) * alpha;
         
@@ -146,7 +140,6 @@ const Game = {
         const p = new URLSearchParams(window.location.search);
         this.mode = p.get('mode') || 'kart';
         
-        // 1. Configura UI de Boot
         const config = { 
             'kart': { t: 'TURBO KART', msg: 'Toque para Iniciar' }, 
             'run':  { t: 'MARATHON',  msg: 'Toque para Iniciar' }, 
@@ -158,29 +151,21 @@ const Game = {
             document.getElementById('boot-msg').innerText = c.msg;
         }
         
-        // 2. Prepara Motor (Mas não liga)
         if(typeof Vision !== 'undefined') Vision.init();
         if(typeof Input !== 'undefined') Input.init();
         
-        // 3. Prepara Gráficos (Renderiza o primeiro frame estático)
         this.setup3D();
         
-        // 4. MOSTRA O BOTÃO DE START (O Convite)
-        // Remove loaders, spinners, e deixa o botão visível
         const btn = document.getElementById('btn-start');
         if(btn) btn.classList.remove('hidden');
-        
         const bootScreen = document.getElementById('screen-boot');
         if(bootScreen) bootScreen.classList.remove('hidden');
 
-        // Debug trigger
         const board = document.querySelector('.score-board');
         if(board) board.addEventListener('click', () => {
             this.debugClickCount++;
             if(this.debugClickCount === 5) this.toggleDebug();
         });
-        
-        // NOTA: Não chamamos forceStart() aqui. O HTML chama startRequest() no clique.
     },
 
     setup3D: function() {
@@ -205,8 +190,6 @@ const Game = {
         this.scene.add(amb, dir);
 
         this.createWorld();
-        
-        // Renderiza um frame inicial para não ficar tela preta
         this.renderer.render(this.scene, this.camera);
     },
 
@@ -239,21 +222,15 @@ const Game = {
         this.player.position.set(0, 0, 0);
         this.player.rotation.y = Math.PI;
         this.scene.add(this.player);
-        // Render de atualização
         if(this.renderer && this.scene && this.camera) 
             this.renderer.render(this.scene, this.camera);
     },
 
-    // --- O RITUAL DE INÍCIO (Chamado pelo botão) ---
     startRequest: function() {
         console.log("👆 Player Clicked Start");
-        
-        // 1. Feedback Imediato (Som + Vibração)
-        // Isso confirma que o jogo "sentiu" o toque
-        AudioSys.init(); // Garante contexto no clique
+        AudioSys.init(); 
         AudioSys.play('start');
 
-        // 2. Solicita Hardware
         if (this.mode === 'kart') {
             if(typeof Input.requestTiltPermission === 'function') {
                 Input.requestTiltPermission().then(() => this.forceStart());
@@ -261,17 +238,10 @@ const Game = {
                 this.forceStart();
             }
         } else {
-            // Run/Zen usam Câmera
             if(typeof Vision !== 'undefined') {
                 Vision.start().then(ok => {
-                    if(ok) {
-                        Vision.resetCalibration(); 
-                        this.forceStart();
-                    } else {
-                        alert("Câmera bloqueada. Usando Toque.");
-                        Input.source = 'TOUCH';
-                        this.forceStart();
-                    }
+                    if(ok) { Vision.resetCalibration(); this.forceStart(); } 
+                    else { alert("Câmera bloqueada. Usando Toque."); Input.source = 'TOUCH'; this.forceStart(); }
                 });
             } else {
                 this.forceStart();
@@ -279,23 +249,26 @@ const Game = {
         }
     },
 
+    // --- GAME FEEL MAGIC: KICKSTART ---
     forceStart: function() {
-        // Transição Visual
         const boot = document.getElementById('screen-boot');
         if(boot) boot.classList.add('hidden');
         
         const hud = document.getElementById('hud-layer');
         if(hud) hud.classList.remove('hidden');
 
-        // Injeção de Estado
         this.state = 'PLAY';
         this.score = 0;
-        this.speed = 0.3; // Velocidade inicial para "Kick" visual
         
+        // 1. Kickstart de Velocidade (Arranque)
+        // Começa rápido para dar feedback visual, depois estabiliza na física
+        this.speed = 0.8; 
+        
+        // 2. Primeiro Obstáculo Garantido (Objetivo Imediato)
+        this.spawnObj();
+
         this.playerVelX = 0;
         this.fatigue = 0;
-        
-        // Inicia Loop Real
         this.lastFpsTime = performance.now();
         this.loop();
     },
@@ -311,7 +284,6 @@ const Game = {
         const dt = delta * 60; 
 
         if (this.state !== 'PLAY') {
-            // Se pausado ou em boot, renderiza mas não roda lógica
             if(this.renderer) this.renderer.render(this.scene, this.camera);
             return;
         }
@@ -327,7 +299,6 @@ const Game = {
             this.floor.material.map.needsUpdate = true;
         }
 
-        // SPRING-DAMPER PHYSICS
         if (this.player && typeof Input !== 'undefined') {
             const targetX = Input.steering * 3.5;
             const STIFFNESS = 0.18 * dt; 
@@ -350,6 +321,7 @@ const Game = {
     logicKart: function(dt) {
         const rawThrottle = Input.throttle;
         const curvedThrottle = this.powerCurve(rawThrottle);
+        // Aceleração normal após o kickstart inicial
         this.speed += (curvedThrottle - this.speed) * (0.02 * dt);
         this.score += Math.round(this.speed * 10 * dt);
     },
