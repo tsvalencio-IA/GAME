@@ -1,17 +1,17 @@
-/**
- * thIAguinho Game Engine v10.0 (Juice & VFX)
- * - Partículas, Camera Shake, FOV Dinâmico e Combos.
- */
-
 // --- SOUND MANAGER ---
 const AudioSys = {
     ctx: null,
     init: function() {
-        try { window.AudioContext = window.AudioContext || window.webkitAudioContext; this.ctx = new AudioContext(); } catch(e){}
+        if(this.ctx) return;
+        try {
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+        } catch(e){}
+    },
+    resume: function() {
+        if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
     },
     playTone: function(freq, type, duration) {
-        if(!this.ctx) this.init();
-        if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
         if(!this.ctx) return;
         const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
         osc.type = type; osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
@@ -21,57 +21,38 @@ const AudioSys = {
         osc.start(); osc.stop(this.ctx.currentTime + duration);
     },
     sfx: {
-        coin: () => { AudioSys.playTone(1500, 'sine', 0.1); setTimeout(()=>AudioSys.playTone(2000, 'sine', 0.1), 80); },
+        coin: () => { AudioSys.playTone(1200, 'sine', 0.1); setTimeout(()=>AudioSys.playTone(1800, 'sine', 0.1), 80); },
         crash: () => AudioSys.playTone(100, 'sawtooth', 0.4),
-        start: () => AudioSys.playTone(600, 'square', 0.5),
         tap: () => AudioSys.playTone(400, 'triangle', 0.05)
     }
 };
 
-// --- PARTICLE SYSTEM (NOVO) ---
+// --- PARTICLE SYSTEM ---
 const ParticleSys = {
-    particles: [],
-    scene: null,
-    
+    particles: [], scene: null,
     init: function(scene) { this.scene = scene; },
-    
     spawn: function(pos, color) {
-        // Cria 8 partículas por explosão
+        if(!this.scene) return;
         for(let i=0; i<8; i++) {
-            const geo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
-            const mat = new THREE.MeshBasicMaterial({ color: color });
-            const mesh = new THREE.Mesh(geo, mat);
-            
-            mesh.position.copy(pos);
-            // Velocidade aleatória de explosão
-            mesh.userData = {
-                vel: new THREE.Vector3((Math.random()-0.5)*0.5, (Math.random())*0.5, (Math.random()-0.5)*0.5),
-                life: 1.0
-            };
-            this.scene.add(mesh);
-            this.particles.push(mesh);
+            const geo = new THREE.BoxGeometry(0.15,0.15,0.15);
+            const mat = new THREE.MeshBasicMaterial({color:color});
+            const m = new THREE.Mesh(geo,mat);
+            m.position.copy(pos);
+            m.userData = { vel: new THREE.Vector3((Math.random()-0.5)*0.5, Math.random()*0.5, (Math.random()-0.5)*0.5), life: 1.0 };
+            this.scene.add(m); this.particles.push(m);
         }
     },
-    
     update: function() {
         for(let i=this.particles.length-1; i>=0; i--) {
             let p = this.particles[i];
-            // Física simples
-            p.position.add(p.userData.vel);
-            p.userData.vel.y -= 0.02; // Gravidade
-            p.rotation.x += 0.1;
-            p.userData.life -= 0.05;
-            p.scale.setScalar(p.userData.life);
-            
-            if(p.userData.life <= 0) {
-                this.scene.remove(p);
-                this.particles.splice(i, 1);
-            }
+            p.position.add(p.userData.vel); p.userData.vel.y -= 0.02;
+            p.rotation.x += 0.1; p.userData.life -= 0.05; p.scale.setScalar(p.userData.life);
+            if(p.userData.life <= 0) { this.scene.remove(p); this.particles.splice(i,1); }
         }
     }
 };
 
-// --- INPUT MANAGER (MANTIDO) ---
+// --- INPUT ---
 const Input = {
     mode: 'TOUCH', x: 0, action: false,
     init: function() {
@@ -93,6 +74,7 @@ const Input = {
         this.mode = m;
         const zone = document.getElementById('touch-controls');
         const cam = document.getElementById('camera-feed');
+        
         if(m === 'TOUCH') {
             if(zone) zone.classList.remove('hidden'); if(cam) cam.style.opacity = 0; Vision.stop();
         } else if (m === 'BODY') {
@@ -102,10 +84,10 @@ const Input = {
                     const status = document.getElementById('calib-status');
                     if(status) status.innerText = `Pose: ${Vision.data.gesture || '...'}`;
                     if(Vision.data.gesture === 'T-POSE') {
-                        clearInterval(checkCalib); Engine.setScreen(null); AudioSys.sfx.start(); Engine.toast("CALIBRADO!");
+                        clearInterval(checkCalib); Engine.setScreen(null); Engine.toast("CALIBRADO!");
                     }
                 }, 500);
-            }).catch(() => { alert("Falha na câmera. Usando toque."); this.setMode('TOUCH'); });
+            }).catch(() => { alert("Erro de Câmera. Usando Toque."); this.setMode('TOUCH'); });
         } else {
             if(zone) zone.classList.add('hidden'); if(cam) cam.style.opacity = 0; Vision.stop();
             if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') DeviceOrientationEvent.requestPermission();
@@ -117,12 +99,12 @@ const Input = {
     }
 };
 
-// --- ENGINE PRINCIPAL ---
+// --- ENGINE ---
 const Engine = {
     mode: 'kart', scene: null, camera: null, renderer: null,
     mascot: null, floor: null, objects: [],
     state: { playing: false, paused: false, speed: 0, score: 0, combo: 0 },
-    shake: 0, // NOVO: Variável de tremor
+    shake: 0,
 
     init: function() {
         const p = new URLSearchParams(window.location.search);
@@ -140,38 +122,31 @@ const Engine = {
 
         this.scene = new THREE.Scene();
         this.scene.fog = new THREE.Fog(0xdcdcdc, 10, 60);
-        
-        // Inicializa partículas
         ParticleSys.init(this.scene);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
-        this.camera.position.set(0, 3, 6);
-        this.camera.lookAt(0, 0, -5);
+        this.camera.position.set(0, 3, 6); this.camera.lookAt(0, 0, -5);
 
         const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.8);
         const dir = new THREE.DirectionalLight(0xffffff, 0.8);
         dir.position.set(5, 10, 5); dir.castShadow = true;
         this.scene.add(hemi, dir);
 
-        this.createEnvironment();
-        this.loadAssets();
-    },
-
-    createEnvironment: function() {
         const texLoader = new THREE.TextureLoader();
         texLoader.load('assets/estrada.jpg', (tex) => {
             tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 20);
             const mat = new THREE.MeshPhongMaterial({ map: tex });
-            this.spawnFloor(mat);
+            this.floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 200), mat);
+            this.floor.rotation.x = -Math.PI/2; this.floor.position.z = -80;
+            this.floor.receiveShadow = true; this.scene.add(this.floor);
         }, undefined, () => {
-            const mat = new THREE.MeshPhongMaterial({ color: 0x555555 });
-            this.spawnFloor(mat);
+             const mat = new THREE.MeshPhongMaterial({ color: 0x555555 });
+             this.floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 200), mat);
+             this.floor.rotation.x = -Math.PI/2; this.floor.position.z = -80;
+             this.scene.add(this.floor);
         });
-    },
-    spawnFloor: function(mat) {
-        this.floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 200), mat);
-        this.floor.rotation.x = -Math.PI/2; this.floor.position.z = -80;
-        this.floor.receiveShadow = true; this.scene.add(this.floor);
+
+        this.loadAssets();
     },
 
     loadAssets: function() {
@@ -182,52 +157,54 @@ const Engine = {
 
         loader.load('assets/mascote.glb', (gltf) => {
             this.mascot = gltf.scene; this.prepareMascot();
-        }, undefined, (err) => {
+        }, undefined, () => {
             const geo = new THREE.BoxGeometry(1, 1, 1);
             const mat = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
             this.mascot = new THREE.Mesh(geo, mat); this.prepareMascot();
         });
     },
+
     prepareMascot: function() {
         this.mascot.position.set(0, 0, -2); this.mascot.rotation.y = Math.PI;
         this.scene.add(this.mascot);
-        document.getElementById('screen-loading').classList.add('hidden');
-        this.startGame(); this.animate();
+        // Pronto para o Boot
+        document.querySelector('.spinner').classList.add('hidden');
+        document.getElementById('loading-txt').innerText = "PRONTO!";
+        document.getElementById('btn-boot').classList.remove('hidden');
+    },
+
+    bootSystem: function() {
+        // Desbloqueia AudioContext com clique do usuário
+        AudioSys.init();
+        AudioSys.resume();
+        this.setScreen(null);
+        this.startGame();
     },
 
     startGame: function() {
         this.state.playing = true; this.state.score = 0; this.state.speed = 0; this.state.combo = 0;
-        AudioSys.sfx.start(); this.toast("GO!");
+        this.toast("GO!");
+        this.animate();
     },
 
     animate: function() {
         requestAnimationFrame(() => this.animate());
         if(!this.state.playing || this.state.paused) return;
-
+        
         Input.update();
         ParticleSys.update();
 
-        // Lógica de Modos
         if(this.mode === 'kart') this.updateKart();
         else if(this.mode === 'run') this.updateRun();
         else this.updateZen();
 
-        // CAMERA SHAKE
+        // Camera Shake
         if (this.shake > 0) {
             this.camera.position.x = (Math.random() - 0.5) * this.shake;
             this.camera.position.y = 3 + (Math.random() - 0.5) * this.shake;
-            this.shake -= 0.05; // Decai
-            if(this.shake < 0) this.shake = 0;
+            this.shake -= 0.05; if(this.shake < 0) this.shake = 0;
         } else {
-            this.camera.position.x = 0;
-            this.camera.position.y = 3;
-        }
-        
-        // FOV DINÂMICO (Velocidade)
-        if (this.mode === 'kart') {
-            const targetFOV = 60 + (this.state.speed * 10);
-            this.camera.fov += (targetFOV - this.camera.fov) * 0.1;
-            this.camera.updateProjectionMatrix();
+            this.camera.position.x = 0; this.camera.position.y = 3;
         }
 
         if(this.mascot) {
@@ -235,12 +212,10 @@ const Engine = {
             this.mascot.rotation.z = -this.mascot.position.x * 0.2;
             this.mascot.rotation.y = Math.PI;
         }
-
         if(this.floor && this.floor.material.map) this.floor.material.map.offset.y -= this.state.speed * 0.05;
         this.renderer.render(this.scene, this.camera);
     },
 
-    // LÓGICAS ATUALIZADAS COM COMBO E PARTICULAS
     updateKart: function() {
         if(this.state.speed < 1.2) this.state.speed += 0.001;
         this.state.score += Math.round(this.state.speed);
@@ -273,8 +248,7 @@ const Engine = {
         }
         const lane = [-2.5, 0, 2.5][Math.floor(Math.random()*3)];
         mesh.position.set(lane, 0.5, -60);
-        this.scene.add(mesh);
-        this.objects.push(mesh);
+        this.scene.add(mesh); this.objects.push(mesh);
     },
 
     manageObjects: function(deadly) {
@@ -287,36 +261,23 @@ const Engine = {
                 if(Math.abs(o.position.x - this.mascot.position.x) < 0.8) {
                     if(o.userData.type === 'bad' && deadly) {
                         AudioSys.sfx.crash();
-                        this.shake = 0.5; // Treme a tela
-                        this.state.combo = 0;
-                        this.gameOver();
+                        this.shake = 0.5; this.state.combo = 0; this.gameOver();
                     } else if (o.userData.type === 'good') {
                         AudioSys.sfx.coin();
-                        this.state.score += 500;
-                        this.state.combo++;
-                        
-                        // Efeito de Partículas
+                        this.state.score += 500; this.state.combo++;
                         ParticleSys.spawn(o.position, 0xffff00);
-                        
-                        this.removeObj(o, i);
-                        this.toast(`COMBO x${this.state.combo}`);
-                        this.popCombo();
+                        this.removeObj(o, i); this.toast(`COMBO x${this.state.combo}`); this.popCombo();
                     }
                 }
             }
             if(o.position.z > 5) this.removeObj(o, i);
         }
     },
-
     removeObj: function(o, i) { this.scene.remove(o); this.objects.splice(i, 1); },
     updateHUD: function() { document.getElementById('score-display').innerText = this.state.score; },
     popCombo: function() {
         const el = document.getElementById('combo-display');
-        if(el) {
-            el.innerText = `x${this.state.combo}`;
-            el.classList.add('combo-active');
-            setTimeout(() => el.classList.remove('combo-active'), 200);
-        }
+        if(el) { el.innerText = `x${this.state.combo}`; el.classList.add('combo-active'); setTimeout(() => el.classList.remove('combo-active'), 200); }
     },
     toast: function(msg) {
         const t = document.getElementById('toast');
@@ -333,8 +294,7 @@ const Engine = {
     },
     gameOver: function() {
         this.state.playing = false;
-        const el = document.getElementById('final-score');
-        if(el) el.innerText = this.state.score;
+        document.getElementById('final-score').innerText = this.state.score;
         this.setScreen('screen-gameover');
     },
     restart: function() {
