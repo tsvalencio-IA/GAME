@@ -1,7 +1,7 @@
 /**
- * NEO-WII Game Engine v30.0 (PHYSICALITY FINAL)
- * Status: CORE COMPLETE 🟢
- * Features: Torque Steering, Rhythmic Momentum, Breath Buoyancy.
+ * NEO-WII Game Engine v36.0 (TRUE GAMEPLAY FEEL)
+ * Status: FINAL RELEASE 🟢
+ * Mechanics: Vector Steering (Kart), Cadence Analysis (Run), Stability Check (Zen).
  */
 
 const AudioSys = {
@@ -24,37 +24,32 @@ const AudioSys = {
         if (this.droneOsc) this.droneOsc.stop();
 
         this.droneOsc = this.ctx.createOscillator();
-        
         if (mode === 'kart') {
-            this.droneOsc.type = 'sawtooth'; 
-            this.droneOsc.frequency.value = 50;
+            this.droneOsc.type = 'sawtooth'; this.droneOsc.frequency.value = 50;
         } else if (mode === 'zen') {
-            this.droneOsc.type = 'sine'; 
-            this.droneOsc.frequency.value = 150;
+            this.droneOsc.type = 'sine'; this.droneOsc.frequency.value = 150;
         } else {
-            this.droneOsc = null; 
-            return;
+            this.droneOsc = null; return;
         }
-
         this.droneOsc.connect(this.droneGain);
         this.droneOsc.start();
     },
 
-    updateDrone: function(speed, stress, mode) {
+    updateDrone: function(val1, val2, mode) {
         if (!this.droneOsc) return;
         const now = this.ctx.currentTime;
-        
         if (mode === 'kart') {
-            // Motor geme quando faz curva fechada (stress)
-            const pitch = 50 + (speed * 100) - (stress * 20);
-            this.droneOsc.frequency.setTargetAtTime(pitch, now, 0.1);
-            this.droneGain.gain.setTargetAtTime(0.05 + (speed * 0.1), now, 0.1);
+            // Val1: Speed, Val2: Drift Stress
+            this.droneOsc.frequency.setTargetAtTime(50 + (val1 * 120), now, 0.1);
+            this.droneGain.gain.setTargetAtTime(0.05 + (val1 * 0.1) + (val2 * 0.05), now, 0.1);
         } else if (mode === 'zen') {
-            this.droneGain.gain.setTargetAtTime(0.02, now, 0.5);
+            // Val1: Harmony Level
+            this.droneOsc.frequency.setTargetAtTime(100 + (val1 * 100), now, 0.5);
+            this.droneGain.gain.setTargetAtTime(0.05 * val1, now, 0.5);
         }
     },
 
-    play: function(type) {
+    play: function(type, pitchMod = 1.0) {
         if(!this.ctx) this.init();
         if(this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(()=>{});
         
@@ -69,21 +64,26 @@ const AudioSys = {
             gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.4);
             osc.type = 'sine';
             this.vibrate(100);
-        } else if (type === 'coin') {
-            osc.frequency.setValueAtTime(1200, t); osc.frequency.linearRampToValueAtTime(1800, t+0.08);
-            gain.gain.setValueAtTime(0.08, t); gain.gain.linearRampToValueAtTime(0, t+0.08);
-            osc.type = 'square';
-        } else if (type === 'crash') {
-            osc.frequency.setValueAtTime(150, t); osc.frequency.exponentialRampToValueAtTime(10, t+0.4);
-            gain.gain.setValueAtTime(0.2, t); gain.gain.exponentialRampToValueAtTime(0.01, t+0.4);
-            osc.type = 'sawtooth';
-            this.vibrate([30, 50, 30]);
-        } else if (type === 'step') {
-            osc.frequency.setValueAtTime(80, t); osc.frequency.exponentialRampToValueAtTime(40, t+0.1);
-            gain.gain.setValueAtTime(0.15, t); gain.gain.linearRampToValueAtTime(0, t+0.1);
+        } else if (type === 'step') { // Metronome Step
+            osc.frequency.setValueAtTime(150, t); osc.frequency.exponentialRampToValueAtTime(50, t+0.1);
+            gain.gain.setValueAtTime(0.1, t); gain.gain.linearRampToValueAtTime(0, t+0.1);
             osc.type = 'triangle';
+        } else if (type === 'zone') { 
+            osc.frequency.setValueAtTime(300, t); osc.frequency.linearRampToValueAtTime(600, t+1.0);
+            gain.gain.setValueAtTime(0.1, t); gain.gain.exponentialRampToValueAtTime(0.01, t+1.0);
+            osc.type = 'sine';
+        } else if (type === 'perfect') { 
+            const base = 1000 * pitchMod;
+            osc.frequency.setValueAtTime(base, t); osc.frequency.exponentialRampToValueAtTime(base + 500, t+0.2);
+            gain.gain.setValueAtTime(0.1, t); gain.gain.exponentialRampToValueAtTime(0.01, t+0.3);
+            osc.type = 'sine';
+        } else if (type === 'crash') {
+            osc.frequency.setValueAtTime(100, t); osc.frequency.exponentialRampToValueAtTime(20, t+0.4);
+            gain.gain.setValueAtTime(0.3, t); gain.gain.exponentialRampToValueAtTime(0.01, t+0.4);
+            osc.type = 'sawtooth';
+            this.vibrate([30, 30, 30]);
         }
-        osc.start(); osc.stop(t + 0.5);
+        osc.start(); osc.stop(t + 1.0);
     },
     vibrate: function(pattern) {
         if (navigator.vibrate) navigator.vibrate(pattern);
@@ -93,7 +93,7 @@ const AudioSys = {
 const Input = {
     x: 0, y: 0, steering: 0, throttle: 0.5, action: 0,
     lastY: 0, lastTime: 0, velocityY: 0, source: 'TOUCH',
-    SMOOTHING: { kart: 0.18, run: 0.22, zen: 0.06 },
+    SMOOTHING: { kart: 0.1, run: 0.15, zen: 0.08 }, // Less smoothing for raw data access
 
     init: function() {
         const zone = document.getElementById('touch-controls');
@@ -104,9 +104,7 @@ const Input = {
                 this.x = ((e.touches[0].clientX / window.innerWidth) - 0.5) * 3.0;
                 this.throttle = 1.0;
             }, {passive: false});
-            zone.addEventListener('touchend', () => { 
-                if(this.source==='TOUCH') { this.x = 0; } 
-            });
+            zone.addEventListener('touchend', () => { if(this.source==='TOUCH') this.x = 0; });
         }
         window.addEventListener('deviceorientation', (e) => {
             if(this.source === 'TOUCH' || this.source === 'CAM') return;
@@ -138,16 +136,17 @@ const Input = {
             const now = Date.now();
             const dt = now - this.lastTime;
             
+            // Raw Effort Calculation
             if (dt > 60) { 
                 const rawDelta = Math.abs(Vision.raw.y - this.lastY);
-                const effectiveDelta = (rawDelta > 0.03) ? rawDelta : 0;
-                // Run: Esforço físico real
-                const effort = Math.min(1.0, effectiveDelta * 5); 
-                this.velocityY = effort; // Raw effort
+                // Amplifica movimento real, ignora ruído
+                const effectiveDelta = (rawDelta > 0.02) ? rawDelta * 8.0 : 0; 
+                this.velocityY = Math.min(1.5, effectiveDelta);
                 this.lastY = Vision.raw.y;
                 this.lastTime = now;
             }
             if(mode === 'run') this.throttle = this.velocityY;
+            else this.throttle = 0.5;
             
         } else {
             rawSteering = Math.max(-1.5, Math.min(1.5, this.x));
@@ -158,10 +157,8 @@ const Input = {
         const alpha = this.SMOOTHING[mode] || 0.15;
         this.steering += (rawSteering - this.steering) * alpha;
         
-        if (Math.abs(rawSteering) < 0.05) {
-             this.steering += (0 - this.steering) * 0.1;
-        }
-        this.action += (this.throttle - this.action) * 0.1;
+        // No deadzone here anymore - logic handled in game loop per mode
+        this.action = this.steering; 
     }
 };
 
@@ -169,15 +166,27 @@ const Game = {
     mode: 'kart', state: 'BOOT', score: 0, speed: 0,
     clock: new THREE.Clock(),
     
-    // Physics State
-    steeringTorque: 0, // Kart
-    runMomentum: 0,    // Run
-    zenBuoyancy: 0,    // Zen
-    lastZenInput: 0,
-    stepPhase: 0,
-
+    // KART PHYSICS
+    carHeading: 0, 
+    driftStress: 0,
+    
+    // RUN CADENCE ENGINE
+    lastStepTime: 0,
+    stepInterval: 0,
+    cadenceScore: 0,
+    inTheZone: false,
+    
+    // ZEN HARMONY
+    harmony: 0,
+    zenTarget: 0,
+    
+    // DANCE STATE
+    danceState: 'PREPARE', danceTimer: 0, currentPose: 0, roundsPlayed: 0, maxRounds: 10, combo: 0,
+    
     scene: null, camera: null, renderer: null, 
     player: null, avatarMesh: null, floor: null, objects: [],
+    feedbackEl: null,
+    
     debugClickCount: 0, fps: 0, frames: 0, lastFpsTime: 0,
 
     init: function() {
@@ -187,9 +196,9 @@ const Game = {
         this.mode = p.get('mode') || 'kart';
         
         const config = { 
-            'kart': { t: 'TURBO KART', msg: 'Segure como um Volante' }, 
-            'run':  { t: 'MARATHON',  msg: 'Corra no Lugar' }, 
-            'zen':  { t: 'ZEN GLIDER',msg: 'Relaxe e Flutue' } 
+            'kart': { t: 'TURBO KART', msg: 'Gire para Curvar' }, 
+            'run':  { t: 'MARATHON',  msg: 'Mantenha o Ritmo' }, 
+            'zen':  { t: 'DANCE FIT', msg: 'Copie e Sustente' } 
         };
         const c = config[this.mode];
         if(document.getElementById('game-title')) {
@@ -197,9 +206,9 @@ const Game = {
             document.getElementById('boot-msg').innerText = c.msg;
         }
         
+        this.createFeedbackUI();
         if(typeof Vision !== 'undefined') Vision.init();
         if(typeof Input !== 'undefined') Input.init();
-        
         this.setup3D();
         
         const btn = document.getElementById('btn-start');
@@ -213,6 +222,43 @@ const Game = {
         });
     },
 
+    createFeedbackUI: function() {
+        if(!document.getElementById('game-feedback')) {
+            const el = document.createElement('div');
+            el.id = 'game-feedback';
+            el.style.cssText = `
+                position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%);
+                font-family: 'Arial Black', sans-serif; font-size: 48px; color: #fff;
+                text-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; opacity: 0;
+                transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s;
+                z-index: 100; text-align: center; width: 100%; letter-spacing: 2px;
+            `;
+            document.getElementById('game-wrapper').appendChild(el);
+            this.feedbackEl = el;
+        } else {
+            this.feedbackEl = document.getElementById('game-feedback');
+        }
+    },
+
+    showFeedback: function(text, type) {
+        if(!this.feedbackEl) return;
+        this.feedbackEl.innerText = text;
+        this.feedbackEl.style.opacity = '1';
+        this.feedbackEl.style.transform = 'translate(-50%, -50%) scale(1.3)';
+        
+        let color = '#fff';
+        if(type === 'good') color = '#aaffaa';
+        else if(type === 'bad') color = '#ff5555';
+        else if(type === 'perfect') color = '#00ffff';
+        else if(type === 'zone') color = '#ffff00';
+        
+        this.feedbackEl.style.color = color;
+        setTimeout(() => {
+            this.feedbackEl.style.transform = 'translate(-50%, -50%) scale(1)';
+            this.feedbackEl.style.opacity = '0';
+        }, 900);
+    },
+
     setup3D: function() {
         const cvs = document.getElementById('game-canvas');
         if (!cvs) return;
@@ -221,36 +267,24 @@ const Game = {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         
-        // Ambiente Diferenciado
-        let clearColor = 0x000000;
-        let fogColor = 0x000000;
-        let fogDensity = 0.02;
+        let clearColor = 0x111111; let fogColor = 0x111111;
+        if (this.mode === 'kart') { clearColor = 0x111111; fogColor = 0x111111; } 
+        else if (this.mode === 'run') { clearColor = 0x203040; fogColor = 0x203040; } 
+        else { clearColor = 0x220033; fogColor = 0x220033; }
 
-        if (this.mode === 'kart') {
-            clearColor = 0x111111; fogColor = 0x111111;
-        } else if (this.mode === 'run') {
-            clearColor = 0x101025; fogColor = 0x101025; fogDensity = 0.015;
-        } else if (this.mode === 'zen') {
-            clearColor = 0x1a0b2e; fogColor = 0x1a0b2e; fogDensity = 0.01;
-        }
-
-        this.renderer.setClearColor(clearColor, 0);
+        this.renderer.setClearColor(clearColor, 0); 
         this.scene = new THREE.Scene();
-        this.scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+        this.scene.fog = new THREE.FogExp2(fogColor, 0.02);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
         
-        if (this.mode === 'kart') {
-            this.camera.position.set(0, 2.5, 5); this.camera.lookAt(0, 0, -2);
-        } else if (this.mode === 'run') {
-            this.camera.position.set(0, 3.5, 7); this.camera.lookAt(0, 1, -5);
-        } else {
-            this.camera.position.set(0, 5, 10); this.camera.lookAt(0, 0, -10);
-        }
+        if (this.mode === 'kart') { this.camera.position.set(0, 1.5, 4.5); this.camera.lookAt(0, 0.5, -4); } 
+        else if (this.mode === 'run') { this.camera.position.set(0, 3.0, 6.0); this.camera.lookAt(0, 1.0, -5); } 
+        else { this.camera.position.set(0, 2.5, 7.0); this.camera.lookAt(0, 1.5, 0); }
 
         const amb = new THREE.AmbientLight(0xffffff, 0.6);
         const dir = new THREE.DirectionalLight(0xffffff, 1);
-        dir.position.set(10, 20, 10);
+        dir.position.set(5, 10, 10);
         this.scene.add(amb, dir);
 
         this.createWorld();
@@ -264,11 +298,13 @@ const Game = {
                 tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
                 tex.repeat.set(1, 20);
                 this.spawnFloor(new THREE.MeshPhongMaterial({map:tex}));
-            }, null, () => {
-                const color = this.mode === 'run' ? 0x334455 : 0x222222;
-                this.spawnFloor(new THREE.MeshPhongMaterial({color: color}));
-            });
-        } 
+            }, null, () => this.spawnFloor(new THREE.MeshPhongMaterial({color:0x333})));
+        } else {
+            const gridHelper = new THREE.GridHelper(20, 20, 0xff00ff, 0x00ffff);
+            gridHelper.position.y = 0; gridHelper.position.z = -5;
+            this.scene.add(gridHelper);
+            this.floor = gridHelper;
+        }
         this.createAvatar();
     },
 
@@ -277,62 +313,55 @@ const Game = {
         this.scene.add(this.player);
 
         if (this.mode === 'kart') {
-            const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.4, 2.0), new THREE.MeshPhongMaterial({color: 0x00bebd}));
-            chassis.position.y = 0.4;
+            const mat = new THREE.MeshPhongMaterial({color: 0x00bebd});
+            const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.3, 2.2), mat);
+            chassis.position.y = 0.3;
             this.avatarMesh = chassis;
             this.player.add(chassis);
-            const wheelMat = new THREE.MeshBasicMaterial({color: 0x111111});
-            [[-0.7,0.3,0.8], [0.7,0.3,0.8], [-0.7,0.3,-0.8], [0.7,0.3,-0.8]].forEach(pos => {
-                const w = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16), wheelMat);
-                w.rotation.z = Math.PI/2; w.position.set(...pos);
+            // Wheels
+            const wGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 16);
+            const wMat = new THREE.MeshBasicMaterial({color: 0x111});
+            [[-0.8,0.3,0.8], [0.8,0.3,0.8], [-0.8,0.3,-0.8], [0.8,0.3,-0.8]].forEach(p => {
+                const w = new THREE.Mesh(wGeo, wMat);
+                w.rotation.z = Math.PI/2; w.position.set(...p);
                 this.player.add(w);
             });
-        } else if (this.mode === 'run') {
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.1, 1.5, 8), new THREE.MeshPhongMaterial({color: 0xffaa00}));
-            body.position.y = 0.75;
-            const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), new THREE.MeshPhongMaterial({color: 0xffffff}));
-            head.position.y = 1.6;
-            this.avatarMesh = new THREE.Group();
-            this.avatarMesh.add(body); this.avatarMesh.add(head);
-            this.player.add(this.avatarMesh);
         } else {
-            const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 0), new THREE.MeshPhongMaterial({color: 0xbd00ff, wireframe: true}));
-            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.05, 8, 32), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+            const color = this.mode === 'run' ? 0xffaa00 : 0xff00ff;
+            const mat = new THREE.MeshPhongMaterial({color: color});
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.15, 1.4, 8), mat);
+            body.position.y = 0.7;
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), new THREE.MeshPhongMaterial({color: 0xffffff}));
+            head.position.y = 1.55;
+            const armGeo = new THREE.BoxGeometry(0.9, 0.1, 0.1);
+            const arms = new THREE.Mesh(armGeo, mat);
+            arms.position.y = 1.3;
             this.avatarMesh = new THREE.Group();
-            this.avatarMesh.add(core); this.avatarMesh.add(ring);
-            this.avatarMesh.position.y = 1.5; 
+            this.avatarMesh.add(body); this.avatarMesh.add(head); this.avatarMesh.add(arms);
             this.player.add(this.avatarMesh);
         }
     },
 
     spawnFloor: function(mat) {
         this.floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 200), mat);
-        this.floor.rotation.x = -Math.PI/2; 
-        this.floor.position.z = -80;
+        this.floor.rotation.x = -Math.PI/2; this.floor.position.z = -80;
         this.scene.add(this.floor);
     },
 
     startRequest: function() {
-        AudioSys.init(); 
-        AudioSys.play('start');
-        
+        AudioSys.init(); AudioSys.play('start');
         if (this.mode !== 'run') AudioSys.startDrone(this.mode);
 
         if (this.mode === 'kart') {
-            if(typeof Input.requestTiltPermission === 'function') {
-                Input.requestTiltPermission().then(() => this.forceStart());
-            } else {
-                this.forceStart();
-            }
+            if(typeof Input.requestTiltPermission === 'function') Input.requestTiltPermission().then(() => this.forceStart());
+            else this.forceStart();
         } else {
             if(typeof Vision !== 'undefined') {
                 Vision.start().then(ok => {
                     if(ok) { Vision.resetCalibration(); this.forceStart(); } 
                     else { alert("Sem Câmera. Modo Toque."); Input.source = 'TOUCH'; this.forceStart(); }
                 });
-            } else {
-                this.forceStart();
-            }
+            } else { this.forceStart(); }
         }
     },
 
@@ -342,12 +371,22 @@ const Game = {
 
         this.state = 'PLAY';
         this.score = 0;
-        this.speed = 0.8; 
-        this.spawnObj();
+        
+        if (this.mode === 'kart') {
+            this.speed = 0.8; this.spawnObj();
+        } else if (this.mode === 'zen') {
+            this.speed = 0;
+            this.danceState = 'PREPARE';
+            this.danceTimer = 3.0;
+            this.harmony = 1.0;
+            this.roundsPlayed = 0;
+            this.showFeedback("GET READY!", "normal");
+        } else {
+            this.speed = 0.5; this.spawnObj();
+        }
 
-        this.steeringTorque = 0;
-        this.runMomentum = 0;
-        this.zenBuoyancy = 0;
+        this.carHeading = 0;
+        this.cadenceScore = 0;
         this.lastFpsTime = performance.now();
         this.loop();
     },
@@ -365,124 +404,203 @@ const Game = {
 
         if(typeof Input !== 'undefined') Input.update(this.mode);
 
-        // 1. PHYSICALITY LOGIC PHASE (Movimento com Massa)
+        // --- NEW PHYSICS KERNELS (v36) ---
         if (this.mode === 'kart') this.logicKart(dt);
         else if (this.mode === 'run') this.logicRun(dt);
-        else if (this.mode === 'zen') this.logicZen(dt);
+        else if (this.mode === 'zen') this.logicDance(delta);
 
-        // Audio Reactive Drone
-        AudioSys.updateDrone(this.speed, Math.abs(this.steeringTorque), this.mode);
+        AudioSys.updateDrone(this.speed, this.driftStress, this.mode);
 
-        // World Scroll
-        if (this.floor && this.floor.material.map) {
+        if (this.mode !== 'zen' && this.floor && this.floor.material.map) {
             this.floor.material.map.offset.y -= (this.speed * 0.05) * dt;
             this.floor.material.map.needsUpdate = true;
         }
 
-        // Avatar Rendering & Kinematics
+        // Avatar & Camera Physics
         if (this.player && typeof Input !== 'undefined') {
-            // Posicionamento X baseado na física acumulada (não input direto)
-            this.player.position.x = this.steeringTorque * 3.5;
-
-            // Cinemática
+            
+            // KART: HEADING PHYSICS
             if (this.mode === 'kart') {
-                // Roll agressivo + Pitch na aceleração
-                if(this.avatarMesh) {
-                    this.avatarMesh.rotation.z = -(this.steeringTorque * 0.5); 
-                    this.avatarMesh.rotation.x = -(this.speed * 0.1); // Empina
-                }
-                this.player.rotation.y = Math.PI - (this.steeringTorque * 0.3); // Drifting angle
+                // Input rotates heading, Speed moves X
+                const lateralSpeed = Math.sin(this.carHeading) * this.speed;
+                this.player.position.x += lateralSpeed * 0.2 * dt;
                 
+                // Visual Rotation
+                this.player.rotation.y = Math.PI + this.carHeading;
+                // Banking (Roll)
+                this.player.rotation.z = this.carHeading * -0.5; 
+                
+                // Camera follows car but delayed
+                this.camera.position.x += (this.player.position.x * 0.5 - this.camera.position.x) * 0.1 * dt;
+                // Look ahead
+                this.camera.lookAt(this.player.position.x * 0.8, 0.5, -10);
+
+            // RUN: BOBBING & BREATHING
             } else if (this.mode === 'run') {
-                if(this.avatarMesh) {
-                    // Inclinação física (Lean forward)
-                    this.avatarMesh.rotation.x = 0.2 + (this.runMomentum * 0.4);
-                    // Passada sincronizada com velocidade
-                    const bob = Math.abs(Math.sin(Date.now() * 0.015 * (1 + this.runMomentum)));
-                    this.avatarMesh.position.y = bob * 0.3; 
-                }
-            } else if (this.mode === 'zen') {
-                // Tumble em gravidade zero
-                if(this.avatarMesh) {
-                    this.avatarMesh.rotation.x += 0.005 * dt;
-                    this.avatarMesh.rotation.y += 0.01 * dt;
-                }
-                // Respiração + Estabilidade
-                const breathe = Math.sin(Date.now() / 2000) * 0.2;
-                this.player.position.y = 1.0 + this.zenBuoyancy + breathe;
-                this.player.rotation.y = Math.PI + (this.steeringTorque * 0.5);
+                // Bobbing based on speed
+                const bob = Math.abs(Math.sin(Date.now() * 0.015)) * 0.2;
+                if(this.avatarMesh) this.avatarMesh.position.y = bob;
+                // Camera Bob
+                this.camera.position.y = 3.0 + (bob * 0.5);
+                this.player.rotation.y = Math.PI;
             }
         }
 
-        this.hapticLoop();
-        this.manageObstacles(dt);
+        if (this.mode !== 'zen') this.manageObstacles(dt);
+        
         this.renderer.render(this.scene, this.camera);
         this.updateTelemetry();
     },
 
-    hapticLoop: function() {
-        if (this.mode === 'kart' && Math.abs(this.steeringTorque) > 0.8) {
-            // Vibra no limite da aderência (curva forçada)
-            if (Math.random() < 0.2) AudioSys.vibrate(10);
-        } else if (this.mode === 'run') {
-            // Vibração na batida do pé (frequência baseada no momentum)
-            this.stepPhase += this.speed * 0.25;
-            if (this.stepPhase > Math.PI) {
-                this.stepPhase = 0;
-                AudioSys.vibrate(20); 
-                AudioSys.play('step');
+    logicKart: function(dt) {
+        const targetSpeed = Input.throttle; 
+        
+        // HEADING MECHANIC
+        // Steering input adds to rotation (Torque)
+        this.carHeading += Input.steering * 0.03 * dt;
+        // Auto-center steering (Resistance)
+        this.carHeading *= 0.95;
+        
+        // Clamp Heading
+        this.carHeading = Math.max(-0.8, Math.min(0.8, this.carHeading));
+
+        // OFF-ROAD
+        if (Math.abs(this.player.position.x) > 3.8) {
+            this.speed *= 0.95; 
+            if(Math.random() < 0.1) AudioSys.vibrate(20); 
+            this.driftStress = 0;
+        } else {
+            this.speed += (targetSpeed - this.speed) * (0.02 * dt);
+            
+            // DRIFT STRESS (Turning hard at high speed)
+            if(Math.abs(this.carHeading) > 0.5 && this.speed > 0.6) {
+                this.driftStress += dt;
+                if(this.driftStress > 100) { // Burst
+                    this.speed += 0.3;
+                    AudioSys.play('boost');
+                    this.showFeedback("DRIFT!", "boost");
+                    this.driftStress = 0;
+                }
+            } else {
+                this.driftStress = 0;
             }
         }
-    },
-
-    // --- PHYSICS KERNELS ---
-
-    logicKart: function(dt) {
-        // Steering: Torque com mola de retorno
-        const targetSteer = Input.steering;
-        // Acumula torque (Inércia de volante)
-        this.steeringTorque += (targetSteer - this.steeringTorque) * (0.1 * dt);
         
-        // Aceleração
-        const targetSpeed = Input.throttle; // 0 a 1
-        this.speed += (targetSpeed - this.speed) * (0.02 * dt);
         this.score += Math.round(this.speed * 10 * dt);
     },
 
     logicRun: function(dt) {
-        const impulse = Input.throttle; // Vem do Delta Y (esforço)
+        const impulse = Input.throttle; // Raw effort (0-1.5)
+        const now = Date.now();
         
-        // Momentum System (Inércia Pesada)
-        // Ganha velocidade devagar, perde rápido se parar
-        this.runMomentum += impulse * 0.05 * dt;
-        this.runMomentum *= 0.95; // Arrasto do ar (Drag)
+        // CADENCE ENGINE
+        // Detect peak efforts (Step detection)
+        if(impulse > 0.8 && (now - this.lastStepTime) > 300) {
+            const interval = now - this.lastStepTime;
+            this.lastStepTime = now;
+            
+            // Analyze Rhythm Consistency
+            // Ideal cadence: 400ms - 600ms (Running BPM)
+            if(interval > 300 && interval < 700) {
+                this.cadenceScore += 10;
+                AudioSys.play('step');
+                // Speed Boost from Rhythm
+                this.speed += 0.1;
+            } else {
+                this.cadenceScore = Math.max(0, this.cadenceScore - 5); // Arrhythmia penalty
+            }
+        }
         
-        // Clamp físico
-        this.runMomentum = Math.max(0, Math.min(1.5, this.runMomentum));
+        // IN THE ZONE
+        if(this.cadenceScore > 50 && !this.inTheZone) {
+            this.inTheZone = true;
+            AudioSys.play('zone');
+            this.showFeedback("IN THE ZONE!", "zone");
+        } else if(this.cadenceScore < 20) {
+            this.inTheZone = false;
+        }
+        this.cadenceScore = Math.min(100, this.cadenceScore);
+
+        // Speed Decay (Friction)
+        this.speed *= 0.98;
         
-        // Velocidade é reflexo do momentum
-        this.speed = this.runMomentum;
+        // Visuals
+        if(this.inTheZone) {
+            this.camera.fov = 75;
+            if(this.avatarMesh) this.avatarMesh.children.forEach(m => m.material.color.setHex(0x00ffff));
+        } else {
+            this.camera.fov = 60;
+            if(this.avatarMesh) this.avatarMesh.children.forEach(m => m.material.color.setHex(0xffaa00));
+        }
+        this.camera.updateProjectionMatrix();
+
         this.score += Math.round(this.speed * 20 * dt);
-        
-        // Steering mais rígido
-        this.steeringTorque += (Input.steering - this.steeringTorque) * (0.1 * dt);
     },
 
-    logicZen: function(dt) {
-        this.speed = 0.4;
-        this.score += Math.round(1 * dt);
+    logicDance: function(seconds) {
+        this.danceTimer -= seconds;
         
-        // Stability Analyzer
-        // Se input varia muito (ansiedade), buoyancy cai. Se suave, sobe.
-        const inputDelta = Math.abs(Input.action - this.lastZenInput);
-        const stability = Math.max(0, 1.0 - (inputDelta * 20)); // 1 = Estável, 0 = Caótico
-        
-        // Buoyancy Target (Sobe se estável)
-        const targetBuoyancy = stability * 1.5;
-        this.zenBuoyancy += (targetBuoyancy - this.zenBuoyancy) * (0.02 * dt);
-        
-        this.lastZenInput = Input.action;
-        this.steeringTorque += (Input.steering - this.steeringTorque) * (0.05 * dt);
+        if (this.danceState === 'PREPARE') {
+            if (this.danceTimer <= 0) {
+                if(this.roundsPlayed >= this.maxRounds) {
+                    this.gameOver("DANCE COMPLETE");
+                    return;
+                }
+                this.roundsPlayed++;
+                this.currentPose = Math.floor(Math.random() * 3) - 1; 
+                this.showFeedback("MATCH!", "normal");
+                if(this.avatarMesh) this.avatarMesh.rotation.z = -this.currentPose * 0.5;
+                
+                this.danceState = 'HOLD';
+                this.danceTimer = 3.0; // Long hold
+                this.harmony = 100; // Start perfect, lose if shake
+            }
+        } 
+        else if (this.danceState === 'HOLD') {
+            // CONTINUOUS EVALUATION
+            const playerInput = Input.steering; 
+            const targetInput = -this.currentPose * 0.8; // Target value
+            
+            // Check delta
+            let error = 0;
+            if (this.currentPose === 0) error = Math.abs(playerInput);
+            else if (this.currentPose === -1) error = Math.abs(playerInput + 0.8); // Left
+            else if (this.currentPose === 1) error = Math.abs(playerInput - 0.8); // Right
+            
+            // Stability Penalty
+            if(error > 0.4) {
+                this.harmony -= 2; // Lose harmony fast if wrong
+                if(this.avatarMesh) this.avatarMesh.scale.setScalar(0.8); // Visual shrink
+            } else {
+                this.harmony += 0.5; // Gain if holding
+                if(this.avatarMesh) this.avatarMesh.scale.setScalar(1.2); // Bloom
+            }
+            this.harmony = Math.max(0, Math.min(100, this.harmony));
+
+            if (this.danceTimer <= 0) {
+                this.danceState = 'JUDGE';
+            }
+        } 
+        else if (this.danceState === 'JUDGE') {
+            if(this.harmony > 60) {
+                this.combo++;
+                AudioSys.play('perfect');
+                this.showFeedback("PERFECT!", "perfect");
+                this.score += 1000 + (this.combo * 100);
+            } else {
+                this.combo = 0;
+                AudioSys.play('miss');
+                this.showFeedback("SHAKY...", "bad");
+            }
+            
+            this.danceState = 'PREPARE';
+            this.danceTimer = 1.0; 
+            if(this.avatarMesh) {
+                this.avatarMesh.rotation.z = 0;
+                this.avatarMesh.scale.setScalar(1);
+            }
+        }
+        document.getElementById('score-val').innerText = this.score;
     },
 
     manageObstacles: function(dt) {
@@ -495,10 +613,11 @@ const Game = {
             if (o.visible && Math.abs(o.position.z - this.player.position.z) < 1.0) {
                 if (Math.abs(o.position.x - this.player.position.x) < 1.0) {
                     if (o.userData.type === 'bad') {
-                        if (this.mode !== 'zen') {
-                            AudioSys.play('crash');
-                            this.gameOver();
-                        }
+                        AudioSys.play('crash');
+                        this.showFeedback("CRASH!", "bad");
+                        this.speed *= 0.5; // Kart punish
+                        this.cadenceScore = 0; // Run punish
+                        this.inTheZone = false;
                     } else {
                         AudioSys.play('coin');
                         this.score += 500;
@@ -511,8 +630,7 @@ const Game = {
                 this.objects.splice(i, 1);
             }
         }
-        const scoreEl = document.getElementById('score-val');
-        if(scoreEl) scoreEl.innerText = this.score;
+        document.getElementById('score-val').innerText = this.score;
     },
 
     spawnObj: function() {
@@ -534,13 +652,14 @@ const Game = {
         if(s) { if(this.state === 'PAUSE') s.classList.remove('hidden'); else s.classList.add('hidden'); }
     },
 
-    gameOver: function() {
+    gameOver: function(msg) {
         this.state = 'OVER';
         const el = document.getElementById('final-score');
         if(el) el.innerText = this.score;
+        const title = document.querySelector('#screen-over h1');
+        if(title) title.innerText = msg || "FIM DE JOGO";
         const screen = document.getElementById('screen-over');
         if(screen) screen.classList.remove('hidden');
-        if(AudioSys.droneOsc) AudioSys.droneOsc.stop(); // Corta motor
     },
     
     toggleDebug: function() {
@@ -557,7 +676,7 @@ const Game = {
     updateTelemetry: function() {
         if(!this.debugMode) return;
         const d = document.getElementById('debug-overlay');
-        if(d) d.innerHTML = `MODE: ${this.mode}<br>MOMENTUM: ${this.runMomentum?.toFixed(2)}<br>FPS: ${this.fps}`;
+        if(d) d.innerHTML = `MODE: ${this.mode}<br>CAD: ${this.cadenceScore}<br>HARM: ${this.harmony.toFixed(0)}`;
     }
 };
 
