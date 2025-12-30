@@ -1,87 +1,68 @@
 /**
- * NEO-WII Feedback System
- * Gerencia Áudio Procedural (Web Audio API) e Haptics (Vibration API).
- * Filosofia: Feedback imediato e satisfatório.
+ * FEEDBACK SYSTEM v2.0
+ * Gerencia efeitos visuais de UI, vibração e "screen shake".
+ * Não afeta a física, apenas a percepção.
  */
+
 const Feedback = {
-    ctx: null,
-    masterGain: null,
-    enabled: false,
+    trigger: function(type) {
+        if (navigator.vibrate) {
+            if (type === 'collision') navigator.vibrate([50, 50, 50]);
+            if (type === 'coin') navigator.vibrate(20);
+            if (type === 'boost') navigator.vibrate(100);
+        }
 
-    init: function() {
-        if (this.ctx) return;
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AudioContext();
-        this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.3; // Volume geral seguro
-        this.masterGain.connect(this.ctx.destination);
-        this.enabled = true;
+        this.visualEffect(type);
     },
 
-    // Motor de Vibração Híbrido
-    rumble: function(type) {
-        if (!navigator.vibrate) return;
+    visualEffect: function(type) {
+        const body = document.body;
         
-        switch(type) {
-            case 'impact': navigator.vibrate([30, 50, 30]); break; // Batida forte
-            case 'bump': navigator.vibrate(40); break;             // Colisão leve
-            case 'ui': navigator.vibrate(10); break;               // Clique de menu
-            case 'boost': navigator.vibrate([10, 10, 10, 10]); break; // Aceleração
+        // Reset
+        body.style.transition = 'none';
+        body.style.transform = 'translate(0,0)';
+
+        if (type === 'collision') {
+            // Screen Shake
+            let shake = 0;
+            const interval = setInterval(() => {
+                const x = (Math.random() - 0.5) * 20;
+                const y = (Math.random() - 0.5) * 20;
+                body.style.transform = `translate(${x}px, ${y}px)`;
+                shake++;
+                if (shake > 10) {
+                    clearInterval(interval);
+                    body.style.transform = 'none';
+                }
+            }, 16);
+            
+            // Red Flash
+            this.flashScreen('rgba(255,0,0,0.3)');
+        } 
+        
+        if (type === 'boost') {
+            // Zoom effect
+            body.style.transition = 'transform 0.2s';
+            body.style.transform = 'scale(1.05)';
+            setTimeout(() => body.style.transform = 'none', 200);
+            this.flashScreen('rgba(0,255,255,0.2)');
+        }
+        
+        if (type === 'coin') {
+            this.flashScreen('rgba(255,255,0,0.2)');
         }
     },
 
-    // Sintetizador de Efeitos Sonoros (Nintendo Style)
-    sfx: function(type) {
-        if (!this.enabled || this.ctx.state === 'suspended') this.ctx?.resume();
-        if (!this.ctx) return;
-
-        const t = this.ctx.currentTime;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        
-        osc.connect(gain);
-        gain.connect(this.masterGain);
-
-        switch(type) {
-            case 'start': // Som de "Start" otimista (Mario-like)
-                osc.type = 'square';
-                osc.frequency.setValueAtTime(440, t);
-                osc.frequency.exponentialRampToValueAtTime(880, t + 0.1);
-                gain.gain.setValueAtTime(0.1, t);
-                gain.gain.linearRampToValueAtTime(0, t + 0.5);
-                osc.start(); osc.stop(t + 0.5);
-                break;
-
-            case 'coin': // Coleta aguda e rápida
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(1200, t);
-                osc.frequency.linearRampToValueAtTime(1800, t + 0.1);
-                gain.gain.setValueAtTime(0.1, t);
-                gain.gain.linearRampToValueAtTime(0, t + 0.15);
-                osc.start(); osc.stop(t + 0.15);
-                break;
-
-            case 'engine': // Drone de fundo (Zen/Kart)
-                // Nota: Motores contínuos devem ser gerenciados em loop separado,
-                // aqui é apenas um exemplo de "rev".
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(100, t);
-                osc.frequency.linearRampToValueAtTime(60, t + 0.3);
-                gain.gain.setValueAtTime(0.05, t);
-                gain.gain.linearRampToValueAtTime(0, t + 0.3);
-                osc.start(); osc.stop(t + 0.3);
-                break;
-
-            case 'crash': // Ruído branco/Sawtooth grave
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(100, t);
-                osc.frequency.exponentialRampToValueAtTime(10, t + 0.3);
-                gain.gain.setValueAtTime(0.2, t);
-                gain.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
-                osc.start(); osc.stop(t + 0.3);
-                break;
+    flashScreen: function(color) {
+        let overlay = document.getElementById('feedback-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'feedback-overlay';
+            overlay.style.cssText = "position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:999; transition: background 0.1s;";
+            document.body.appendChild(overlay);
         }
+        
+        overlay.style.background = color;
+        setTimeout(() => overlay.style.background = 'transparent', 100);
     }
 };
-
-window.Feedback = Feedback;
