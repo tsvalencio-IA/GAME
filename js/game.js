@@ -215,23 +215,20 @@ const Game = {
     },
 
     updateKart: function(dt) {
-        // QA TUNING: KART
         const throttle = Math.max(0, Input.intentY);
-        this.phy.rpm += (throttle - this.phy.rpm) * 3.0 * dt; 
+        this.phy.rpm += (throttle - this.phy.rpm) * 3.0 * dt;
         
-        const engineForce = this.phy.rpm * 28.0; // Mais torque inicial
-        const drag = this.phy.vel.z * 1.2;       // Mais freio motor
-        
+        const engineForce = this.phy.rpm * 28.0; 
+        const drag = this.phy.vel.z * 1.2;
         this.phy.acc.z = engineForce - drag;
 
         const steerInput = Input.intentX;
-        const turnRate = steerInput * 1.8;       // Direção mais pesada
-        
+        const turnRate = steerInput * 1.8; 
         this.phy.rot.y += turnRate * dt;
-        this.phy.rot.y = Math.max(-0.8, Math.min(0.8, this.phy.rot.y * 0.95)); 
+        this.phy.rot.y = Math.max(-0.8, Math.min(0.8, this.phy.rot.y * 0.95));
 
         const lateralStress = Math.abs(turnRate) * this.phy.vel.z;
-        this.phy.grip = Math.max(0.4, 1.0 - (lateralStress * 0.012)); // Grip mais perdoador
+        this.phy.grip = Math.max(0.4, 1.0 - (lateralStress * 0.012)); 
 
         const intendedVelX = Math.sin(this.phy.rot.y) * this.phy.vel.z;
         this.phy.vel.x += (intendedVelX - this.phy.vel.x) * this.phy.grip * 5.0 * dt;
@@ -245,23 +242,20 @@ const Game = {
     },
 
     updateRun: function(dt) {
-        // QA TUNING: RUN
-        const force = Input.kineticEnergy * 25.0; // Equilíbrio com atrito menor
-        
-        if(this.phy.vel.z > 15) this.phy.fatigue += 0.05 * dt; // Fadiga mais lenta
+        const force = Input.kineticEnergy * 25.0; 
+        if(this.phy.vel.z > 15) this.phy.fatigue += 0.05 * dt; 
         else this.phy.fatigue = Math.max(0, this.phy.fatigue - 0.2 * dt);
         
         const effectiveForce = force * (1.0 - Math.min(0.5, this.phy.fatigue));
-        const friction = this.phy.vel.z * 1.0; // Atrito reduzido = mais inércia
-        
+        const friction = this.phy.vel.z * 1.0; 
         this.phy.acc.z = effectiveForce - friction;
         
         const strafeTarget = Input.intentX * 3.0;
         this.phy.pos.x += (strafeTarget - this.phy.pos.x) * 5.0 * dt;
         
-        if(this.phy.vel.z > 9 && this.phy.vel.z < 15) { // Janela Flow ampliada
+        if(this.phy.vel.z > 9 && this.phy.vel.z < 15) {
             this.zoneTimer += dt;
-            if(this.zoneTimer > 2.5 && !this.inTheZone) { // 2.5s para ativar
+            if(this.zoneTimer > 2.5 && !this.inTheZone) {
                 this.inTheZone = true; Feedback.trigger('boost'); AudioSys.play('boost');
             }
         } else { this.zoneTimer = 0; this.inTheZone = false; }
@@ -276,18 +270,17 @@ const Game = {
     },
 
     updateZen: function(dt, time) {
-        // QA TUNING: ZEN
         this.zenHistory.push({ x: Input.intentX, y: Input.intentY });
-        if(this.zenHistory.length > 20) this.zenHistory.shift(); // Buffer menor = mais responsivo
+        if(this.zenHistory.length > 20) this.zenHistory.shift(); 
         
         const frame = this.zenHistory[0] || {x:0, y:0};
         const targetX = frame.x * 3.5;
         const targetY = 1.0 + (frame.y * 0.5);
         
-        this.phy.pos.x += (targetX - this.phy.pos.x) * 1.5 * dt; // Interpolação mais suave
+        this.phy.pos.x += (targetX - this.phy.pos.x) * 1.5 * dt; 
         this.phy.pos.y += (targetY - this.phy.pos.y) * 1.5 * dt;
         
-        if(Input.jitter < 0.03) { // Tolerância de jitter aumentada
+        if(Input.jitter < 0.03) { 
             this.score += 1; AudioSys.updateDrone(1.0, 0, 'zen'); 
         } else { 
             AudioSys.updateDrone(0.5, Input.jitter, 'zen'); 
