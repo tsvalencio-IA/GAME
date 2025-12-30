@@ -1,24 +1,23 @@
 /**
- * NEO-WII INPUT SYSTEM vFINAL
- * Gerencia inputs de Teclado, Toque, Mouse e Sensores.
- * Normaliza tudo para "Intenções" com curvas de resposta profissionais.
+ * NEO-WII INPUT SYSTEM vFINAL (GOLD MASTER)
+ * Features: Input Shaping, Cubic Response Curves, Deadzones, Sensor Fusion.
  */
 
 const Input = {
     // Estado Público (Normalizado -1.0 a 1.0)
     intentX: 0, 
     intentY: 0,
-    kineticEnergy: 0, // 0.0 a 1.0 (Energia acumulada para Run)
-    jitter: 0,        // Medidor de instabilidade (Para Zen)
+    kineticEnergy: 0, // Energia acumulada (Run)
+    jitter: 0,        // Instabilidade (Zen)
 
     // Configurações de Tuning (Nintendo Feel)
     CONFIG: {
-        deadzone: 0.08,    // Ignora micro-movimentos involuntários
+        deadzone: 0.08,    // Ignora micro-movimentos
         sensitivity: 1.2,  // Ganho geral
-        exponent: 3        // Curva de resposta (3 = precisão fina no centro)
+        exponent: 3        // Curva cúbica (precisão no centro)
     },
 
-    // Estado Interno
+    // Fontes de Entrada
     _sources: {
         keyboard: { x: 0, y: 0, energy: 0 },
         touch: { x: 0, y: 0, energy: 0 },
@@ -39,7 +38,7 @@ const Input = {
     // Chamado por sensores externos (Vision.js)
     setSensorData: function(source, x, y, energy) {
         if (this._sources[source]) {
-            // Suavização leve na entrada bruta (Low-pass filter)
+            // Suavização leve (Low-pass filter) para remover ruído da câmera
             this._sources[source].x += (x - this._sources[source].x) * 0.5;
             this._sources[source].y += (y - this._sources[source].y) * 0.5;
             this._sources[source].energy = energy;
@@ -48,7 +47,6 @@ const Input = {
 
     update: function() {
         // 1. FUSÃO DE SENSORES (Soma ponderada)
-        // Permite usar teclado E inclinar o celular ao mesmo tempo sem conflito
         let rawX = this._sources.keyboard.x + this._sources.touch.x + this._sources.vision.x + this._sources.tilt.x;
         let rawY = this._sources.keyboard.y + this._sources.touch.y + this._sources.vision.y + this._sources.tilt.y;
         
@@ -57,13 +55,12 @@ const Input = {
 
         // 2. INPUT SHAPING (A Mágica do Controle)
         this.intentX = this._processAxis(rawX);
-        this.intentY = this._processAxis(rawY); // Y geralmente linear para aceleração
+        this.intentY = this._processAxis(rawY); 
         
         // 3. CÁLCULO DE JITTER (Para Zen/Biofeedback)
         this._calculateJitter(this.intentX);
 
         // 4. KINETIC ENERGY (Decaimento natural)
-        // Se houver input forte, a energia sobe. Se parar, cai suavemente.
         if (rawEnergy > 0.1) {
             this.kineticEnergy += (rawEnergy - this.kineticEnergy) * 0.1;
         } else {
@@ -71,7 +68,6 @@ const Input = {
         }
     },
 
-    // Aplica Deadzone e Curva Exponencial
     _processAxis: function(val) {
         val = Math.max(-1, Math.min(1, val)); // Clamp inicial
 
@@ -97,7 +93,6 @@ const Input = {
         this.jitter = variance; 
     },
 
-    // --- Fontes Internas ---
     _setupKeyboard: function() {
         window.addEventListener('keydown', e => {
             if(e.repeat) return;
@@ -112,9 +107,7 @@ const Input = {
             switch(e.code) {
                 case 'ArrowLeft': case 'KeyA': case 'ArrowRight': case 'KeyD': this._sources.keyboard.x = 0; break;
                 case 'ArrowUp': case 'KeyW': case 'ArrowDown': case 'KeyS': 
-                    this._sources.keyboard.y = 0; 
-                    this._sources.keyboard.energy = 0; 
-                    break;
+                    this._sources.keyboard.y = 0; this._sources.keyboard.energy = 0; break;
             }
         });
     },
@@ -128,49 +121,26 @@ const Input = {
             const t = e.touches[0];
             const cx = window.innerWidth / 2;
             const cy = window.innerHeight / 2;
-            
-            // X: Direção (-1 a 1)
             this._sources.touch.x = (t.clientX - cx) / (cx * 0.8);
-            
-            // Y: Toque na parte superior = Acelerar
-            if (t.clientY < cy) {
-                this._sources.touch.y = 1.0;
-                this._sources.touch.energy = 1.0;
-            } else {
-                this._sources.touch.y = 0;
-            }
+            if (t.clientY < cy) { this._sources.touch.y = 1.0; this._sources.touch.energy = 1.0; } 
+            else { this._sources.touch.y = 0; }
         }, {passive: false});
 
         el.addEventListener('touchend', () => {
-            this._sources.touch.x = 0; 
-            this._sources.touch.y = 0; 
-            this._sources.touch.energy = 0;
+            this._sources.touch.x = 0; this._sources.touch.y = 0; this._sources.touch.energy = 0;
         });
     },
 
     _setupTilt: function() {
         if (!window.DeviceOrientationEvent) return;
-        
         window.addEventListener('deviceorientation', e => {
             if(e.gamma === null) return;
-            
-            // Gamma: Esquerda/Direita (Limitado a 45 graus para conforto)
             this._sources.tilt.x = Math.max(-1, Math.min(1, e.gamma / 40));
-            
-            // Beta: Frente/Trás (Inclinou pra frente > 15 graus = Acelera)
-            // Isso cria o pedal de acelerador físico
             const tiltForward = e.beta || 0;
             this._sources.tilt.y = (tiltForward > 10 && tiltForward < 90) ? 1.0 : 0;
-            
-            // Energia baseada na agitação
-            // (Implementação simples, Vision fará melhor)
         });
     }
 };
 
-// Inicialização automática segura
-if (document.readyState === 'complete') {
-    Input.init();
-} else {
-    window.addEventListener('load', () => Input.init());
-}
+if (document.readyState === 'complete') Input.init();
+else window.addEventListener('load', () => Input.init());
