@@ -5,6 +5,8 @@ const ASSETS = [
   './game.html',
   './css/style.css',
   './js/game.js',
+  './js/input.js',
+  './js/feedback.js',
   './js/vision.js',
   './assets/mascote_perfil.jpg',
   './assets/estrada.jpg'
