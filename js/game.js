@@ -1,7 +1,7 @@
 /**
- * NEO-WII GAME ENGINE vFINAL (GOLD MASTER)
+ * NEO-WII GAME ENGINE vFINAL (GOLD MASTER - FIXED BOOT FLOW)
  * Physics: Newtonian Integration + Grip Simulation + Rhythm Analysis
- * Tuning: Arcade Grip, Aerobic Flow, Organic Mirror
+ * Architecture: State Machine (BOOT -> PLAY <-> PAUSE -> OVER)
  */
 
 // --- SISTEMA DE ÁUDIO PROCEDURAL ---
@@ -86,20 +86,26 @@ const Game = {
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
         const p = new URLSearchParams(window.location.search);
         this.mode = p.get('mode') || 'kart';
+        
         this.setupUI();
+        
         if(typeof Vision !== 'undefined') Vision.init();
         if(typeof Input !== 'undefined') Input.init();
+        
         this.setup3D();
         this.loop();
     },
 
     setupUI: function() {
-        const t = document.getElementById('game-title'), m = document.getElementById('boot-msg');
+        const t = document.getElementById('game-title');
+        const m = document.getElementById('boot-msg');
+        
         if(this.mode === 'kart') { t.innerText = "TURBO KART"; m.innerText = "Incline para Dirigir"; }
         else if(this.mode === 'run') { t.innerText = "MARATHON"; m.innerText = "Mantenha o Ritmo"; }
         else if(this.mode === 'zen') { t.innerText = "REFLEXIVE"; m.innerText = "Flua com o Avatar"; }
+        
         document.getElementById('screen-boot').classList.remove('hidden');
-        document.getElementById('btn-start').onclick = () => { AudioSys.init(); this.startGame(); };
+        document.getElementById('btn-start').classList.remove('hidden'); 
     },
 
     setup3D: function() {
@@ -123,6 +129,9 @@ const Game = {
         dir.position.set(5, 10, 5);
         this.scene.add(amb, dir);
         this.createWorld();
+        
+        // Initial render to prevent black screen on boot
+        this.renderer.render(this.scene, this.camera);
     },
 
     createWorld: function() {
@@ -170,25 +179,77 @@ const Game = {
         }
     },
 
+    // --- CONTROLE DE ESTADO & INTERFACE ---
+
+    startRequest: function() {
+        // Inicialização de áudio requer interação do usuário
+        AudioSys.init();
+        AudioSys.play('start');
+        
+        // Tentar fullscreen para imersão
+        if (document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(()=>{});
+        }
+
+        this.startGame();
+    },
+
     startGame: function() {
         document.getElementById('screen-boot').classList.add('hidden');
         document.getElementById('hud-layer').classList.remove('hidden');
+        document.getElementById('screen-pause').classList.add('hidden');
+        document.getElementById('screen-over').classList.add('hidden');
+        
         AudioSys.startDrone(this.mode);
-        AudioSys.play('start');
+        
         this.state = 'PLAY';
         this.score = 0;
-        this.phy = { pos:{x:0,y:0,z:0}, vel:{x:0,y:0,z:0}, acc:{x:0,y:0,z:0}, rot:{y:0,z:0}, grip:1, rpm:0 };
-        if(this.mode === 'zen') this.zenHistory = []; else this.spawnObj();
+        this.phy = { pos:{x:0,y:0,z:0}, vel:{x:0,y:0,z:0}, acc:{x:0,y:0,z:0}, rot:{y:0,z:0}, grip:1, rpm:0, fatigue:0 };
+        
+        // Limpar objetos
+        this.objects.forEach(o => this.scene.remove(o));
+        this.objects = [];
+        
+        if(this.mode === 'zen') this.zenHistory = []; 
+        else this.spawnObj();
     },
+
+    togglePause: function() {
+        const pauseScreen = document.getElementById('screen-pause');
+        
+        if (this.state === 'PLAY') {
+            this.state = 'PAUSE';
+            pauseScreen.classList.remove('hidden');
+            if(AudioSys.ctx) AudioSys.ctx.suspend();
+        } else if (this.state === 'PAUSE') {
+            this.state = 'PLAY';
+            pauseScreen.classList.add('hidden');
+            if(AudioSys.ctx) AudioSys.ctx.resume();
+        }
+    },
+
+    gameOver: function() {
+        this.state = 'OVER';
+        document.getElementById('final-score').innerText = this.score;
+        document.getElementById('screen-over').classList.remove('hidden');
+        document.getElementById('hud-layer').classList.add('hidden');
+    },
+
+    // --- LOOP PRINCIPAL ---
 
     loop: function() {
         requestAnimationFrame(() => this.loop());
+        
+        // Renderiza cena estática se pausado
+        if (this.state !== 'PLAY') {
+            if(this.renderer && this.scene && this.camera) {
+                this.renderer.render(this.scene, this.camera);
+            }
+            return;
+        }
+
         const dt = Math.min(this.clock.getDelta(), 0.1); 
         const time = this.clock.getElapsedTime();
-
-        if (this.state !== 'PLAY') {
-            this.renderer.render(this.scene, this.camera); return;
-        }
 
         Input.update(); 
 
@@ -236,7 +297,10 @@ const Game = {
         if(Math.abs(this.phy.pos.x) > 4.0) {
             this.phy.vel.z *= 0.95; 
             this.phy.pos.x *= 0.98;
-            if(!this.offRoad) { Feedback.trigger('collision'); this.offRoad = true; }
+            if(!this.offRoad) { 
+                if(typeof Feedback !== 'undefined') Feedback.trigger('collision'); 
+                this.offRoad = true; 
+            }
         } else { this.offRoad = false; }
         this.score += Math.round(this.phy.vel.z);
     },
@@ -256,7 +320,9 @@ const Game = {
         if(this.phy.vel.z > 9 && this.phy.vel.z < 15) {
             this.zoneTimer += dt;
             if(this.zoneTimer > 2.5 && !this.inTheZone) {
-                this.inTheZone = true; Feedback.trigger('boost'); AudioSys.play('boost');
+                this.inTheZone = true; 
+                if(typeof Feedback !== 'undefined') Feedback.trigger('boost'); 
+                AudioSys.play('boost');
             }
         } else { this.zoneTimer = 0; this.inTheZone = false; }
         
@@ -337,12 +403,12 @@ const Game = {
             if(o.position.z > 0 && o.position.z < 2) {
                 if(Math.abs(o.position.x - this.player.position.x) < 1.2) {
                     if(o.userData.type === 'bad') {
-                        Feedback.trigger('collision');
+                        if(typeof Feedback !== 'undefined') Feedback.trigger('collision');
                         this.phy.vel.z *= 0.5; 
                         AudioSys.play('crash');
                         o.visible = false; 
                     } else {
-                        Feedback.trigger('coin');
+                        if(typeof Feedback !== 'undefined') Feedback.trigger('coin');
                         this.score += 500;
                         o.visible = false;
                     }
