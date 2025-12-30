@@ -1,24 +1,26 @@
 /**
- * FEEDBACK SYSTEM v2.0
+ * FEEDBACK SYSTEM vFINAL
  * Gerencia efeitos visuais de UI, vibração e "screen shake".
- * Não afeta a física, apenas a percepção.
+ * Totalmente desacoplado da física para segurança.
  */
 
 const Feedback = {
     trigger: function(type) {
+        // Feedback Tátil
         if (navigator.vibrate) {
             if (type === 'collision') navigator.vibrate([50, 50, 50]);
             if (type === 'coin') navigator.vibrate(20);
             if (type === 'boost') navigator.vibrate(100);
         }
 
+        // Feedback Visual
         this.visualEffect(type);
     },
 
     visualEffect: function(type) {
         const body = document.body;
         
-        // Reset
+        // Reset rápido
         body.style.transition = 'none';
         body.style.transform = 'translate(0,0)';
 
@@ -36,12 +38,11 @@ const Feedback = {
                 }
             }, 16);
             
-            // Red Flash
             this.flashScreen('rgba(255,0,0,0.3)');
         } 
         
         if (type === 'boost') {
-            // Zoom effect
+            // Zoom in/out effect
             body.style.transition = 'transform 0.2s';
             body.style.transform = 'scale(1.05)';
             setTimeout(() => body.style.transform = 'none', 200);
@@ -63,6 +64,6 @@ const Feedback = {
         }
         
         overlay.style.background = color;
-        setTimeout(() => overlay.style.background = 'transparent', 100);
+        setTimeout(() => overlay.style.background = 'transparent', 150);
     }
 };
