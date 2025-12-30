@@ -1,139 +1,100 @@
 /**
- * NEO-WII Vision HAL
- * Abstrai o MediaPipe Pose em dados de controle normalizados.
- * Implementa Calibração Invisível (Zero-Point automático).
+ * VISION SENSOR v1.0
+ * Captura movimento óptico simples para simular Tilt.
+ * Não interfere se não houver câmera.
  */
+
 const Vision = {
     active: false,
     video: null,
-    pose: null,
-    
-    // Configuração da Calibração Invisível
-    calibration: {
-        framesStable: 0,
-        requiredFrames: 15, // ~0.5s de estabilidade
-        threshold: 0.05,    // Tolerância de movimento
-        lastX: 0,
-        offsetX: 0,
-        offsetY: 0,
-        isCalibrated: false
-    },
+    canvas: null,
+    ctx: null,
+    lastFrameData: null,
+    sensitivity: 25, // Ajuste de sensibilidade
 
-    data: { 
-        x: 0, y: 0, tilt: 0, presence: false 
-    },
-
-    raw: { x: 0, y: 0 },
-
-    init: function() {
-        this.video = document.getElementById('input-video');
-        if (!this.video) return console.error("Vision: Vídeo input não encontrado");
-
-        try {
-            this.pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
-            this.pose.setOptions({
-                modelComplexity: 0,
-                smoothLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-            this.pose.onResults(this.onResults.bind(this));
-            console.log("Vision: Engine Pronta");
-        } catch(e) {
-            console.error("Vision: Falha ao carregar MediaPipe", e);
-        }
-    },
-
-    start: async function() {
-        if (!this.video || !this.pose) return false;
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { 
-                    facingMode: 'user', 
-                    width: {ideal: 480}, 
-                    height: {ideal: 640},
-                    frameRate: {ideal: 30} 
-                },
-                audio: false
-            });
-            this.video.srcObject = stream;
-            await this.video.play();
-            
-            const feed = document.getElementById('camera-feed');
-            if(feed) {
-                feed.srcObject = stream;
-                feed.play();
-                feed.style.opacity = 0.5; // Transparência AR
-            }
-
-            this.active = true;
-            this.resetCalibration();
-            this.loop();
-            return true;
-        } catch(e) {
-            console.warn("Vision: Câmera negada/indisponível", e);
-            return false;
-        }
-    },
-
-    resetCalibration: function() {
-        this.calibration.isCalibrated = false;
-        this.calibration.framesStable = 0;
-        console.log("Vision: Buscando ponto zero...");
-    },
-
-    loop: async function() {
-        if(!this.active) return;
-        if(this.video && this.video.readyState >= 2) {
-            await this.pose.send({image: this.video});
-        }
-        requestAnimationFrame(this.loop.bind(this));
-    },
-
-    onResults: function(results) {
-        if (!results.poseLandmarks) {
-            this.data.presence = false;
+    init: async function() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            console.log("🚫 Vision: Câmera não suportada. Modo legado ativo.");
             return;
         }
-        this.data.presence = true;
 
-        const nose = results.poseLandmarks[0];
-        const earL = results.poseLandmarks[7];
-        const earR = results.poseLandmarks[8];
+        try {
+            this.video = document.createElement('video');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } });
+            this.video.srcObject = stream;
+            this.video.play();
+            
+            this.canvas = document.createElement('canvas');
+            this.canvas.width = 320;
+            this.canvas.height = 240;
+            this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+            
+            this.active = true;
+            console.log("👁️ Vision: Sensor Óptico Ativo.");
+            this.loop();
+        } catch (e) {
+            console.log("🚫 Vision: Permissão negada ou erro. Jogando sem corpo.");
+        }
+    },
 
-        let rawX = (0.5 - nose.x) * 3.0; 
-        let rawY = (0.5 - nose.y) * 4.0;
-        let rawTilt = (earL.y - earR.y) * 10;
+    loop: function() {
+        if (!this.active) return;
 
-        if (!this.calibration.isCalibrated) {
-            const delta = Math.abs(rawX - this.calibration.lastX);
-            if (delta < this.calibration.threshold) {
-                this.calibration.framesStable++;
-            } else {
-                this.calibration.framesStable = 0;
-            }
-            this.calibration.lastX = rawX;
+        // Desenha frame atual
+        this.ctx.drawImage(this.video, 0, 0, 320, 240);
+        
+        // Processamento leve (Optical Flow simplificado)
+        // Detecta onde há mais mudança de pixel (esquerda ou direita)
+        const frame = this.ctx.getImageData(0, 0, 320, 240);
+        const diffX = this.calculateCenterOfMotion(frame.data);
 
-            if (this.calibration.framesStable > this.calibration.requiredFrames) {
-                this.calibration.offsetX = rawX;
-                this.calibration.offsetY = rawY;
-                this.calibration.isCalibrated = true;
-                console.log("Vision: Calibrado!");
-                Feedback.rumble('ui');
-            }
+        // Converte movimento em INTENÇÃO para o Input.js
+        // Se diffX for positivo (movimento à direita), outputX vai para 1
+        let outputX = 0;
+        if (Math.abs(diffX) > 2) { // Deadzone visual
+            outputX = Math.max(-1, Math.min(1, diffX / this.sensitivity));
         }
 
-        if (this.calibration.isCalibrated) {
-            this.data.x = rawX - this.calibration.offsetX;
-            this.data.y = rawY - this.calibration.offsetY;
-        } else {
-            this.data.x = rawX;
-            this.data.y = rawY;
+        // Injeta a intenção no sistema central
+        // Inverte-se outputX pois no espelho, mover-se à direita (tela) é esquerda (usuário) ou vice-versa, ajuste conforme necessário
+        if (typeof Input !== 'undefined') {
+            Input.setSensorData(-outputX, 0, 0); // Apenas eixo X por enquanto (tilt)
         }
 
-        this.data.tilt = rawTilt;
-        this.raw.y = rawY;
+        requestAnimationFrame(() => this.loop());
+    },
+
+    calculateCenterOfMotion: function(data) {
+        if (!this.lastFrameData) {
+            this.lastFrameData = new Uint8ClampedArray(data);
+            return 0;
+        }
+
+        let leftMotion = 0;
+        let rightMotion = 0;
+        const width = 320;
+        const halfWidth = width / 2;
+
+        // Amostragem rápida (pula pixels para performance)
+        for (let i = 0; i < data.length; i += 16) { 
+            const diff = Math.abs(data[i] - this.lastFrameData[i]); // Diferença de brilho (Canal R)
+            if (diff > 30) { // Threshold de ruído
+                const x = (i / 4) % width;
+                if (x < halfWidth) leftMotion += diff;
+                else rightMotion += diff;
+            }
+            this.lastFrameData[i] = data[i]; // Atualiza histórico
+        }
+
+        // Se houver muito mais movimento de um lado, assume inclinação
+        const total = leftMotion + rightMotion;
+        if (total < 1000) return 0; // Movimento insuficiente
+
+        // Retorna balanço (-sensibilidade a +sensibilidade)
+        return (rightMotion - leftMotion) / 1000;
     }
 };
 
-window.Vision = Vision;
+// Inicia se o usuário permitir (pode ser ligado por um botão na UI também)
+// Por padrão, tenta iniciar silenciosamente ou aguarda interação do usuário
+// Vision.init(); 
