@@ -2,54 +2,877 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Wii System</title>
-    
-    <link rel="manifest" href="./manifest.json">
-    <meta name="theme-color" content="#00bebd">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
+    <title>WiiWEB: ULTIMATE MOBILE</title>
+    
+    <!-- TENSORFLOW LIBRARIES (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
-    <link rel="stylesheet" href="./css/style.css">
-    <link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+    <!-- TAILWIND CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FONTS -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #00e0ff;
+            --accent: #ff0055;
+            --glass: rgba(255, 255, 255, 0.15);
+            --glass-strong: rgba(22, 22, 22, 0.85);
+        }
+
+        body {
+            background-color: #000;
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            color: white;
+        }
+
+        /* CAMADAS (LAYERS) */
+        #viewport { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+        
+        #video-feed {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scaleX(-1); /* Centralizado e Espelhado */
+            min-width: 100%; min-height: 100%;
+            width: auto; height: auto;
+            object-fit: cover;
+            opacity: 0; /* Oculto por padrão, controlado via config */
+            transition: opacity 0.5s;
+            z-index: 0;
+        }
+
+        #game-canvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
+        }
+
+        #ui-layer {
+            position: absolute; inset: 0; z-index: 20; pointer-events: none;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        .interactive { pointer-events: auto !important; }
+
+        /* UI ELEMENTS */
+        .glass-panel {
+            background: var(--glass-strong);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        .game-card {
+            background: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        .game-card:active { transform: scale(0.95); background: rgba(255,255,255,0.2); }
+
+        .btn-action {
+            background: var(--primary);
+            color: #000;
+            font-weight: 800;
+            letter-spacing: 1px;
+            box-shadow: 0 0 15px rgba(0, 224, 255, 0.4);
+            transition: transform 0.1s;
+        }
+        .btn-action:active { transform: scale(0.95); }
+
+        /* LOCK SCREEN (ORIENTATION) */
+        #orientation-lock {
+            position: fixed; inset: 0; z-index: 100;
+            background: #000;
+            display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+        }
+        
+        @media (orientation: portrait) {
+            #orientation-lock { display: flex; }
+        }
+
+        /* UTILS */
+        .text-glow { text-shadow: 0 0 10px rgba(255,255,255,0.5); }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* SLIDERS */
+        input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 24px; width: 24px;
+            border-radius: 50%; background: var(--primary);
+            margin-top: -10px; box-shadow: 0 0 10px var(--primary);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; background: #333; border-radius: 2px;
+        }
+    </style>
 </head>
 <body>
-    <div class="wii-menu">
-        <div class="header-box">
-            <div class="avatar-container">
-                <img src="./assets/mascote_perfil.jpg" onerror="this.style.display='none'; this.parentElement.innerHTML='<i class=\'bx bxs-user\'></i>'">
+
+    <div id="viewport">
+        <!-- BACKGROUND VIDEO -->
+        <video id="video-feed" autoplay muted playsinline></video>
+        
+        <!-- GAME RENDER -->
+        <canvas id="game-canvas"></canvas>
+
+        <!-- UI SYSTEM -->
+        <div id="ui-layer" class="flex flex-col justify-between h-full">
+            
+            <!-- LOADING OVERLAY -->
+            <div id="screen-load" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center interactive">
+                <div class="w-16 h-16 border-4 border-gray-800 border-t-cyan-400 rounded-full animate-spin mb-6"></div>
+                <h1 class="text-2xl font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">CARREGANDO IA</h1>
+                <p class="text-gray-500 text-xs mt-4 px-8 text-center">Permita o acesso à câmera.<br>Processamento local no seu dispositivo.</p>
             </div>
-            <h1 class="console-title">thIAguinho <span class="highlight">Wii</span></h1>
-            <p class="console-status">System Ready.</p>
+
+            <!-- MENU PRINCIPAL -->
+            <div id="screen-menu" class="hidden absolute inset-0 z-40 flex flex-col items-center justify-center interactive bg-black/40 backdrop-blur-sm">
+                
+                <div class="text-center mb-8">
+                    <h1 class="text-6xl font-black italic tracking-tighter text-white drop-shadow-lg">Wii<span class="text-cyan-400">WEB</span></h1>
+                    <p class="text-xs font-bold tracking-[0.4em] text-gray-400 uppercase mt-1">Mobile Motion Engine</p>
+                </div>
+
+                <!-- CARROUSEL DE JOGOS -->
+                <div class="flex overflow-x-auto w-full px-8 gap-6 snap-x justify-start md:justify-center items-center h-72 hide-scrollbar pb-4">
+                    
+                    <!-- BOXING CARD -->
+                    <div onclick="App.launch('box')" class="game-card min-w-[280px] h-60 snap-center flex flex-col p-6 relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 p-4 opacity-20 text-6xl group-hover:scale-110 transition-transform">🥊</div>
+                        <div class="mt-auto">
+                            <h2 class="text-3xl font-bold text-white mb-1">BOXE</h2>
+                            <p class="text-sm text-gray-400 leading-tight">Velocidade e Impacto.<br>Defenda-se.</p>
+                            <div class="mt-4 h-1 w-full bg-gray-700 rounded overflow-hidden">
+                                <div class="h-full bg-red-500 w-3/4"></div>
+                            </div>
+                            <span class="text-[10px] text-gray-500 uppercase mt-1 block">Intensidade Alta</span>
+                        </div>
+                    </div>
+
+                    <!-- RUNNING CARD -->
+                    <div onclick="App.launch('run')" class="game-card min-w-[280px] h-60 snap-center flex flex-col p-6 relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 p-4 opacity-20 text-6xl group-hover:scale-110 transition-transform">🏃</div>
+                        <div class="mt-auto">
+                            <h2 class="text-3xl font-bold text-white mb-1">CORRIDA</h2>
+                            <p class="text-sm text-gray-400 leading-tight">Cadência Vertical.<br>Desvie com o corpo.</p>
+                            <div class="mt-4 h-1 w-full bg-gray-700 rounded overflow-hidden">
+                                <div class="h-full bg-green-500 w-1/2"></div>
+                            </div>
+                            <span class="text-[10px] text-gray-500 uppercase mt-1 block">Intensidade Média</span>
+                        </div>
+                    </div>
+
+                    <!-- YOGA CARD -->
+                    <div onclick="App.launch('yoga')" class="game-card min-w-[280px] h-60 snap-center flex flex-col p-6 relative overflow-hidden group">
+                        <div class="absolute top-0 right-0 p-4 opacity-20 text-6xl group-hover:scale-110 transition-transform">🧘</div>
+                        <div class="mt-auto">
+                            <h2 class="text-3xl font-bold text-white mb-1">ZEN</h2>
+                            <p class="text-sm text-gray-400 leading-tight">Equilíbrio e Postura.<br>Mantenha a pose.</p>
+                            <div class="mt-4 h-1 w-full bg-gray-700 rounded overflow-hidden">
+                                <div class="h-full bg-purple-500 w-1/4"></div>
+                            </div>
+                            <span class="text-[10px] text-gray-500 uppercase mt-1 block">Intensidade Baixa</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="App.toggleSettings()" class="mt-6 p-4 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur text-2xl transition-all">
+                    ⚙️
+                </button>
+            </div>
+
+            <!-- SETTINGS MODAL -->
+            <div id="modal-settings" class="hidden absolute inset-0 bg-black/80 z-50 flex items-center justify-center interactive p-4 backdrop-blur-md">
+                <div class="glass-panel w-full max-w-sm p-6 animate-pulse-short">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-bold text-white">Calibração</h3>
+                        <button onclick="App.toggleSettings()" class="text-gray-400 text-2xl font-bold">&times;</button>
+                    </div>
+
+                    <div class="space-y-6">
+                        <!-- Debug Toggle -->
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-gray-300">Modo Debug (Esqueleto)</span>
+                            <div class="relative inline-block w-12 h-6 transition duration-200 ease-in-out">
+                                <input type="checkbox" id="cfg-debug" onchange="Config.update()" class="absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer checked:right-0 checked:border-cyan-400"/>
+                                <div class="block overflow-hidden h-6 rounded-full bg-gray-600 cursor-pointer"></div>
+                            </div>
+                        </div>
+
+                        <!-- Sliders -->
+                        <div>
+                            <div class="flex justify-between text-xs text-cyan-400 font-bold mb-2">
+                                <span>SENSIBILIDADE (SOCO)</span>
+                                <span id="lbl-punch">15</span>
+                            </div>
+                            <input type="range" id="cfg-punch" min="5" max="40" value="15" oninput="Config.update()">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs text-cyan-400 font-bold mb-2">
+                                <span>SENSIBILIDADE (PULO)</span>
+                                <span id="lbl-run">2.0</span>
+                            </div>
+                            <input type="range" id="cfg-run" min="0.5" max="5.0" step="0.1" value="2.0" oninput="Config.update()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HUD (IN GAME) -->
+            <div id="screen-hud" class="hidden w-full h-full relative">
+                <!-- Top Bar -->
+                <div class="absolute top-0 left-0 right-0 p-4 flex justify-between items-start">
+                    <div class="glass-panel px-5 py-2 flex flex-col items-start min-w-[100px]">
+                        <span class="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Score</span>
+                        <span id="hud-score" class="text-2xl text-white font-mono font-bold leading-none">0</span>
+                    </div>
+                    
+                    <button onclick="App.stopGame()" class="glass-panel w-10 h-10 flex items-center justify-center text-red-400 font-bold interactive active:bg-red-500 active:text-white transition-colors">
+                        ✕
+                    </button>
+                </div>
+
+                <!-- Center Message -->
+                <div id="hud-msg" class="absolute inset-0 flex items-center justify-center pointer-events-none"></div>
+
+                <!-- Bottom Gauge -->
+                <div id="hud-gauge-wrap" class="hidden absolute bottom-6 left-6 right-6 h-4 bg-gray-800 rounded-full overflow-hidden border border-gray-600">
+                    <div id="hud-gauge" class="h-full bg-gradient-to-r from-green-500 to-cyan-500 w-full transition-all duration-300"></div>
+                </div>
+            </div>
+
         </div>
 
-        <a href="./game.html?mode=kart" class="channel-card">
-            <div class="card-icon"><i class='bx bxs-car-crash'></i></div>
-            <div class="card-info">
-                <h2>Turbo Kart</h2>
-                <p>Use o celular como volante.</p>
-                <div class="tags"><span>ACELERÔMETRO</span><span>TOQUE</span></div>
-            </div>
-        </a>
-
-        <a href="./game.html?mode=run" class="channel-card">
-            <div class="card-icon"><i class='bx bx-run'></i></div>
-            <div class="card-info">
-                <h2>Marathon</h2>
-                <p>Corra no lugar para mover.</p>
-                <div class="tags"><span>BODY CAM</span><span>FITNESS</span></div>
-            </div>
-        </a>
-
-        <a href="./game.html?mode=zen" class="channel-card">
-            <div class="card-icon"><i class='bx bx-wind'></i></div>
-            <div class="card-info">
-                <h2>Zen Glider</h2>
-                <p>Incline a cabeça para voar.</p>
-                <div class="tags"><span>HEAD TRACKING</span><span>RELAX</span></div>
-            </div>
-        </a>
+        <!-- ORIENTATION LOCK -->
+        <div id="orientation-lock">
+            <div class="text-6xl mb-6 animate-bounce text-cyan-400">↻</div>
+            <h2 class="text-2xl font-bold text-white text-center">GIRE O CELULAR</h2>
+            <p class="text-gray-400 text-center mt-2 px-8">Este jogo precisa de espaço horizontal para detectar seus braços.</p>
+        </div>
     </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * 1. CONFIGURAÇÃO & ESTADO GLOBAL
+         * ============================================================================
+         */
+        const Config = {
+            debug: false,
+            punchThreshold: 15,
+            runThreshold: 2.0,
+            smoothing: 0.65, // Suavização forte para evitar "jitter" natural do corpo
+            
+            update: () => {
+                const debugEl = document.getElementById('cfg-debug');
+                const punchEl = document.getElementById('cfg-punch');
+                const runEl = document.getElementById('cfg-run');
+
+                if(debugEl) {
+                    Config.debug = debugEl.checked;
+                    Config.punchThreshold = parseInt(punchEl.value);
+                    Config.runThreshold = parseFloat(runEl.value);
+
+                    document.getElementById('lbl-punch').innerText = Config.punchThreshold;
+                    document.getElementById('lbl-run').innerText = Config.runThreshold;
+
+                    // Mostrar vídeo apenas em debug
+                    document.getElementById('video-feed').style.opacity = Config.debug ? 0.4 : 0;
+                }
+            }
+        };
+
+        /**
+         * ============================================================================
+         * 2. MOTOR VISUAL (CORREÇÃO DE ASPECT RATIO)
+         * Essencial para Mobile: Mapeia coordenadas do vídeo (4:3) para a tela (variável)
+         * ============================================================================
+         */
+        const Visual = {
+            video: document.getElementById('video-feed'),
+            canvas: document.getElementById('game-canvas'),
+            ctx: null,
+            
+            videoW: 640,
+            videoH: 480,
+            
+            // Dados de Transformação
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0,
+
+            init: () => {
+                Visual.ctx = Visual.canvas.getContext('2d', { alpha: true });
+                window.addEventListener('resize', Visual.resize);
+            },
+
+            resize: () => {
+                // 1. Ajustar Canvas para resolução nativa (Retina fix)
+                const dpr = window.devicePixelRatio || 1;
+                const sw = window.innerWidth;
+                const sh = window.innerHeight;
+
+                Visual.canvas.width = sw * dpr;
+                Visual.canvas.height = sh * dpr;
+                Visual.canvas.style.width = `${sw}px`;
+                Visual.canvas.style.height = `${sh}px`;
+                Visual.ctx.scale(dpr, dpr);
+
+                // 2. Calcular 'Object-Fit: Cover' matematicamente para os keypoints
+                // Queremos que os pontos da IA coincidam com a imagem de fundo (se visível)
+                const screenRatio = sw / sh;
+                const videoRatio = Visual.videoW / Visual.videoH;
+
+                if (screenRatio > videoRatio) {
+                    // Tela mais larga que o vídeo (Corta topo/baixo)
+                    Visual.scale = sw / Visual.videoW;
+                    Visual.offsetX = 0;
+                    Visual.offsetY = (sh - (Visual.videoH * Visual.scale)) / 2;
+                } else {
+                    // Tela mais alta que o vídeo (Corta laterais)
+                    Visual.scale = sh / Visual.videoH;
+                    Visual.offsetX = (sw - (Visual.videoW * Visual.scale)) / 2;
+                    Visual.offsetY = 0;
+                }
+            },
+
+            // Converte coordenada bruta do TensorFlow (0-640) para coordenada da tela (px)
+            map: (x, y) => {
+                // Espelhamento horizontal (Mirror)
+                const mirrorX = Visual.videoW - x; 
+                return {
+                    x: (mirrorX * Visual.scale) + Visual.offsetX,
+                    y: (y * Visual.scale) + Visual.offsetY
+                };
+            }
+        };
+
+        /**
+         * ============================================================================
+         * 3. MOTOR DE MOVIMENTO (TensorFlow Wrapper + Suavização)
+         * ============================================================================
+         */
+        const Motion = {
+            detector: null,
+            prevPose: null,
+
+            init: async () => {
+                await tf.setBackend('webgl');
+                
+                // Configuração robusta de câmera para mobile
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'user', 
+                        width: { ideal: 640 }, 
+                        height: { ideal: 480 },
+                        frameRate: { ideal: 30 }
+                    },
+                    audio: false
+                });
+
+                Visual.video.srcObject = stream;
+                await new Promise(r => Visual.video.onloadedmetadata = r);
+                
+                // Atualizar dimensões reais do vídeo
+                Visual.videoW = Visual.video.videoWidth;
+                Visual.videoH = Visual.video.videoHeight;
+                Visual.video.play();
+                Visual.resize();
+
+                // Modelo Lightning (Leve para mobile)
+                const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+                Motion.detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
+            },
+
+            getSmoothedPose: async () => {
+                if (!Motion.detector) return null;
+                
+                let poses = null;
+                try {
+                    poses = await Motion.detector.estimatePoses(Visual.video);
+                } catch(e) { return null; }
+
+                if (!poses || poses.length === 0) return null;
+
+                let raw = poses[0].keypoints;
+                
+                // Suavização Exponencial (EWMA)
+                if (Motion.prevPose) {
+                    raw = raw.map((kp, i) => ({
+                        name: kp.name,
+                        // Lerp: Atual + (Novo - Atual) * (1 - Smoothing)
+                        // Se smoothing for alto, confia mais no anterior (menos jitter, mais lag)
+                        x: Motion.prevPose[i].x * Config.smoothing + kp.x * (1 - Config.smoothing),
+                        y: Motion.prevPose[i].y * Config.smoothing + kp.y * (1 - Config.smoothing),
+                        score: kp.score
+                    }));
+                }
+                Motion.prevPose = raw;
+
+                // Mapear para tela e retornar objeto estruturado
+                const mappedPoints = raw.map(kp => {
+                    const p = Visual.map(kp.x, kp.y);
+                    return { ...kp, x: p.x, y: p.y };
+                });
+
+                const find = (n) => mappedPoints.find(k => k.name === n);
+
+                // Normalização Baseada no Corpo (Escala Relativa)
+                // Isso permite que o jogo funcione se a pessoa estiver perto ou longe
+                const lShoulder = find('left_shoulder');
+                const rShoulder = find('right_shoulder');
+                let bodyScale = 100; // Valor padrão
+                if (lShoulder && rShoulder && lShoulder.score > 0.3) {
+                    bodyScale = Math.hypot(lShoulder.x - rShoulder.x, lShoulder.y - rShoulder.y);
+                }
+
+                return {
+                    raw: mappedPoints,
+                    scale: bodyScale, // Unidade de medida relativa ao tamanho do usuário
+                    nose: find('nose'),
+                    shoulders: { l: lShoulder, r: rShoulder },
+                    wrists: { l: find('left_wrist'), r: find('right_wrist') },
+                    elbows: { l: find('left_elbow'), r: find('right_elbow') }
+                };
+            }
+        };
+
+        /**
+         * ============================================================================
+         * 4. LÓGICA DOS JOGOS
+         * ============================================================================
+         */
+
+        // --- GAME: BOXE ---
+        class GameBox {
+            constructor() {
+                this.score = 0;
+                this.hp = 100;
+                this.lastPunch = 0;
+                this.enemyState = 0; // 0=Idle, 1=Attacking
+                this.enemyTimer = 0;
+                this.prevWrists = null;
+                
+                // Config HUD
+                document.getElementById('hud-gauge-wrap').classList.remove('hidden');
+            }
+
+            update(pose, ctx, w, h) {
+                if (!pose) return;
+
+                // 1. INPUT DO JOGADOR (Soco por Velocidade Relativa)
+                if (this.prevWrists) {
+                    // Calcula distância percorrida no último frame
+                    const distL = Math.hypot(pose.wrists.l.x - this.prevWrists.l.x, pose.wrists.l.y - this.prevWrists.l.y);
+                    const distR = Math.hypot(pose.wrists.r.x - this.prevWrists.r.x, pose.wrists.r.y - this.prevWrists.r.y);
+                    
+                    // Normaliza a velocidade baseada no tamanho do corpo (BodyScale)
+                    // Se bodyScale é 100px, e eu movi 20px, movi 20% do corpo.
+                    // Threshold ajustado para ser responsivo à distância.
+                    const normVelL = (distL / pose.scale) * 100;
+                    const normVelR = (distR / pose.scale) * 100;
+
+                    const now = Date.now();
+                    if (now - this.lastPunch > 250) { // Cooldown
+                        if (normVelL > Config.punchThreshold || normVelR > Config.punchThreshold) {
+                            // SOCO!
+                            this.score += 150;
+                            this.hp -= 5;
+                            this.lastPunch = now;
+                            App.fx("PUNCH!", "#00e0ff");
+                            App.shake(15);
+                        }
+                    }
+                }
+                this.prevWrists = { l: {...pose.wrists.l}, r: {...pose.wrists.r} };
+
+                // 2. IA INIMIGO
+                this.enemyTimer++;
+                if (this.enemyTimer > 200) { // Ataque a cada ~3s
+                    // Checa defesa (Punhos acima dos ombros)
+                    const isGuarding = (pose.wrists.l.y < pose.shoulders.l.y) && (pose.wrists.r.y < pose.shoulders.r.y);
+                    
+                    if (isGuarding) {
+                        App.fx("BLOCKED!", "#ffff00");
+                        this.score += 50;
+                    } else {
+                        App.fx("HIT!", "#ff0055");
+                        // Jogador perde "pontos invisíveis" ou apenas feedback visual negativo
+                        ctx.fillStyle = 'rgba(255,0,0,0.3)';
+                        ctx.fillRect(0,0,w,h);
+                    }
+                    this.enemyTimer = 0;
+                }
+
+                // 3. RENDER
+                const cx = w/2;
+                const cy = h/2;
+
+                // Inimigo (Retângulo com animação)
+                const recoil = (Date.now() - this.lastPunch < 150) ? Math.random()*20 - 10 : 0;
+                const charge = this.enemyTimer > 150 ? (this.enemyTimer-150)/50 : 0; // 0 a 1
+
+                ctx.save();
+                ctx.translate(cx + recoil, cy);
+                
+                // Aura de ataque
+                if (charge > 0) {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 150 * charge, 0, Math.PI*2);
+                    ctx.fillStyle = `rgba(255, 0, 85, ${charge * 0.5})`;
+                    ctx.fill();
+                }
+
+                // Corpo
+                ctx.fillStyle = this.enemyTimer > 150 ? '#ff4757' : '#2f3542';
+                ctx.beginPath();
+                ctx.roundRect(-80, -100, 160, 250, 20);
+                ctx.fill();
+                
+                // Olhos
+                ctx.fillStyle = 'white';
+                const eyeY = -40;
+                if (recoil !== 0) {
+                    ctx.font = "40px Arial"; ctx.textAlign = "center";
+                    ctx.fillText("X  X", 0, eyeY);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(-30, eyeY, 10, 0, Math.PI*2);
+                    ctx.arc(30, eyeY, 10, 0, Math.PI*2);
+                    ctx.fill();
+                }
+
+                // Luvas (Desenhadas na frente)
+                const punchState = this.enemyTimer > 180 ? 1 : 0; // Soco do inimigo
+                const gloveY = 50 - (punchState * 100);
+                const gloveScale = 1 + (punchState * 0.5);
+                
+                ctx.fillStyle = '#ff6b81';
+                ctx.beginPath(); ctx.arc(-90, gloveY, 40*gloveScale, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(90, gloveY, 40*gloveScale, 0, Math.PI*2); ctx.fill();
+
+                ctx.restore();
+
+                // Luvas do Jogador (Tracking AR)
+                [pose.wrists.l, pose.wrists.r].forEach(w => {
+                    if (w.score > 0.3) {
+                        ctx.beginPath();
+                        ctx.arc(w.x, w.y, pose.scale * 0.4, 0, Math.PI*2);
+                        ctx.fillStyle = 'rgba(0, 224, 255, 0.6)';
+                        ctx.strokeStyle = 'white';
+                        ctx.lineWidth = 3;
+                        ctx.fill(); ctx.stroke();
+                    }
+                });
+
+                // Update UI Gauge
+                document.getElementById('hud-gauge').style.width = this.hp + '%';
+                if (this.hp <= 0) App.stopGame();
+            }
+        }
+
+        // --- GAME: CORRIDA ---
+        class GameRun {
+            constructor() {
+                this.score = 0;
+                this.speed = 0;
+                this.distance = 0;
+                this.prevNoseY = 0;
+                this.lane = 0; // -1, 0, 1
+                this.obstacles = [];
+                
+                document.getElementById('hud-gauge-wrap').classList.add('hidden');
+            }
+
+            update(pose, ctx, w, h) {
+                if (!pose) return;
+
+                // 1. INPUT: Oscilação Vertical (Bobbing)
+                const nose = pose.nose;
+                if (nose.score > 0.4) {
+                    const deltaY = Math.abs(nose.y - this.prevNoseY);
+                    this.prevNoseY = nose.y;
+
+                    // Normalizar delta pela escala do corpo
+                    const normDelta = (deltaY / pose.scale) * 100;
+
+                    if (normDelta > Config.runThreshold) {
+                        this.speed += normDelta * 0.05;
+                    }
+
+                    // INPUT: Steering (Inclinação Lateral)
+                    const midX = w / 2;
+                    // Zona morta de 20% do centro
+                    const deadZone = w * 0.1;
+                    
+                    if (nose.x < midX - deadZone) this.lane = -1;
+                    else if (nose.x > midX + deadZone) this.lane = 1;
+                    else this.lane = 0;
+                }
+
+                // Física
+                this.speed *= 0.95; // Atrito
+                if (this.speed > 50) this.speed = 50;
+                this.distance += this.speed;
+                this.score = Math.floor(this.distance / 10);
+
+                // 2. RENDER
+                ctx.clearRect(0,0,w,h);
+                
+                // Horizonte
+                const horizonY = h * 0.4;
+                
+                // Céu
+                const grad = ctx.createLinearGradient(0,0,0,horizonY);
+                grad.addColorStop(0, '#0984e3'); grad.addColorStop(1, '#74b9ff');
+                ctx.fillStyle = grad; ctx.fillRect(0,0,w,horizonY);
+
+                // Chão
+                ctx.fillStyle = '#55efc4'; ctx.fillRect(0, horizonY, w, h);
+
+                // Estrada (Perspectiva)
+                ctx.fillStyle = '#b2bec3';
+                ctx.beginPath();
+                ctx.moveTo(w/2 - 20, horizonY);
+                ctx.lineTo(w/2 + 20, horizonY);
+                ctx.lineTo(w, h);
+                ctx.lineTo(0, h);
+                ctx.fill();
+
+                // Linhas da estrada
+                const offset = (this.distance % 200) / 200;
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 5;
+                // Desenhar várias linhas transversais
+                for(let i=0; i<5; i++) {
+                    let y = horizonY + ((h-horizonY) * ((i + offset)%1));
+                    // Largura proporcional à Y
+                    let widthAtY = ((y - horizonY) / (h - horizonY)) * w;
+                    ctx.beginPath();
+                    ctx.moveTo((w/2) - (widthAtY/2), y);
+                    ctx.lineTo((w/2) + (widthAtY/2), y);
+                    ctx.stroke();
+                }
+
+                // Jogador (Costas)
+                const bob = Math.sin(Date.now()/100) * (this.speed/2);
+                const px = (w/2) + (this.lane * (w*0.3));
+                const py = h - 150 - bob;
+                
+                // Sombra
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath(); ctx.ellipse(px, h-50, 40, 10, 0, 0, Math.PI*2); ctx.fill();
+
+                // Boneco
+                ctx.fillStyle = '#fd79a8';
+                ctx.beginPath(); ctx.arc(px, py, 30, 0, Math.PI*2); ctx.fill(); // Cabeça
+                ctx.fillStyle = '#6c5ce7';
+                ctx.fillRect(px - 25, py + 30, 50, 60); // Tronco
+
+                // HUD Speed
+                ctx.fillStyle = 'white';
+                ctx.font = "bold 60px monospace";
+                ctx.textAlign = "right";
+                ctx.fillText((this.speed * 2).toFixed(0) + " km/h", w - 20, 80);
+            }
+        }
+
+        // --- GAME: YOGA ---
+        class GameYoga {
+            constructor() {
+                this.score = 0;
+                this.timer = 0;
+                this.targetPose = 0; // 0=T-Pose, 1=Y-Pose
+                this.poseName = "T-POSE";
+                document.getElementById('hud-gauge-wrap').classList.add('hidden');
+                App.fx(this.poseName, "white");
+            }
+
+            update(pose, ctx, w, h) {
+                if (!pose) return;
+
+                // Analisar Ângulos
+                // Ângulo Braço: atan2(pulsoY - ombroY, pulsoX - ombroX)
+                const angleL = Math.atan2(pose.wrists.l.y - pose.shoulders.l.y, pose.wrists.l.x - pose.shoulders.l.x) * 180 / Math.PI;
+                const angleR = Math.atan2(pose.wrists.r.y - pose.shoulders.r.y, pose.wrists.r.x - pose.shoulders.r.x) * 180 / Math.PI;
+
+                let match = false;
+                
+                if (this.targetPose === 0) {
+                    // T-POSE: Esquerdo ~180, Direito ~0 (ou 360)
+                    // Tolerância +/- 20 graus
+                    const lOk = Math.abs(angleL - 180) < 25 || Math.abs(angleL + 180) < 25; // Math.atan2 retorna -180 a 180
+                    const rOk = Math.abs(angleR) < 25;
+                    if (lOk && rOk) match = true;
+                }
+
+                if (match) {
+                    this.timer++;
+                    ctx.strokeStyle = '#00ff00';
+                    if (this.timer > 100) {
+                        this.score += 1000;
+                        App.fx("PERFEITO!", "#00ff00");
+                        this.timer = 0;
+                        // Reset simples
+                        this.score += 500;
+                    }
+                } else {
+                    this.timer = Math.max(0, this.timer - 2);
+                    ctx.strokeStyle = '#ffffff';
+                }
+
+                // RENDER
+                ctx.clearRect(0,0,w,h);
+                const cx = w/2; const cy = h/2;
+
+                // Guia (Silhueta)
+                ctx.save();
+                ctx.lineWidth = 15;
+                ctx.lineCap = 'round';
+                
+                // Desenhar T-Pose Alvo
+                ctx.beginPath();
+                ctx.moveTo(cx, cy); ctx.lineTo(cx, cy+100); // Tronco
+                ctx.moveTo(cx-150, cy); ctx.lineTo(cx+150, cy); // Braços
+                ctx.stroke();
+                ctx.restore();
+
+                // Círculo de Progresso
+                if (this.timer > 0) {
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 100, 0, (Math.PI*2) * (this.timer/100));
+                    ctx.strokeStyle = `rgba(0, 255, 0, 0.5)`;
+                    ctx.lineWidth = 10;
+                    ctx.stroke();
+                }
+
+                // Esqueleto AR
+                ctx.strokeStyle = match ? '#00ff00' : '#00e0ff';
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.moveTo(pose.wrists.l.x, pose.wrists.l.y);
+                ctx.lineTo(pose.shoulders.l.x, pose.shoulders.l.y);
+                ctx.lineTo(pose.shoulders.r.x, pose.shoulders.r.y);
+                ctx.lineTo(pose.wrists.r.x, pose.wrists.r.y);
+                ctx.stroke();
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 5. APP CONTROLLER (Gerenciamento de Estado)
+         * ============================================================================
+         */
+        const App = {
+            game: null,
+            loopId: null,
+            shakeAmount: 0,
+
+            init: async () => {
+                Visual.init();
+                await Motion.init();
+                
+                // Transição Loading -> Menu
+                document.getElementById('screen-load').classList.add('hidden');
+                document.getElementById('screen-menu').classList.remove('hidden');
+                document.getElementById('screen-menu').classList.add('flex');
+                
+                Config.update();
+            },
+
+            launch: (type) => {
+                document.getElementById('screen-menu').classList.remove('flex');
+                document.getElementById('screen-menu').classList.add('hidden');
+                document.getElementById('screen-hud').classList.remove('hidden');
+
+                if (type === 'box') App.game = new GameBox();
+                if (type === 'run') App.game = new GameRun();
+                if (type === 'yoga') App.game = new GameYoga();
+
+                App.loop();
+            },
+
+            stopGame: () => {
+                cancelAnimationFrame(App.loopId);
+                App.game = null;
+                document.getElementById('screen-hud').classList.add('hidden');
+                document.getElementById('screen-menu').classList.remove('hidden');
+                document.getElementById('screen-menu').classList.add('flex');
+                
+                // Limpar Canvas
+                Visual.ctx.clearRect(0,0,Visual.canvas.width, Visual.canvas.height);
+                document.getElementById('hud-msg').innerText = '';
+            },
+
+            fx: (text, color) => {
+                const el = document.getElementById('hud-msg');
+                el.innerHTML = `<h1 class="text-6xl font-black italic text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400 drop-shadow-2xl animate-bounce" style="-webkit-text-stroke: 2px ${color};">${text}</h1>`;
+                setTimeout(() => el.innerHTML = '', 800);
+            },
+
+            shake: (amount) => {
+                App.shakeAmount = amount;
+            },
+
+            toggleSettings: () => {
+                document.getElementById('modal-settings').classList.toggle('hidden');
+            },
+
+            loop: async () => {
+                if (!App.game) return;
+
+                const pose = await Motion.getSmoothedPose();
+                const ctx = Visual.ctx;
+                const w = Visual.canvas.width / window.devicePixelRatio; // Logic width
+                const h = Visual.canvas.height / window.devicePixelRatio;
+
+                // Screen Shake Logic
+                ctx.save();
+                if (App.shakeAmount > 0) {
+                    const dx = (Math.random() - 0.5) * App.shakeAmount;
+                    const dy = (Math.random() - 0.5) * App.shakeAmount;
+                    ctx.translate(dx, dy);
+                    App.shakeAmount *= 0.9;
+                    if (App.shakeAmount < 0.5) App.shakeAmount = 0;
+                }
+
+                App.game.update(pose, ctx, w, h);
+                
+                // Debug Skeleton Overlay
+                if (Config.debug && pose) {
+                    ctx.strokeStyle = 'lime'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(pose.shoulders.l.x, pose.shoulders.l.y); ctx.lineTo(pose.shoulders.r.x, pose.shoulders.r.y); ctx.stroke();
+                }
+
+                ctx.restore();
+                
+                // Atualizar Score Global
+                if (App.game) document.getElementById('hud-score').innerText = App.game.score;
+
+                App.loopId = requestAnimationFrame(App.loop);
+            }
+        };
+
+        // Iniciar
+        window.onload = App.init;
+
+    </script>
 </body>
 </html>
+
