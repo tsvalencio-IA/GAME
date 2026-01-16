@@ -3,198 +3,212 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho WII: ULTIMATE FIXED</title>
+    <title>AR KINECT TRILOGY: ULTIMATE</title>
     
-    <!-- TENSORFLOW.JS (Core & Models) -->
+    <!-- TensorFlow.js Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
-    <!-- TAILWIND CSS -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- FONTS -->
-    <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Teko:wght@300;500;700&display=swap" rel="stylesheet">
-
     <style>
-        :root {
-            --neon-blue: #00F3FF;
-            --neon-pink: #FF0055;
-            --neon-green: #00FF9D;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Russo+One&display=swap');
 
         body {
             background-color: #000;
             margin: 0;
             overflow: hidden;
-            font-family: 'Teko', sans-serif;
+            font-family: 'Russo One', sans-serif;
             touch-action: none;
-            user-select: none;
-            -webkit-user-select: none;
         }
 
-        /* LAYOUT */
-        #game-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
 
-        /* VÍDEO (Espelho Visual) */
+        /* Camada de Vídeo (Espelhada e levemente escura para contraste) */
         #webcam {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             object-fit: cover;
             transform: scaleX(-1);
-            filter: brightness(0.4) contrast(1.1);
+            filter: brightness(0.6) contrast(1.2);
             z-index: 0;
-            pointer-events: none;
         }
 
-        /* CANVAS */
+        /* Camada do Jogo */
         #game-canvas {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             z-index: 10;
-            pointer-events: none;
         }
 
-        /* UI LAYER - CRÍTICO: pointer-events none para não bloquear, mas filhos terão auto */
+        /* UI Overlay */
         #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             z-index: 20;
-            pointer-events: none; 
-            display: flex; flex-direction: column;
+            pointer-events: none; /* Deixa cliques passarem, ativado via classe */
         }
 
-        /* ELEMENTOS INTERATIVOS DEVEM TER ISSO */
-        .interactive { pointer-events: auto !important; cursor: pointer; }
-
-        /* MENU CARDS */
-        .game-card {
-            background: rgba(20, 20, 20, 0.9);
-            border: 2px solid #333;
-            border-radius: 12px;
-            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-            position: relative;
-            overflow: hidden;
+        .interactive {
+            pointer-events: auto !important;
         }
-        .game-card:active { transform: scale(0.95); border-color: white; }
-        
-        /* HOVER EFFECTS (Desktop) & ACTIVE STATE (Mobile) */
-        .game-card.kart { border-bottom: 4px solid var(--neon-blue); }
-        .game-card.run { border-bottom: 4px solid var(--neon-green); }
-        .game-card.box { border-bottom: 4px solid var(--neon-pink); }
 
         .title-glitch {
-            font-family: 'Russo One', sans-serif;
-            text-shadow: 2px 2px 0px var(--neon-blue), -2px -2px 0px var(--neon-pink);
+            text-shadow: 2px 2px 0px #ff00ff, -2px -2px 0px #00ffff;
+            animation: glitch 0.5s infinite alternate;
         }
 
-        /* HUD */
+        @keyframes glitch {
+            0% { transform: skew(0deg); }
+            20% { transform: skew(-2deg); }
+            40% { transform: skew(2deg); }
+            100% { transform: skew(0deg); }
+        }
+
         .hud-panel {
             background: rgba(0, 0, 0, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(4px);
-            border-radius: 8px;
-            padding: 5px 15px;
+            border: 2px solid #fff;
+            box-shadow: 0 0 15px #00ffff;
+            backdrop-filter: blur(5px);
         }
 
-        /* LOADER */
-        .loader {
-            width: 40px; height: 40px; border: 4px solid #fff;
-            border-bottom-color: transparent; border-radius: 50%;
-            animation: spin 1s linear infinite;
+        .btn-arcade {
+            background: linear-gradient(45deg, #ff0055, #ff00aa);
+            border: 3px solid #fff;
+            box-shadow: 0 5px 0 #990033;
+            transition: transform 0.1s;
         }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .btn-arcade:active {
+            transform: translateY(5px);
+            box-shadow: 0 0 0 #990033;
+        }
+
+        /* Efeito de Flash ao bater */
+        #damage-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: red;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 30;
+            transition: opacity 0.1s;
+        }
     </style>
 </head>
 <body>
 
     <div id="game-container">
-        <!-- WEBCAM -->
-        <video id="webcam" autoplay muted playsinline></video>
+        <!-- Feedback Visual de Dano/Erro -->
+        <div id="damage-overlay"></div>
+
+        <!-- Fonte de Vídeo (Oculta) -->
+        <video id="video-source" playsinline style="display:none;"></video>
         
-        <!-- CANVAS -->
+        <!-- Webcam Renderizada (Fundo) -->
+        <video id="webcam" autoplay muted playsinline></video>
+
+        <!-- Canvas Principal -->
         <canvas id="game-canvas"></canvas>
 
-        <!-- UI -->
-        <div id="ui-layer">
+        <!-- UI System -->
+        <div id="ui-layer" class="flex flex-col items-center justify-center">
             
-            <!-- TELA DE LOADING (Inicia Visível) -->
-            <div id="screen-load" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center interactive">
-                <div class="loader mb-4"></div>
-                <h1 class="text-3xl text-white title-glitch mb-2">thIAguinho WII</h1>
-                <p id="load-status" class="text-gray-500 text-sm tracking-widest">INICIALIZANDO SISTEMA...</p>
+            <!-- LOADER -->
+            <div id="screen-loading" class="absolute inset-0 bg-black flex flex-col items-center justify-center interactive z-50">
+                <h1 class="text-4xl text-cyan-400 animate-pulse mb-4">INICIALIZANDO SISTEMA AR</h1>
+                <div class="w-64 h-4 bg-gray-800 rounded border border-cyan-500 overflow-hidden">
+                    <div id="loading-bar" class="h-full bg-cyan-400 w-0 transition-all duration-1000"></div>
+                </div>
+                <p class="text-gray-400 mt-4 text-sm">Carregando Neural Network (MoveNet)...</p>
+                <p class="text-gray-600 text-xs mt-2">Permita o uso da câmera quando solicitado.</p>
             </div>
 
-            <!-- MENU PRINCIPAL (Inicia Oculto) -->
-            <div id="screen-menu" class="hidden absolute inset-0 bg-black/90 backdrop-blur-md z-40 flex-col items-center justify-center interactive p-4">
-                <div class="text-center mb-8">
-                    <h1 class="text-5xl md:text-7xl text-white title-glitch leading-none">
-                        th<span class="text-cyan-400">IA</span>guinho
-                    </h1>
-                    <p class="text-gray-400 text-lg tracking-widest mt-2">ARCADE COLLECTION</p>
-                </div>
-
-                <div class="flex flex-col w-full max-w-md gap-4">
-                    <!-- BOTÃO KART -->
-                    <div onclick="App.start('kart')" class="game-card kart h-24 flex items-center px-6 interactive w-full">
-                        <div class="text-4xl mr-4">🏎️</div>
-                        <div class="flex-1 text-left">
-                            <h2 class="text-2xl text-white font-bold leading-none">NEON KART</h2>
-                            <p class="text-gray-400 text-sm">Use as mãos como volante</p>
-                        </div>
-                        <div class="text-cyan-400 font-bold text-xl">GO</div>
-                    </div>
-
-                    <!-- BOTÃO RUN -->
-                    <div onclick="App.start('run')" class="game-card run h-24 flex items-center px-6 interactive w-full">
-                        <div class="text-4xl mr-4">🏃</div>
-                        <div class="flex-1 text-left">
-                            <h2 class="text-2xl text-white font-bold leading-none">STREET RUN</h2>
-                            <p class="text-gray-400 text-sm">Corra e pule no lugar</p>
-                        </div>
-                        <div class="text-green-400 font-bold text-xl">GO</div>
-                    </div>
-
-                    <!-- BOTÃO BOX -->
-                    <div onclick="App.start('box')" class="game-card box h-24 flex items-center px-6 interactive w-full">
-                        <div class="text-4xl mr-4">🥊</div>
-                        <div class="flex-1 text-left">
-                            <h2 class="text-2xl text-white font-bold leading-none">RHYTHM BOX</h2>
-                            <p class="text-gray-400 text-sm">Soco no ritmo da música</p>
-                        </div>
-                        <div class="text-pink-500 font-bold text-xl">GO</div>
-                    </div>
-                </div>
+            <!-- MENU PRINCIPAL -->
+            <div id="screen-menu" class="hidden absolute inset-0 bg-black/80 flex-col items-center justify-center interactive z-40">
+                <h1 class="text-6xl md:text-8xl text-white font-black title-glitch mb-12 text-center leading-tight">
+                    MOTION<br><span class="text-cyan-400">ARCADE</span>
+                </h1>
                 
-                <p class="text-gray-600 text-xs mt-8 text-center max-w-xs">
-                    *Mantenha o celular na vertical e afaste-se 1.5 metros da câmera.*
-                </p>
-            </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl px-4">
+                    <!-- Card Drive -->
+                    <button onclick="GameSystem.start('drive')" class="btn-arcade p-6 rounded-xl group hover:scale-105 transition-all">
+                        <div class="text-4xl mb-2">🏎️</div>
+                        <h2 class="text-2xl text-white font-bold">NEON DRIVE</h2>
+                        <p class="text-white/80 text-sm mt-2">Segure o volante imaginário.</p>
+                        <div class="mt-4 bg-black/30 p-2 rounded text-xs text-left text-white font-mono">
+                            OBJETIVO: Dirigir longe<br>
+                            CONTROLE: Ângulo dos braços<br>
+                            FALHA: Sair da pista
+                        </div>
+                    </button>
 
-            <!-- HUD DO JOGO -->
-            <div id="screen-hud" class="hidden w-full h-full flex-col justify-between p-4 pointer-events-none">
-                <!-- Topo -->
-                <div class="flex justify-between items-start">
-                    <div class="hud-panel flex flex-col items-center">
-                        <span class="text-xs text-gray-400 uppercase tracking-widest">SCORE</span>
-                        <span id="hud-score" class="text-3xl text-white font-bold leading-none">0</span>
-                    </div>
-                    <button onclick="App.stop()" class="interactive bg-red-600/20 border border-red-500 text-red-500 w-10 h-10 rounded-full font-bold flex items-center justify-center backdrop-blur">
-                        ✕
+                    <!-- Card Run -->
+                    <button onclick="GameSystem.start('run')" class="btn-arcade p-6 rounded-xl group hover:scale-105 transition-all" style="background: linear-gradient(45deg, #00aa55, #00ff55); box-shadow: 0 5px 0 #006633;">
+                        <div class="text-4xl mb-2">🏃</div>
+                        <h2 class="text-2xl text-white font-bold">TURBO RUN</h2>
+                        <p class="text-white/80 text-sm mt-2">Corra no lugar fisicamente.</p>
+                        <div class="mt-4 bg-black/30 p-2 rounded text-xs text-left text-white font-mono">
+                            OBJETIVO: Desviar obstáculos<br>
+                            CONTROLE: Ritmo corporal + Inclinar<br>
+                            FALHA: Colisão frontal
+                        </div>
+                    </button>
+
+                    <!-- Card Dance -->
+                    <button onclick="GameSystem.start('dance')" class="btn-arcade p-6 rounded-xl group hover:scale-105 transition-all" style="background: linear-gradient(45deg, #5500aa, #aa00ff); box-shadow: 0 5px 0 #330066;">
+                        <div class="text-4xl mb-2">💃</div>
+                        <h2 class="text-2xl text-white font-bold">JUST POSE</h2>
+                        <p class="text-white/80 text-sm mt-2">Copie as poses e pegue orbes.</p>
+                        <div class="mt-4 bg-black/30 p-2 rounded text-xs text-left text-white font-mono">
+                            OBJETIVO: High Score<br>
+                            CONTROLE: Corpo inteiro<br>
+                            FALHA: Errar timing
+                        </div>
                     </button>
                 </div>
+            </div>
 
-                <!-- Mensagem Central -->
-                <div id="hud-msg" class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <h2 id="msg-text" class="text-5xl font-black text-white italic drop-shadow-lg opacity-0 transition-opacity duration-200 text-center" style="-webkit-text-stroke: 1px black;"></h2>
+            <!-- HUD (IN GAME) -->
+            <div id="screen-hud" class="hidden absolute top-0 w-full p-4 flex justify-between items-start pointer-events-none">
+                <div class="hud-panel p-4 rounded-lg">
+                    <div class="text-xs text-cyan-300 uppercase tracking-widest">Score</div>
+                    <div id="hud-score" class="text-4xl text-white font-mono">00000</div>
+                </div>
+                
+                <div id="hud-message" class="absolute top-20 left-1/2 transform -translate-x-1/2 text-center">
+                    <h2 class="text-3xl text-yellow-400 font-black stroke-black drop-shadow-lg animate-bounce">PREPARE-SE!</h2>
                 </div>
 
-                <!-- Barra Inferior (Velocidade/Status) -->
-                <div class="w-full flex flex-col items-center pb-6">
-                    <div id="hud-bar-container" class="hidden w-64 h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-600 mb-2">
-                        <div id="hud-bar-fill" class="h-full bg-gradient-to-r from-green-500 to-cyan-400 w-0 transition-all duration-100"></div>
-                    </div>
-                    <span id="hud-status" class="text-xs font-bold text-cyan-400 bg-black/60 px-3 py-1 rounded-full">AGUARDANDO...</span>
+                <div class="hud-panel p-2 rounded-lg">
+                    <button onclick="GameSystem.stop()" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded interactive">
+                        SAIR
+                    </button>
                 </div>
+            </div>
+
+            <!-- GAME OVER -->
+            <div id="screen-gameover" class="hidden absolute inset-0 bg-red-900/90 flex flex-col items-center justify-center interactive z-50">
+                <h1 class="text-6xl text-white font-black mb-4 title-glitch">GAME OVER</h1>
+                <p class="text-2xl text-white mb-8">Score Final: <span id="final-score" class="text-yellow-300">0</span></p>
+                <button onclick="GameSystem.showMenu()" class="btn-arcade py-4 px-12 rounded-full text-xl font-bold text-white">
+                    VOLTAR AO MENU
+                </button>
             </div>
 
         </div>
@@ -203,497 +217,705 @@
     <script>
         /**
          * =========================================================================
-         * MOTOR GRÁFICO (Canvas 2D)
+         * ENGINE GRÁFICA & UTILITÁRIOS (Sem imagens externas)
          * =========================================================================
          */
         const Gfx = {
-            canvas: document.getElementById('game-canvas'),
-            ctx: null,
-            width: 0, height: 0,
-
-            init: () => {
-                Gfx.ctx = Gfx.canvas.getContext('2d', { alpha: true });
-                window.addEventListener('resize', Gfx.resize);
-                Gfx.resize();
-            },
-
-            resize: () => {
-                const dpr = window.devicePixelRatio || 1;
-                Gfx.width = window.innerWidth;
-                Gfx.height = window.innerHeight;
-                Gfx.canvas.width = Gfx.width * dpr;
-                Gfx.canvas.height = Gfx.height * dpr;
-                Gfx.ctx.scale(dpr, dpr);
-            },
-
-            clear: () => Gfx.ctx.clearRect(0, 0, Gfx.width, Gfx.height),
-
-            // Desenhar Esqueleto
-            drawSkeleton: (pose, color) => {
-                if (!pose) return;
-                const ctx = Gfx.ctx;
+            drawCar: (ctx, x, y, scale, angle) => {
                 ctx.save();
-                ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.lineCap = 'round';
-                
-                const path = (p1, p2) => {
-                    if (p1.score > 0.3 && p2.score > 0.3) {
-                        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-                    }
-                };
-                
-                path(pose.shoulders.l, pose.shoulders.r);
-                path(pose.shoulders.l, pose.elbows.l); path(pose.elbows.l, pose.wrists.l);
-                path(pose.shoulders.r, pose.elbows.r); path(pose.elbows.r, pose.wrists.r);
-                
-                ctx.restore();
-            },
-
-            // Volante Virtual
-            drawSteeringWheel: (angle, active) => {
-                const ctx = Gfx.ctx;
-                const cx = Gfx.width / 2;
-                const cy = 150;
-                
-                ctx.save();
-                ctx.translate(cx, cy);
+                ctx.translate(x, y);
+                ctx.scale(scale, scale);
                 ctx.rotate(angle);
                 
-                ctx.beginPath(); ctx.arc(0,0, 60, 0, Math.PI*2);
-                ctx.lineWidth = 10;
-                ctx.strokeStyle = active ? '#00F3FF' : 'rgba(255,255,255,0.3)';
+                // Sombra
+                ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                ctx.fillRect(-35, 10, 70, 40);
+
+                // Corpo do Carro (Estilo Ferrari Testarossa Retro)
+                ctx.fillStyle = '#ff0033'; // Vermelho
+                ctx.beginPath();
+                ctx.moveTo(-30, 0);
+                ctx.lineTo(30, 0);
+                ctx.lineTo(35, 20); // Traseira larga
+                ctx.lineTo(-35, 20);
+                ctx.fill();
+
+                // Teto
+                ctx.fillStyle = '#990000';
+                ctx.fillRect(-20, -15, 40, 15);
+
+                // Luzes Traseiras (Neon)
+                ctx.fillStyle = '#ff0000';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = 'red';
+                ctx.fillRect(-32, 12, 20, 5);
+                ctx.fillRect(12, 12, 20, 5);
+                
+                // Placa
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#ffff00';
+                ctx.fillRect(-8, 12, 16, 6);
+
+                ctx.restore();
+            },
+
+            drawRunner: (ctx, x, y, scale, frame) => {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.scale(scale, scale);
+
+                // Stickman Sci-fi
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = '#00ff00';
+
+                const legOffset = Math.sin(frame * 0.5) * 10;
+                
+                // Pernas
+                ctx.beginPath();
+                ctx.moveTo(0, 0); // Quadril
+                ctx.lineTo(-10, 20 + legOffset); // Joelho Esq
+                ctx.lineTo(-10, 40 + legOffset); // Pé Esq
                 ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0); // Quadril
+                ctx.lineTo(10, 20 - legOffset); // Joelho Dir
+                ctx.lineTo(10, 40 - legOffset); // Pé Dir
+                ctx.stroke();
+
+                // Tronco
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(0, -30);
+                ctx.stroke();
+
+                // Braços
+                ctx.beginPath();
+                ctx.moveTo(0, -25);
+                ctx.lineTo(-15, -10 - legOffset);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(0, -25);
+                ctx.lineTo(15, -10 + legOffset);
+                ctx.stroke();
+
+                // Cabeça
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(0, -40, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            },
+
+            drawObstacle: (ctx, x, y, scale, type) => {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.scale(scale, scale);
                 
-                ctx.beginPath(); ctx.moveTo(-60,0); ctx.lineTo(60,0); 
-                ctx.lineWidth = 6; ctx.stroke();
+                // Caixa de Perigo
+                ctx.fillStyle = '#333';
+                ctx.strokeStyle = '#ffcc00';
+                ctx.lineWidth = 2;
+                ctx.fillRect(-20, -40, 40, 40);
+                ctx.strokeRect(-20, -40, 40, 40);
                 
+                // X no meio
+                ctx.beginPath();
+                ctx.moveTo(-20, -40); ctx.lineTo(20, 0);
+                ctx.moveTo(20, -40); ctx.lineTo(-20, 0);
+                ctx.stroke();
+
                 ctx.restore();
             }
         };
 
         /**
          * =========================================================================
-         * MOTION ENGINE (Pose Detection + Correção de Espelho)
+         * SISTEMA DE MOTION CAPTURE (TensorFlow MoveNet)
          * =========================================================================
          */
-        const Motion = {
-            detector: null,
-            video: document.getElementById('webcam'),
-            prevPose: null,
-            lastTime: 0,
-
-            init: async () => {
-                const status = document.getElementById('load-status');
-                try {
-                    await tf.setBackend('webgl');
-                    status.innerText = "LIGANDO CÂMERA...";
-                    
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-                        audio: false
-                    });
-                    Motion.video.srcObject = stream;
-                    await new Promise(r => Motion.video.onloadedmetadata = r);
-                    Motion.video.play();
-
-                    status.innerText = "CARREGANDO IA...";
-                    const config = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
-                    Motion.detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, config);
-                    
-                    return true;
-                } catch (e) {
-                    alert("ERRO: Ative a câmera e use HTTPS. " + e.message);
-                    return false;
-                }
-            },
-
-            update: async () => {
-                if (!Motion.detector) return null;
-                
-                const now = performance.now();
-                const dt = Math.min((now - Motion.lastTime)/1000, 0.1);
-                Motion.lastTime = now;
-
-                const poses = await Motion.detector.estimatePoses(Motion.video);
-                if (poses.length === 0) return null;
-
-                const raw = poses[0].keypoints;
-                
-                // Mapeamento Inteligente (Cover + Mirror Fix)
-                const vw = Motion.video.videoWidth;
-                const vh = Motion.video.videoHeight;
-                const sw = Gfx.width;
-                const sh = Gfx.height;
-                const scale = Math.max(sw / vw, sh / vh);
-                const ox = (sw - (vw * scale)) / 2;
-                const oy = (sh - (vh * scale)) / 2;
-
-                const map = (kp) => ({
-                    // INVERSÃO DO X: width - valor calculado
-                    x: sw - (((vw - kp.x) * scale) + ox), 
-                    y: (kp.y * scale) + oy,
-                    score: kp.score
-                });
-
-                const find = n => raw.find(k => k.name === n);
-                
-                const p = {
-                    nose: map(find('nose')),
-                    shoulders: { l: map(find('left_shoulder')), r: map(find('right_shoulder')) },
-                    wrists: { l: map(find('left_wrist')), r: map(find('right_wrist')) },
-                    elbows: { l: map(find('left_elbow')), r: map(find('right_elbow')) },
-                    dt: dt
-                };
-
-                p.center = { 
-                    x: (p.shoulders.l.x + p.shoulders.r.x) / 2, 
-                    y: (p.shoulders.l.y + p.shoulders.r.y) / 2 
-                };
-                
-                // Largura do corpo para normalização
-                p.width = (p.shoulders.l.score > 0.3 && p.shoulders.r.score > 0.3) 
-                    ? Math.hypot(p.shoulders.l.x - p.shoulders.r.x, p.shoulders.l.y - p.shoulders.r.y) 
-                    : (Motion.prevPose ? Motion.prevPose.width : 100);
-
-                // Suavização simples
-                if (Motion.prevPose) {
-                    const alpha = 0.5;
-                    p.center.x = p.center.x * alpha + Motion.prevPose.center.x * (1-alpha);
-                    p.center.y = p.center.y * alpha + Motion.prevPose.center.y * (1-alpha);
-                }
-                
-                Motion.prevPose = p;
-                return p;
-            }
-        };
-
-        /**
-         * =========================================================================
-         * JOGO 1: KART
-         * =========================================================================
-         */
-        class GameKart {
+        class MotionEngine {
             constructor() {
-                this.speed = 0;
-                this.angle = 0;
-                this.carX = 0;
-                this.score = 0;
-                this.obstacles = [];
-                document.getElementById('hud-gauge-container').classList.remove('hidden');
-                document.getElementById('hud-status').innerText = "LEVANTE AS MÃOS";
-                App.msg("START!", "#00F3FF");
+                this.detector = null;
+                this.video = document.getElementById('video-source');
+                this.webcamDisplay = document.getElementById('webcam');
+                this.ready = false;
+                this.currentPose = null;
             }
 
-            update(pose, ctx, w, h) {
-                // Volante
-                let active = false;
-                let targetAngle = 0;
-
-                if (pose.wrists.l.score > 0.4 && pose.wrists.r.score > 0.4) {
-                    if (pose.wrists.l.y < h * 0.7) { // Mãos levantadas
-                        active = true;
-                        const dy = pose.wrists.r.y - pose.wrists.l.y;
-                        const dx = pose.wrists.r.x - pose.wrists.l.x;
-                        const raw = Math.atan2(dy, dx);
-                        
-                        // Correção com ombros
-                        const sDy = pose.shoulders.r.y - pose.shoulders.l.y;
-                        const sDx = pose.shoulders.r.x - pose.shoulders.l.x;
-                        const body = Math.atan2(sDy, sDx);
-                        
-                        targetAngle = raw - body;
-                        targetAngle = Math.max(-1.2, Math.min(1.2, targetAngle)); // Limit
-                        
-                        this.speed = Math.min(150, this.speed + 60 * pose.dt);
-                    }
-                }
-
-                if (!active) {
-                    this.speed *= 0.95;
-                    targetAngle = 0;
-                }
-
-                this.angle += (targetAngle - this.angle) * 5 * pose.dt;
+            async init() {
+                const updateBar = (pct) => document.getElementById('loading-bar').style.width = `${pct}%`;
                 
-                // Física
-                const curve = Math.sin(Date.now() / 2000) * 0.6;
-                this.carX += (this.angle * 3.0 - curve * (this.speed/100)) * pose.dt;
-                if (this.carX < -1.5) { this.carX = -1.5; this.speed *= 0.8; }
-                if (this.carX > 1.5) { this.carX = 1.5; this.speed *= 0.8; }
-
-                this.score += Math.floor(this.speed * pose.dt);
-
-                // Render
-                ctx.clearRect(0,0,w,h);
-                const hz = h * 0.4;
+                updateBar(20);
+                await tf.setBackend('webgl');
+                updateBar(50);
                 
-                // Estrada
-                ctx.fillStyle = '#111';
-                ctx.beginPath();
-                const top = w/2 + (curve * 200);
-                const bot = w/2 + (this.carX * -300);
-                ctx.moveTo(top-10, hz); ctx.lineTo(top+10, hz);
-                ctx.lineTo(bot+w, h); ctx.lineTo(bot-w, h);
-                ctx.fill();
-
-                // Obstáculos
-                if (Math.random() < 0.02 && this.speed > 30) this.obstacles.push({x: (Math.random()-0.5)*2.5, z: 0});
-                
-                this.obstacles.forEach((obs, i) => {
-                    obs.z += this.speed * 0.002 * pose.dt * 60;
-                    if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
-                    
-                    const drawY = hz + (obs.z * (h-hz));
-                    const roadX = top + (bot - top) * obs.z;
-                    const drawX = roadX + (obs.x * w * 0.5 * obs.z);
-                    const size = 40 * obs.z * obs.z;
-
-                    ctx.fillStyle = '#FF0055';
-                    ctx.fillRect(drawX - size/2, drawY - size, size, size);
-
-                    if (obs.z > 0.85 && obs.z < 0.95 && Math.abs(drawX - w/2) < 80) {
-                        this.speed = 10;
-                        App.msg("BATEU!", "red");
-                        ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
-                    }
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: 640, height: 480 },
+                    audio: false
                 });
+                this.video.srcObject = stream;
+                this.webcamDisplay.srcObject = stream; // Feed visual para o user
 
-                // Carro HUD
-                Gfx.drawSteeringWheel(this.angle, active);
+                await new Promise(r => this.video.onloadedmetadata = r);
+                this.video.play();
+                updateBar(70);
+
+                const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+                this.detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
+                updateBar(100);
                 
-                // Desenha Esqueleto
-                Gfx.drawSkeleton(pose, active ? '#00F3FF' : '#555');
+                this.ready = true;
+                this.loop();
+            }
 
-                document.getElementById('hud-gauge-fill').style.width = (this.speed/150)*100 + '%';
-                return this.score;
+            async loop() {
+                if (this.ready) {
+                    try {
+                        const poses = await this.detector.estimatePoses(this.video);
+                        if (poses && poses.length > 0) {
+                            this.currentPose = poses[0];
+                        }
+                    } catch (e) { console.error(e); }
+                }
+                requestAnimationFrame(() => this.loop());
+            }
+
+            // Helpers de Extração de Dados
+            getData() {
+                if (!this.currentPose) return null;
+                const kp = this.currentPose.keypoints;
+                const find = (name) => kp.find(k => k.name === name);
+                
+                const nose = find('nose');
+                const lw = find('left_wrist');
+                const rw = find('right_wrist');
+                const ls = find('left_shoulder');
+                const rs = find('right_shoulder');
+
+                // Confiança mínima
+                const minConf = 0.3;
+                if (!nose || nose.score < minConf) return null;
+
+                return {
+                    nose: nose,
+                    wrists: { left: lw, right: rw },
+                    shoulders: { left: ls, right: rs },
+                    // Normalizados (0 a 1 em relação ao vídeo)
+                    raw: kp
+                };
             }
         }
 
         /**
          * =========================================================================
-         * JOGO 2: RUN
+         * JOGO 1: NEON DRIVE (Lógica de Perspectiva)
+         * =========================================================================
+         */
+        class GameDrive {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.active = false;
+                
+                // Estado do Jogo
+                this.score = 0;
+                this.playerX = 0; // -1 a 1
+                this.speed = 0;
+                this.maxSpeed = 120;
+                this.roadPos = 0;
+                
+                // Física da Curva
+                this.curve = 0;
+                this.trackSection = 0;
+            }
+
+            start() {
+                this.active = true;
+                this.score = 0;
+                this.speed = 0;
+                this.playerX = 0;
+                this.setMsg("MÃOS COMO VOLANTE!");
+            }
+
+            setMsg(txt) {
+                const el = document.getElementById('hud-message');
+                el.innerHTML = `<h2 class="text-3xl text-yellow-400 font-black drop-shadow-md">${txt}</h2>`;
+            }
+
+            update(motion) {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+
+                // 1. INPUT (Volante Virtual)
+                let steer = 0;
+                if (motion && motion.wrists.left.score > 0.3 && motion.wrists.right.score > 0.3) {
+                    // Diferença de altura Y entre os pulsos determina o ângulo
+                    const dy = motion.wrists.right.y - motion.wrists.left.y;
+                    steer = dy * 0.02; // Sensibilidade
+                    
+                    // Acelera se detectar mãos
+                    if (this.speed < this.maxSpeed) this.speed += 2;
+                } else {
+                    // Desacelera
+                    if (this.speed > 0) this.speed -= 1;
+                    this.setMsg("CADÊ SUAS MÃOS?");
+                }
+
+                // Aplicar direção
+                this.playerX += steer * (this.speed / 100);
+
+                // Gerar Curvas Procedurais
+                this.roadPos += this.speed;
+                if (this.roadPos > 2000) { // Nova seção da pista
+                    this.trackSection = (Math.random() - 0.5) * 2; // Nova curva aleatória
+                    this.roadPos = 0;
+                }
+                // Lerp na curva atual
+                this.curve += (this.trackSection - this.curve) * 0.01;
+
+                // Mover Player com a curva (força centrífuga)
+                this.playerX -= this.curve * (this.speed / 2000);
+
+                // Colisão (Sair da estrada)
+                if (Math.abs(this.playerX) > 1.2) {
+                    this.speed *= 0.8; // Perde velocidade na grama
+                    document.getElementById('damage-overlay').style.opacity = 0.5;
+                    setTimeout(() => document.getElementById('damage-overlay').style.opacity = 0, 100);
+                    this.setMsg("CUIDADO!!");
+                }
+
+                // Pontuação
+                this.score += Math.floor(this.speed / 10);
+                
+                // Draw
+                this.draw(w, h, steer);
+                
+                return this.score;
+            }
+
+            draw(w, h, steer) {
+                this.ctx.clearRect(0,0,w,h);
+
+                const HorizonY = h * 0.4;
+                const CenterX = w / 2;
+
+                // CÉU E CHÃO
+                const gradSky = this.ctx.createLinearGradient(0,0,0,HorizonY);
+                gradSky.addColorStop(0, '#000033');
+                gradSky.addColorStop(1, '#ff0055');
+                this.ctx.fillStyle = gradSky;
+                this.ctx.fillRect(0,0,w,HorizonY);
+
+                this.ctx.fillStyle = '#111'; // Chão
+                this.ctx.fillRect(0, HorizonY, w, h - HorizonY);
+
+                // ESTRADA (Trapézio)
+                this.ctx.fillStyle = '#333';
+                this.ctx.beginPath();
+                // Topo da estrada (no horizonte) muda com a curva
+                const roadTopX = CenterX + (this.curve * 300); 
+                const roadTopW = 20;
+                
+                const roadBotX = CenterX;
+                const roadBotW = w * 1.5; // Muito larga embaixo
+
+                this.ctx.moveTo(roadTopX - roadTopW, HorizonY);
+                this.ctx.lineTo(roadTopX + roadTopW, HorizonY);
+                this.ctx.lineTo(roadBotX + roadBotW, h);
+                this.ctx.lineTo(roadBotX - roadBotW, h);
+                this.ctx.fill();
+
+                // LINHAS DA PISTA (Movimento)
+                this.ctx.strokeStyle = '#ffcc00';
+                this.ctx.lineWidth = 10;
+                const lineOffset = (Date.now() * (this.speed/20)) % 100;
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(roadTopX, HorizonY);
+                // Curva de Bézier simples para a linha central
+                this.ctx.quadraticCurveTo(
+                    CenterX + (this.curve * 100), (HorizonY + h)/2, 
+                    CenterX - (this.playerX * w * 0.5), h + lineOffset // Engana o olho movendo a base
+                );
+                this.ctx.stroke();
+
+                // DESENHAR VOLANTE HUD
+                this.ctx.strokeStyle = 'cyan';
+                this.ctx.lineWidth = 5;
+                this.ctx.beginPath();
+                this.ctx.arc(CenterX, h - 100, 60, 0, Math.PI*2);
+                this.ctx.stroke();
+                // Indicador de rotação
+                this.ctx.save();
+                this.ctx.translate(CenterX, h - 100);
+                this.ctx.rotate(steer * 2);
+                this.ctx.fillStyle = 'cyan';
+                this.ctx.fillRect(-50, -5, 100, 10);
+                this.ctx.restore();
+
+                // CARRO
+                const carX = CenterX + (this.playerX * 200);
+                // Clamp visual
+                const renderX = Math.max(100, Math.min(w-100, carX)); 
+                Gfx.drawCar(this.ctx, CenterX, h - 80, 1.5, steer * 0.5);
+            }
+        }
+
+        /**
+         * =========================================================================
+         * JOGO 2: TURBO RUN (Lógica de Pulo/Corrida)
          * =========================================================================
          */
         class GameRun {
-            constructor() {
-                this.score = 0;
-                this.speed = 0;
-                this.lane = 0;
-                this.playerY = 0;
-                this.jumpVel = 0;
-                this.energy = 0;
-                this.lastY = 0;
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.active = false;
+                
+                this.playerY = 0; // Posição vertical do nariz anterior
+                this.runSpeed = 0;
+                this.lane = 0; // -1 (Esq), 0 (Meio), 1 (Dir)
                 this.obstacles = [];
-                document.getElementById('hud-gauge-container').classList.remove('hidden');
-                document.getElementById('hud-subtext').innerText = "CORRA NO LUGAR";
-                App.msg("GO!", "#00FF9D");
+                this.distance = 0;
+                this.score = 0;
+                this.frameCount = 0;
             }
 
-            update(pose, ctx, w, h) {
-                // Direção Lateral
-                if (pose.shoulders.l.score > 0.4) {
-                    const diffX = pose.center.x - (w/2);
-                    if (diffX < -w*0.1) this.lane = -1;
-                    else if (diffX > w*0.1) this.lane = 1;
-                    else this.lane = 0;
+            start() {
+                this.active = true;
+                this.score = 0;
+                this.obstacles = [];
+                this.distance = 0;
+                this.runSpeed = 0;
+                this.setMsg("CORRA NO LUGAR!");
+            }
 
-                    // Corrida (Bounce)
-                    if (!this.lastY) this.lastY = pose.center.y;
-                    const delta = Math.abs(pose.center.y - this.lastY);
-                    this.lastY = pose.center.y;
-                    
-                    if (delta/pose.width > 0.03) this.energy = Math.min(1, this.energy + 2*pose.dt);
-                    else this.energy = Math.max(0, this.energy - 1*pose.dt);
-                    
-                    this.speed = this.energy * 80;
+            setMsg(txt) {
+                document.getElementById('hud-message').innerHTML = `<h2 class="text-3xl text-green-400 font-black drop-shadow-md">${txt}</h2>`;
+            }
 
-                    // Pulo
-                    if (this.playerY === 0 && pose.wrists.l.y < pose.nose.y) {
-                        this.jumpVel = 20; this.playerY = 1; App.msg("PULO!", "#00FF9D");
+            update(motion) {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                
+                // 1. INPUT (Corrida Estacionária)
+                if (motion) {
+                    const noseY = motion.nose.y;
+                    const delta = Math.abs(noseY - this.playerY);
+                    
+                    // Se o nariz mexe muito verticalmente = correndo
+                    if (delta > 2) {
+                        this.runSpeed += delta * 0.5;
                     }
+                    this.playerY = noseY;
+
+                    // Detectar Inclinação para mudar de pista
+                    const midX = (motion.shoulders.left.x + motion.shoulders.right.x) / 2;
+                    const centerThreshold = this.canvas.width; // Mapear coord do video para canvas é complexo, usando %
+                    // Simplificação: Se nariz está na esquerda/direita do frame de vídeo
+                    if (motion.nose.x < 200) this.lane = -1;
+                    else if (motion.nose.x > 440) this.lane = 1;
+                    else this.lane = 0;
                 }
 
-                // Física Pulo
-                if (this.playerY > 0) {
-                    this.playerY += this.jumpVel * pose.dt * 2;
-                    this.jumpVel -= 60 * pose.dt;
-                    if (this.playerY <= 0) { this.playerY = 0; this.jumpVel = 0; }
+                // Atrito
+                this.runSpeed *= 0.90;
+                if (this.runSpeed < 1) this.runSpeed = 0;
+                if (this.runSpeed > 50) this.runSpeed = 50;
+
+                this.distance += this.runSpeed;
+                this.score = Math.floor(this.distance / 10);
+
+                // 2. OBSTÁCULOS
+                this.frameCount++;
+                if (this.frameCount % 60 === 0 && this.runSpeed > 10) {
+                    // Spawn obstáculo
+                    const lane = Math.floor(Math.random() * 3) - 1; // -1, 0, 1
+                    this.obstacles.push({ lane: lane, z: 1000 }); // Z começa longe
                 }
 
-                this.score += Math.floor(this.speed * pose.dt);
-
-                // Render
-                ctx.clearRect(0,0,w,h);
-                const hz = h * 0.4;
-                ctx.fillStyle = '#111'; ctx.fillRect(0,hz,w,h); // Chão
-                
-                // Grid
-                ctx.strokeStyle = '#00FF9D'; ctx.lineWidth = 2; ctx.beginPath();
-                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.2, h);
-                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.5, h);
-                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.8, h);
-                ctx.stroke();
-
-                // Obstáculos
-                if (Math.random() < 0.02 && this.speed > 5) this.obstacles.push({lane: Math.floor(Math.random()*3)-1, z:0});
-                
-                this.obstacles.forEach((obs, i) => {
-                    obs.z += (this.speed * 0.005 + 0.02) * 60 * pose.dt;
-                    if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
-
-                    const roadW = w * 2 * obs.z;
-                    const drawX = (w/2) + (obs.lane * roadW * 0.15);
-                    const drawY = hz + (obs.z * (h-hz));
-                    const size = 50 * obs.z;
-
-                    ctx.fillStyle = '#FF0055';
-                    ctx.fillRect(drawX - size/2, drawY - size, size, size);
+                // Mover obstáculos
+                for (let i = this.obstacles.length - 1; i >= 0; i--) {
+                    let obs = this.obstacles[i];
+                    obs.z -= this.runSpeed; // Aproxima baseado na velocidade
 
                     // Colisão
-                    if (obs.z > 0.85 && obs.z < 0.95 && obs.lane === this.lane && this.playerY === 0) {
-                        this.speed = 0; this.energy = 0;
-                        App.msg("BATIDA!", "red");
-                        ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
-                        this.obstacles.splice(i,1);
+                    if (obs.z < 50 && obs.z > -50) {
+                        if (this.lane === obs.lane) {
+                            // Bateu!
+                            this.runSpeed = 0;
+                            document.getElementById('damage-overlay').style.opacity = 0.8;
+                            setTimeout(() => document.getElementById('damage-overlay').style.opacity = 0, 200);
+                            this.score -= 100;
+                            this.obstacles.splice(i, 1);
+                            continue;
+                        }
                     }
+                    // Remove se passou
+                    if (obs.z < -100) {
+                        this.obstacles.splice(i, 1);
+                    }
+                }
+
+                if (this.runSpeed < 5) this.setMsg("CORRA MAIS RÁPIDO!");
+                else this.setMsg("");
+
+                this.draw(w, h);
+                return this.score;
+            }
+
+            draw(w, h) {
+                this.ctx.clearRect(0,0,w,h);
+                const cx = w/2;
+                const cy = h/2;
+
+                // Fundo Matrix
+                this.ctx.fillStyle = '#002200';
+                this.ctx.fillRect(0,0,w,h);
+
+                // Desenhar Pistas
+                this.ctx.strokeStyle = '#005500';
+                this.ctx.lineWidth = 2;
+                // Linhas de perspectiva
+                this.ctx.beginPath(); this.ctx.moveTo(cx - 20, cy); this.ctx.lineTo(0, h); this.ctx.stroke();
+                this.ctx.beginPath(); this.ctx.moveTo(cx + 20, cy); this.ctx.lineTo(w, h); this.ctx.stroke();
+                
+                // Obstáculos
+                this.obstacles.forEach(obs => {
+                    // Projeção simples 3D -> 2D
+                    const scale = 1000 / (obs.z + 100); 
+                    const x = cx + (obs.lane * 200 * scale);
+                    const y = cy + (100 * scale);
+                    
+                    if (scale > 0) Gfx.drawObstacle(this.ctx, x, y, scale * 2, 0);
                 });
 
-                // Avatar
-                ctx.save();
-                ctx.translate(this.lane * 100, this.playerY * -200);
-                Gfx.drawSkeleton(pose, '#00FF9D');
-                ctx.restore();
-
-                document.getElementById('hud-gauge-fill').style.width = (this.speed/80)*100 + '%';
-                return this.score;
+                // Jogador (Fixo no centro inferior, animação baseada na velocidade)
+                const frame = Date.now() / (200 - this.runSpeed * 3);
+                // A posição X do jogador muda suavemente visualmente
+                const playerRenderX = cx + (this.lane * 100);
+                Gfx.drawRunner(this.ctx, playerRenderX, h - 100, 2, this.runSpeed > 1 ? frame : 0);
             }
         }
 
         /**
          * =========================================================================
-         * JOGO 3: BOX
+         * JOGO 3: JUST POSE (Espelho e Alvos)
          * =========================================================================
          */
-        class GameBox {
-            constructor() {
+        class GameDance {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.active = false;
                 this.score = 0;
                 this.targets = [];
-                this.timer = 0;
-                document.getElementById('hud-gauge-container').classList.add('hidden');
-                document.getElementById('hud-subtext').innerText = "SOQUE AS BOLHAS";
-                App.msg("FIGHT!", "#FF0055");
+                this.lastSpawn = 0;
             }
 
-            update(pose, ctx, w, h) {
-                this.timer += pose.dt;
-                if (this.timer > 0.8) {
-                    this.timer = 0;
-                    const side = Math.random() > 0.5 ? 'left' : 'right';
+            start() {
+                this.active = true;
+                this.score = 0;
+                this.targets = [];
+                this.setMsg("ACERTE AS BOLHAS!");
+            }
+
+            setMsg(txt) {
+                document.getElementById('hud-message').innerHTML = `<h2 class="text-3xl text-purple-400 font-black drop-shadow-md">${txt}</h2>`;
+            }
+
+            update(motion) {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                const now = Date.now();
+
+                // 1. Spawnar Alvos Rítmicos
+                if (now - this.lastSpawn > 1500) { // A cada 1.5s
                     this.targets.push({
-                        x: side === 'left' ? w*0.25 : w*0.75,
-                        y: h*0.3 + Math.random()*h*0.3,
-                        r: 10, active: true, side: side,
-                        color: side === 'left' ? '#00F3FF' : '#FF0055'
+                        x: Math.random() * (w - 100) + 50,
+                        y: Math.random() * (h - 200) + 50,
+                        r: 60, // Raio inicial
+                        birth: now,
+                        hit: false
+                    });
+                    this.lastSpawn = now;
+                }
+
+                // 2. Detectar Colisão (Mão -> Alvo)
+                if (motion) {
+                    const hands = [motion.wrists.left, motion.wrists.right];
+                    
+                    this.targets.forEach(t => {
+                        if (t.hit) return;
+                        
+                        hands.forEach(hand => {
+                            if (hand.score > 0.3) {
+                                // Mapear coordenadas do vídeo (640x480) para canvas
+                                // Nota: Como vídeo está espelhado e object-fit cover, precisamos de aprox.
+                                const hx = (1 - (hand.x / 640)) * w; // Inverter X pelo espelho
+                                const hy = (hand.y / 480) * h;
+
+                                const dist = Math.hypot(hx - t.x, hy - t.y);
+                                if (dist < t.r) {
+                                    t.hit = true;
+                                    this.score += 500;
+                                    // Efeito visual
+                                    this.createExplosion(t.x, t.y);
+                                }
+                            }
+                        });
                     });
                 }
 
-                ctx.clearRect(0,0,w,h);
-                Gfx.drawSkeleton(pose, '#555');
+                // Limpar alvos velhos
+                this.targets = this.targets.filter(t => (now - t.birth) < 2000 && !t.hit);
 
-                this.targets.forEach(t => {
-                    if (!t.active) return;
-                    t.r += 100 * pose.dt;
-
-                    ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI*2);
-                    ctx.strokeStyle = t.color; ctx.lineWidth = 4; ctx.stroke();
-                    ctx.fillStyle = t.color + '44'; ctx.fill();
-
-                    // Hit
-                    if (pose && t.r > 40) {
-                        const hand = t.side === 'left' ? pose.wrists.l : pose.wrists.r;
-                        const dist = Math.hypot(hand.x - t.x, hand.y - t.y);
-                        if (dist < t.r + 30) {
-                            t.active = false;
-                            this.score += 100;
-                            App.msg("HIT!", t.color);
-                            // Explosion
-                            ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(t.x, t.y, 80, 0, Math.PI*2); ctx.fill();
-                        }
-                    }
-                    if (t.r > 100) t.active = false;
-                });
-                this.targets = this.targets.filter(t => t.active);
-
-                // Luvas
-                const glove = (p, c) => {
-                    if(p.score > 0.3) {
-                        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(p.x, p.y, 30, 0, Math.PI*2); ctx.fill();
-                    }
-                };
-                glove(pose.wrists.l, '#00F3FF'); glove(pose.wrists.r, '#FF0055');
-
+                this.draw(w, h, motion);
                 return this.score;
+            }
+
+            createExplosion(x, y) {
+                // Simplificado: flash na tela
+                const el = document.createElement('div');
+                el.style.position = 'absolute';
+                el.style.left = x + 'px';
+                el.style.top = y + 'px';
+                el.style.width = '100px';
+                el.style.height = '100px';
+                el.style.background = 'radial-gradient(circle, #fff, transparent)';
+                el.style.transform = 'translate(-50%, -50%)';
+                el.style.pointerEvents = 'none';
+                document.body.appendChild(el);
+                setTimeout(() => el.remove(), 200);
+            }
+
+            draw(w, h, motion) {
+                this.ctx.clearRect(0,0,w,h);
+                
+                // Desenhar Esqueleto do Jogador (Augmented Reality)
+                if (motion) {
+                    this.ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+                    this.ctx.lineWidth = 5;
+                    const drawLine = (p1, p2) => {
+                        if(p1.score > 0.3 && p2.score > 0.3) {
+                            const x1 = (1 - p1.x/640)*w; const y1 = (p1.y/480)*h;
+                            const x2 = (1 - p2.x/640)*w; const y2 = (p2.y/480)*h;
+                            this.ctx.beginPath(); this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2); this.ctx.stroke();
+                        }
+                    };
+                    const kp = motion.raw;
+                    // Braços e Ombros
+                    drawLine(motion.wrists.left, kp[7]); // Wrist -> Elbow
+                    drawLine(kp[7], motion.shoulders.left); // Elbow -> Shoulder
+                    drawLine(motion.shoulders.left, motion.shoulders.right);
+                    drawLine(motion.shoulders.right, kp[8]);
+                    drawLine(kp[8], motion.wrists.right);
+                }
+
+                // Desenhar Alvos
+                this.targets.forEach(t => {
+                    const life = (Date.now() - t.birth) / 2000;
+                    const radius = t.r * (1 - life); // Encolhe com o tempo
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(t.x, t.y, radius, 0, Math.PI*2);
+                    this.ctx.fillStyle = `rgba(255, 0, 255, ${1-life})`;
+                    this.ctx.fill();
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.stroke();
+                });
             }
         }
 
         /**
          * =========================================================================
-         * APP MAIN
+         * GESTOR DO SISTEMA
          * =========================================================================
          */
-        const App = {
-            game: null,
+        const GameSystem = {
+            motion: new MotionEngine(),
+            canvas: document.getElementById('game-canvas'),
+            activeGame: null,
             loopId: null,
 
             init: async () => {
-                Gfx.init();
-                const ready = await Motion.init();
-                if (ready) {
-                    document.getElementById('screen-load').classList.add('hidden');
-                    document.getElementById('screen-menu').classList.remove('hidden');
-                    document.getElementById('screen-menu').classList.add('flex');
-                }
+                // Ajustar Canvas
+                const resize = () => {
+                    GameSystem.canvas.width = window.innerWidth;
+                    GameSystem.canvas.height = window.innerHeight;
+                };
+                window.addEventListener('resize', resize);
+                resize();
+
+                // Iniciar Motion
+                await GameSystem.motion.init();
+                
+                // Mostrar Menu
+                document.getElementById('screen-loading').classList.add('hidden');
+                document.getElementById('screen-menu').classList.remove('hidden');
+                document.getElementById('screen-menu').classList.add('flex');
             },
 
-            start: (type) => {
-                document.getElementById('screen-menu').classList.remove('flex');
+            start: (gameType) => {
+                // UI Transitions
                 document.getElementById('screen-menu').classList.add('hidden');
+                document.getElementById('screen-menu').classList.remove('flex');
                 document.getElementById('screen-hud').classList.remove('hidden');
-                document.getElementById('screen-hud').classList.add('flex');
+                document.getElementById('screen-gameover').classList.add('hidden');
 
-                if (type === 'kart') App.game = new GameKart();
-                if (type === 'run') App.game = new GameRun();
-                if (type === 'box') App.game = new GameBox();
+                // Instanciar Jogo
+                if (gameType === 'drive') GameSystem.activeGame = new GameDrive(GameSystem.canvas);
+                if (gameType === 'run') GameSystem.activeGame = new GameRun(GameSystem.canvas);
+                if (gameType === 'dance') GameSystem.activeGame = new GameDance(GameSystem.canvas);
 
-                App.loop();
+                GameSystem.activeGame.start();
+                GameSystem.loop();
             },
 
             stop: () => {
-                cancelAnimationFrame(App.loopId);
-                App.game = null;
+                cancelAnimationFrame(GameSystem.loopId);
+                GameSystem.activeGame = null;
+                GameSystem.showMenu();
+            },
+
+            gameOver: (finalScore) => {
+                cancelAnimationFrame(GameSystem.loopId);
                 document.getElementById('screen-hud').classList.add('hidden');
+                document.getElementById('screen-gameover').classList.remove('hidden');
+                document.getElementById('screen-gameover').classList.add('flex');
+                document.getElementById('final-score').innerText = finalScore;
+            },
+
+            showMenu: () => {
+                document.getElementById('screen-hud').classList.add('hidden');
+                document.getElementById('screen-gameover').classList.add('hidden');
                 document.getElementById('screen-menu').classList.remove('hidden');
                 document.getElementById('screen-menu').classList.add('flex');
-                Gfx.clear();
+                // Limpar Canvas
+                const ctx = GameSystem.canvas.getContext('2d');
+                ctx.clearRect(0,0, GameSystem.canvas.width, GameSystem.canvas.height);
             },
 
-            msg: (text, color) => {
-                const el = document.getElementById('msg-text');
-                el.innerText = text; el.style.color = color; el.style.opacity = 1;
-                setTimeout(() => el.style.opacity = 0, 500);
-            },
+            loop: () => {
+                if (!GameSystem.activeGame) return;
 
-            loop: async () => {
-                if (!App.game) return;
-                const pose = await Motion.update(Gfx.width, Gfx.height);
-                if (pose) {
-                    const score = App.game.update(pose, Gfx.ctx, Gfx.width, Gfx.height);
-                    document.getElementById('hud-score').innerText = score;
-                }
-                App.loopId = requestAnimationFrame(App.loop);
+                const poseData = GameSystem.motion.getData();
+                const currentScore = GameSystem.activeGame.update(poseData);
+                
+                document.getElementById('hud-score').innerText = currentScore.toString().padStart(5, '0');
+
+                GameSystem.loopId = requestAnimationFrame(GameSystem.loop);
             }
         };
 
-        window.onload = App.init;
+        // Start
+        window.onload = () => GameSystem.init();
 
     </script>
 </body>
