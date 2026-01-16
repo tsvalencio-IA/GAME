@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Wii: ULTIMATE EDITION</title>
+    <title>thIAguinho Wii: FINAL MASTER</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
@@ -15,36 +15,38 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Russo+One&display=swap');
 
-        /* RESET GERAL */
+        /* RESET & BASE */
         body {
-            background-color: #000;
+            background-color: #050505;
             margin: 0;
             overflow: hidden;
             font-family: 'Russo One', sans-serif;
-            touch-action: none; /* Impede zoom/scroll no mobile */
+            touch-action: none; /* Bloqueia zoom/scroll no mobile */
             user-select: none;
             -webkit-user-select: none;
         }
 
         #game-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
 
-        /* VÍDEO ESPELHADO (Para sensação natural) */
+        /* VÍDEO (Espelhado via CSS para conforto visual) */
         #webcam {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* Espelhamento Visual */
+            transform: scaleX(-1); 
             filter: brightness(0.6) contrast(1.2);
             z-index: 0;
         }
+        
+        /* O vídeo fonte fica oculto, usado apenas para leitura da IA */
         #video-source { display: none; }
 
-        /* CANVAS DO JOGO */
+        /* CANVAS (Onde o jogo é desenhado) */
         #game-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 10;
         }
 
-        /* UI SCREENS */
+        /* UI LAYERS */
         .ui-screen {
             position: absolute; inset: 0;
             display: flex; flex-direction: column;
@@ -55,29 +57,28 @@
         .hidden { opacity: 0; pointer-events: none; display: none !important; }
         .interactive { pointer-events: auto !important; }
 
-        /* ESTILOS NINTENDO-LIKE */
+        /* ESTÉTICA NINTENDO/ARCADE */
         .n-badge {
-            background: #e60012; color: white; padding: 4px 12px;
-            border-radius: 4px; font-size: 0.8rem; font-weight: bold;
-            box-shadow: 0 4px 0 rgba(0,0,0,0.5);
-            margin-bottom: 1rem;
+            background: #e60012; color: white; padding: 5px 15px;
+            border-radius: 50px; font-size: 0.8rem; font-weight: bold;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            margin-bottom: 1rem; letter-spacing: 1px;
         }
-        
+
         .game-card {
-            background: rgba(20, 20, 20, 0.9);
+            background: linear-gradient(145deg, #1a1a1a, #0d0d0d);
             border: 2px solid #333;
-            transition: transform 0.1s, border-color 0.1s;
+            box-shadow: 0 8px 0 #000;
+            transition: transform 0.1s, border-color 0.2s;
         }
-        .game-card:active { transform: scale(0.95); border-color: #00ffff; }
+        .game-card:active { transform: translateY(4px); box-shadow: 0 4px 0 #000; border-color: #00ffff; }
 
         /* SLIDER CUSTOMIZADO */
-        input[type=range] {
-            -webkit-appearance: none; background: transparent; width: 100%;
-        }
+        input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; }
         input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none; height: 20px; width: 20px;
-            border-radius: 50%; background: #00ffff; margin-top: -8px;
-            box-shadow: 0 0 10px #00ffff;
+            -webkit-appearance: none; height: 24px; width: 24px;
+            border-radius: 50%; background: #00ffff; margin-top: -10px;
+            box-shadow: 0 0 15px #00ffff; border: 2px solid white;
         }
         input[type=range]::-webkit-slider-runnable-track {
             width: 100%; height: 4px; background: #555; border-radius: 2px;
@@ -92,86 +93,100 @@
     <canvas id="game-canvas"></canvas>
 
     <div id="screen-boot" class="ui-screen bg-black interactive">
-        <span class="n-badge">SYSTEM READY</span>
-        <h1 class="text-6xl md:text-8xl text-white font-black italic mb-2 text-center" style="text-shadow: 4px 4px 0 #00ffff;">
+        <span class="n-badge">SYSTEM READY v4.0</span>
+        <h1 class="text-6xl md:text-8xl text-white font-black italic mb-2 text-center drop-shadow-lg">
             thIAguinho<br><span class="text-cyan-400">Wii U</span>
         </h1>
-        <p class="text-gray-400 text-sm mb-10 font-mono">MOTION ENGINE V3.0</p>
+        <p class="text-gray-400 text-sm mb-12 font-mono tracking-widest">MOTION ENGINE MASTER</p>
         
-        <button onclick="System.boot()" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xl py-4 px-12 rounded-full font-bold shadow-[0_0_30px_rgba(6,182,212,0.6)] animate-pulse transition-transform transform hover:scale-105">
+        <button onclick="System.boot()" class="bg-gradient-to-r from-cyan-600 to-blue-600 text-white text-xl py-5 px-16 rounded-full font-bold shadow-[0_0_40px_rgba(6,182,212,0.4)] animate-pulse hover:scale-105 transition-transform">
             TOCAR PARA INICIAR
         </button>
-        <div id="boot-error" class="text-red-500 mt-4 text-xs font-mono hidden bg-black/50 p-2 rounded"></div>
+        <div id="boot-error" class="text-red-500 mt-6 text-xs font-mono hidden bg-red-900/20 p-4 rounded border border-red-500"></div>
     </div>
 
     <div id="screen-loading" class="ui-screen bg-black/95 hidden">
-        <div class="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-        <h2 class="text-white text-xl font-bold tracking-widest">CALIBRANDO SENSORES...</h2>
-        <div class="text-xs text-gray-500 mt-2" id="load-status">Carregando Rede Neural...</div>
+        <div class="relative w-24 h-24 mb-6">
+            <div class="absolute inset-0 border-4 border-cyan-500/30 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <h2 class="text-white text-xl font-bold tracking-widest">CALIBRANDO IA...</h2>
+        <div class="text-xs text-gray-500 mt-2 font-mono" id="load-status">Carregando TensorFlow...</div>
     </div>
 
-    <div id="screen-menu" class="ui-screen bg-black/80 hidden interactive overflow-y-auto">
-        <h2 class="text-4xl text-white font-black mb-8 italic drop-shadow-lg">ESCOLHA O JOGO</h2>
+    <div id="screen-menu" class="ui-screen bg-black/85 hidden interactive overflow-y-auto">
+        <h2 class="text-5xl text-white font-black mb-10 italic text-center drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">SELECT GAME</h2>
         
-        <div class="grid grid-cols-1 gap-4 w-full max-w-sm px-6 pb-10">
-            <button onclick="System.launch('drive')" class="game-card p-5 rounded-xl flex items-center gap-4 group hover:bg-gray-800">
-                <div class="text-4xl group-hover:scale-110 transition-transform">🏎️</div>
+        <div class="grid grid-cols-1 gap-6 w-full max-w-sm px-6 pb-10">
+            <button onclick="System.launch('drive')" class="game-card p-6 rounded-2xl flex items-center gap-6 group hover:bg-gray-800">
+                <div class="text-5xl group-hover:scale-110 transition-transform">🏎️</div>
                 <div class="text-left">
-                    <h3 class="text-xl text-white font-bold group-hover:text-red-400">SPEED RACER</h3>
-                    <p class="text-xs text-gray-400">Mãos viram o volante.</p>
+                    <h3 class="text-2xl text-white font-bold group-hover:text-red-400">NEON RACER</h3>
+                    <p class="text-xs text-gray-400 mt-1">Gire as mãos como um volante real.</p>
                 </div>
             </button>
 
-            <button onclick="System.launch('run')" class="game-card p-5 rounded-xl flex items-center gap-4 group hover:bg-gray-800">
-                <div class="text-4xl group-hover:scale-110 transition-transform">🏃</div>
+            <button onclick="System.launch('run')" class="game-card p-6 rounded-2xl flex items-center gap-6 group hover:bg-gray-800">
+                <div class="text-5xl group-hover:scale-110 transition-transform">🏃</div>
                 <div class="text-left">
-                    <h3 class="text-xl text-white font-bold group-hover:text-green-400">STREET RUN</h3>
-                    <p class="text-xs text-gray-400">Corra e desvie (Física Real).</p>
+                    <h3 class="text-2xl text-white font-bold group-hover:text-green-400">TURBO RUN</h3>
+                    <p class="text-xs text-gray-400 mt-1">Corra e incline o corpo (Física Corrigida).</p>
                 </div>
             </button>
 
-            <button onclick="System.launch('fight')" class="game-card p-5 rounded-xl flex items-center gap-4 group hover:bg-gray-800">
-                <div class="text-4xl group-hover:scale-110 transition-transform">🥊</div>
+            <button onclick="System.launch('fight')" class="game-card p-6 rounded-2xl flex items-center gap-6 group hover:bg-gray-800">
+                <div class="text-5xl group-hover:scale-110 transition-transform">🥊</div>
                 <div class="text-left">
-                    <h3 class="text-xl text-white font-bold group-hover:text-purple-400">PRO BOXING</h3>
-                    <p class="text-xs text-gray-400">Esqueleto segue você.</p>
+                    <h3 class="text-2xl text-white font-bold group-hover:text-purple-400">GYM BOXING</h3>
+                    <p class="text-xs text-gray-400 mt-1">Esqueleto visual + Hitbox precisa.</p>
                 </div>
             </button>
         </div>
         
         <div class="fixed bottom-4 text-center w-full opacity-50">
-            <p class="text-[10px] text-cyan-400 font-mono">Desenvolvido com 🤖 por thIAguinho Soluções</p>
+            <p class="text-[10px] text-cyan-400 font-mono uppercase">Desenvolvido com 🤖 por thIAguinho Soluções</p>
         </div>
     </div>
 
     <div id="screen-hud" class="ui-screen hidden justify-between p-4 pointer-events-none">
         <div class="w-full flex justify-between items-start">
-            <div class="bg-black/60 backdrop-blur px-6 py-2 rounded-full border border-white/10">
-                <div class="text-[10px] text-cyan-400 font-bold tracking-widest">SCORE</div>
-                <div id="hud-score" class="text-3xl text-white font-mono">00000</div>
+            <div class="bg-black/60 backdrop-blur-md px-6 py-2 rounded-full border border-white/20 shadow-lg">
+                <div class="text-[10px] text-cyan-400 font-bold tracking-widest uppercase">Score</div>
+                <div id="hud-score" class="text-4xl text-white font-mono leading-none">00000</div>
             </div>
-            <button onclick="System.quit()" class="interactive bg-red-600 text-white w-10 h-10 rounded-full font-bold shadow-lg border-2 border-white/20">X</button>
+            
+            <button onclick="System.quit()" class="interactive bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full font-bold shadow-lg border-2 border-red-300 flex items-center justify-center text-xl transition-transform hover:rotate-90">
+                ✕
+            </button>
         </div>
 
-        <div id="game-msg" class="absolute top-1/4 w-full text-center"></div>
+        <div id="game-msg" class="absolute top-1/4 w-full text-center pointer-events-none"></div>
 
-        <div id="wheel-feedback" class="absolute bottom-20 left-1/2 transform -translate-x-1/2 hidden opacity-80">
-            <div class="w-32 h-32 rounded-full border-4 border-cyan-400 flex items-center justify-center relative" id="virtual-wheel">
-                <div class="w-full h-1 bg-cyan-400"></div> <div class="absolute top-0 w-1 h-4 bg-red-500"></div> </div>
-            <p class="text-center text-xs text-cyan-400 mt-2 font-mono">INPUT VIRTUAL</p>
+        <div id="hud-wheel" class="absolute bottom-24 left-1/2 transform -translate-x-1/2 opacity-0 transition-opacity duration-300">
+            <div class="w-24 h-24 rounded-full border-4 border-cyan-500/50 flex items-center justify-center relative">
+                <div id="wheel-indicator" class="w-full h-1 bg-cyan-400/80"></div>
+                <div class="absolute top-0 w-2 h-4 bg-red-500"></div>
+            </div>
         </div>
 
-        <div class="interactive absolute bottom-6 right-6 bg-black/60 p-3 rounded-lg backdrop-blur border border-white/10">
-            <label class="text-[10px] text-gray-300 block mb-1 text-center font-bold">SENSIBILIDADE</label>
+        <div class="interactive absolute bottom-6 right-6 bg-black/60 p-4 rounded-xl backdrop-blur border border-white/10 shadow-xl">
+            <label class="text-[10px] text-gray-300 block mb-2 text-center font-bold tracking-widest">SENSIBILIDADE</label>
             <input type="range" min="0.5" max="3.0" step="0.5" value="1.0" class="w-32 accent-cyan-400" oninput="System.setSens(this.value)">
+            <div class="flex justify-between text-[8px] text-gray-500 mt-1">
+                <span>SUAVE</span>
+                <span>RÁPIDO</span>
+            </div>
         </div>
     </div>
 
     <div id="screen-over" class="ui-screen bg-red-900/95 hidden interactive z-50">
-        <h1 class="text-6xl text-white font-black italic mb-2">GAME OVER</h1>
-        <div class="text-6xl text-yellow-400 font-mono font-bold mb-8" id="final-score">0</div>
-        <button onclick="System.menu()" class="bg-white text-red-900 py-3 px-10 rounded-full font-bold hover:scale-105 transition-transform shadow-xl">
-            MENU PRINCIPAL
+        <h1 class="text-6xl text-white font-black italic mb-2 drop-shadow-lg">GAME OVER</h1>
+        <div class="bg-black/30 p-8 rounded-3xl border-2 border-red-400/50 mb-10 backdrop-blur-sm text-center">
+            <p class="text-xs text-red-200 uppercase tracking-widest mb-2">Pontuação Final</p>
+            <div class="text-7xl text-yellow-400 font-mono font-bold" id="final-score">0</div>
+        </div>
+        <button onclick="System.menu()" class="bg-white text-red-900 py-4 px-12 rounded-full font-bold hover:scale-105 transition-transform shadow-2xl uppercase tracking-widest">
+            Voltar ao Menu
         </button>
     </div>
 </div>
@@ -179,7 +194,8 @@
 <script>
     /**
      * =================================================================
-     * 🔊 AUDIO ENGINE (Sintetizador Puro)
+     * 🔊 AUDIO ENGINE (Sintetizador WebAudio API)
+     * Gera sons matematicamente. Não requer internet nem arquivos.
      * =================================================================
      */
     const Sfx = {
@@ -188,55 +204,65 @@
             window.AudioContext = window.AudioContext || window.webkitAudioContext;
             Sfx.ctx = new AudioContext();
         },
-        tone: (freq, type, dur, vol=0.1) => {
+        play: (freq, type, duration, vol=0.1, slide=0) => {
             if(!Sfx.ctx) return;
             const osc = Sfx.ctx.createOscillator();
             const gain = Sfx.ctx.createGain();
+            
             osc.type = type;
             osc.frequency.setValueAtTime(freq, Sfx.ctx.currentTime);
+            if(slide !== 0) {
+                osc.frequency.exponentialRampToValueAtTime(freq + slide, Sfx.ctx.currentTime + duration);
+            }
+            
             gain.gain.setValueAtTime(vol, Sfx.ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, Sfx.ctx.currentTime + dur);
+            gain.gain.exponentialRampToValueAtTime(0.01, Sfx.ctx.currentTime + duration);
+            
             osc.connect(gain);
             gain.connect(Sfx.ctx.destination);
+            
             osc.start();
-            osc.stop(Sfx.ctx.currentTime + dur);
+            osc.stop(Sfx.ctx.currentTime + duration);
         },
-        coin: () => { Sfx.tone(1200, 'sine', 0.1); setTimeout(()=>Sfx.tone(1600, 'sine', 0.2), 50); },
-        crash: () => { Sfx.tone(100, 'sawtooth', 0.4, 0.3); },
-        engine: (speed) => { /* Placeholder para som de motor complexo */ }
+        // Presets de Som
+        coin: () => { Sfx.play(1200, 'sine', 0.1, 0.1); setTimeout(()=>Sfx.play(1800, 'sine', 0.2, 0.1), 50); },
+        crash: () => { Sfx.play(150, 'sawtooth', 0.4, 0.3, -100); },
+        engine: (rpm) => { /* Som de motor complexo omitido para performance */ },
+        hit: () => { Sfx.play(200, 'square', 0.1, 0.1, -100); },
+        whoosh: () => { Sfx.play(300, 'triangle', 0.2, 0.05, -200); }
     };
 
     /**
      * =================================================================
-     * 🎨 GRAPHICS & SKELETON (Visual Polish)
+     * 🎨 GRAPHICS ENGINE (Desenho e Efeitos)
      * =================================================================
      */
     const Gfx = {
+        // Desenha o Esqueleto AR sobre o vídeo
         drawSkeleton: (ctx, pose, w, h) => {
             if(!pose) return;
             const p = pose.keypoints;
             const find = n => p.find(k=>k.name===n);
             
-            // Pontos Chave
-            const joints = ['nose', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist'];
+            // MAP MODE: Video (640) -> Tela (W) Espelhada
+            // Se o vídeo é 640px de largura e rawX é 100 (esquerda):
+            // Na tela espelhada, isso deve ser desenhado na direita.
+            // Formula: x = w - (rawX / 640 * w)
+            const mapX = x => w - (x / 640 * w);
+            const mapY = y => (y / 480 * h);
+
             const connections = [
                 ['left_shoulder', 'right_shoulder'],
                 ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
-                ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
-                ['nose', 'left_shoulder'], ['nose', 'right_shoulder'] // Pescoço abstrato
+                ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist']
             ];
 
-            // Função de Mapeamento (Video -> Tela Espelhada)
-            // Video: 640x480. Tela: WxH. Espelhado horizontalmente.
-            const mapX = x => w - (x / 640 * w); 
-            const mapY = y => (y / 480 * h);
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-
-            // Desenhar Ossos
-            ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = 6;
+            // Ossos (Brilho Neon)
+            ctx.shadowBlur = 10; ctx.shadowColor = '#00ffff';
+            ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 4;
+            
             connections.forEach(pair => {
                 const p1 = find(pair[0]);
                 const p2 = find(pair[1]);
@@ -248,13 +274,13 @@
                 }
             });
 
-            // Desenhar Juntas
-            ctx.fillStyle = '#fff';
-            joints.forEach(name => {
-                const pt = find(name);
+            // Juntas (Pontos Brancos)
+            ctx.fillStyle = '#fff'; ctx.shadowBlur = 0;
+            ['left_wrist', 'right_wrist', 'nose'].forEach(n => {
+                const pt = find(n);
                 if(pt && pt.score > 0.3) {
                     ctx.beginPath();
-                    ctx.arc(mapX(pt.x), mapY(pt.y), 6, 0, Math.PI*2);
+                    ctx.arc(mapX(pt.x), mapY(pt.y), 8, 0, Math.PI*2);
                     ctx.fill();
                 }
             });
@@ -264,20 +290,31 @@
             ctx.save();
             ctx.translate(x, y);
             ctx.scale(1.5, 1.5);
-            ctx.rotate(angle);
+            ctx.rotate(angle); // Rotação suave do carro
+            
             // Sombra
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
-            ctx.beginPath(); ctx.ellipse(0, 5, 40, 20, 0, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(0, 5, 45, 20, 0, 0, Math.PI*2); ctx.fill();
+
             // Chassi
-            ctx.fillStyle = '#d00'; // Rosso Corsa
+            const grad = ctx.createLinearGradient(-30,0,30,0);
+            grad.addColorStop(0, '#cc0000'); grad.addColorStop(0.5, '#ff3333'); grad.addColorStop(1, '#cc0000');
+            ctx.fillStyle = grad;
+            
             ctx.beginPath();
-            ctx.moveTo(-30, 15); ctx.lineTo(-25, -10);
-            ctx.quadraticCurveTo(0, -15, 25, -10);
-            ctx.lineTo(30, 15); ctx.closePath(); ctx.fill();
-            // Spoiler
-            ctx.fillStyle = '#900'; ctx.fillRect(-28, 12, 56, 5);
+            ctx.moveTo(-32, 18); ctx.lineTo(-28, -10); // Traseira
+            ctx.quadraticCurveTo(0, -18, 28, -10); // Nariz Curvo
+            ctx.lineTo(32, 18); // Frente
+            ctx.closePath(); ctx.fill();
+
             // Vidro
-            ctx.fillStyle = '#222'; ctx.beginPath(); ctx.moveTo(-20,-5); ctx.lineTo(-15,-15); ctx.lineTo(15,-15); ctx.lineTo(20,-5); ctx.fill();
+            ctx.fillStyle = '#111';
+            ctx.beginPath(); ctx.moveTo(-18,-5); ctx.lineTo(-14,-14); ctx.lineTo(14,-14); ctx.lineTo(18,-5); ctx.fill();
+
+            // Luzes
+            ctx.fillStyle = '#ffff00'; // Farol
+            ctx.beginPath(); ctx.arc(-25, 15, 2, 0, Math.PI*2); ctx.arc(25, 15, 2, 0, Math.PI*2); ctx.fill();
+            
             ctx.restore();
         },
 
@@ -285,25 +322,30 @@
             ctx.save();
             ctx.translate(x, y);
             ctx.scale(2, 2);
-            ctx.strokeStyle = '#0f0'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-            const s = Math.sin(frame * 0.5) * 10;
+            ctx.strokeStyle = '#0f0'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.shadowColor='#0f0'; ctx.shadowBlur=10;
+
+            const s = Math.sin(frame * 0.4) * 12; // Ciclo de corrida
+            const bounce = Math.abs(Math.cos(frame * 0.4)) * 5;
+
             // Tronco
-            ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(5, -20); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, 0-bounce); ctx.lineTo(4, -22-bounce); ctx.stroke();
             // Pernas
-            ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-10+s, 20); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(10-s, 20); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, 0-bounce); ctx.lineTo(-12+s, 20-bounce); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, 0-bounce); ctx.lineTo(12-s, 20-bounce); ctx.stroke();
             // Braços
-            ctx.beginPath(); ctx.moveTo(5,-18); ctx.lineTo(-10-s, -10); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(5,-18); ctx.lineTo(15+s, -10); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(4, -20-bounce); ctx.lineTo(-12-s, -10-bounce); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(4, -20-bounce); ctx.lineTo(20+s, -10-bounce); ctx.stroke();
             // Cabeça
-            ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(5, -25, 5, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.arc(4, -28-bounce, 5, 0, Math.PI*2); ctx.fill();
+            
             ctx.restore();
         }
     };
 
     /**
      * =================================================================
-     * 🧠 SYSTEM CORE
+     * 🧠 SYSTEM CORE (Gerenciador de Estado)
      * =================================================================
      */
     const System = {
@@ -320,33 +362,36 @@
             document.getElementById('screen-boot').classList.add('hidden');
             document.getElementById('screen-loading').classList.remove('hidden');
             
+            // Inicia AudioContext no clique (Gestão de energia Mobile)
             Sfx.init(); 
-            Sfx.coin(); // Test audio
+            Sfx.coin(); // Teste de som
 
             try {
-                // Camera
+                // 1. Acesso à Câmera
                 const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: 'user', width: {ideal: 640}, height: {ideal: 480} },
                     audio: false
                 });
                 System.video.srcObject = stream;
                 document.getElementById('webcam').srcObject = stream;
+                
                 await new Promise(r => System.video.onloadedmetadata = r);
                 System.video.play();
                 document.getElementById('webcam').play();
 
-                // AI
+                // 2. Carregar Modelo IA
                 await tf.setBackend('webgl');
                 System.detector = await poseDetection.createDetector(
                     poseDetection.SupportedModels.MoveNet,
                     { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
                 );
 
+                // 3. Sucesso
                 document.getElementById('screen-loading').classList.add('hidden');
                 System.menu();
 
             } catch(e) {
-                document.getElementById('boot-error').innerText = "Erro: " + e.message;
+                document.getElementById('boot-error').innerText = "ERRO: Permissão de câmera negada ou dispositivo incompatível.\n" + e.message;
                 document.getElementById('boot-error').classList.remove('hidden');
                 document.getElementById('screen-boot').classList.remove('hidden');
                 document.getElementById('screen-loading').classList.add('hidden');
@@ -356,16 +401,19 @@
         launch: (m) => {
             System.mode = m;
             System.active = true;
+            
+            // Inicia Lógica Específica
             if(m === 'drive') Logic.Drive.init();
             if(m === 'run') Logic.Run.init();
             if(m === 'fight') Logic.Fight.init();
 
             document.getElementById('screen-menu').classList.add('hidden');
             document.getElementById('screen-hud').classList.remove('hidden');
-            
-            // Show wheel feedback only for drive
-            if(m==='drive') document.getElementById('wheel-feedback').classList.remove('hidden');
-            else document.getElementById('wheel-feedback').classList.add('hidden');
+
+            // Feedback Visual Específico
+            const wheel = document.getElementById('hud-wheel');
+            if(m === 'drive') { wheel.style.opacity = '1'; } 
+            else { wheel.style.opacity = '0'; }
 
             System.loop();
         },
@@ -383,11 +431,14 @@
             System.menu();
         },
 
-        setSens: (v) => { System.sens = parseFloat(v); },
+        setSens: (v) => { 
+            System.sens = parseFloat(v); 
+            System.msg(`SENS: ${v}x`);
+        },
 
         msg: (txt) => {
             const el = document.getElementById('game-msg');
-            el.innerHTML = `<h1 class="text-4xl text-yellow-400 font-black drop-shadow-md animate-bounce">${txt}</h1>`;
+            el.innerHTML = `<h1 class="text-4xl text-yellow-400 font-black drop-shadow-[0_4px_0_#000] animate-bounce">${txt}</h1>`;
             setTimeout(()=>el.innerHTML='', 1500);
         },
 
@@ -402,8 +453,8 @@
 
         loop: async () => {
             if(!System.active) return;
-            
-            // Resize
+
+            // Responsividade Canvas
             if(System.canvas.width !== window.innerWidth) {
                 System.canvas.width = window.innerWidth;
                 System.canvas.height = window.innerHeight;
@@ -412,15 +463,16 @@
             const ctx = System.ctx;
             const w = System.canvas.width;
             const h = System.canvas.height;
-            
-            // AI Detection
+
+            // Detecção IA
             let pose = null;
             try {
+                // flipHorizontal: false pois tratamos espelhamento na lógica visual
                 const poses = await System.detector.estimatePoses(System.video, {flipHorizontal: false});
-                if(poses.length>0) pose = poses[0];
+                if(poses.length > 0) pose = poses[0];
             } catch(e){}
 
-            // Update Game
+            // Update Lógica Jogo
             let score = 0;
             if(System.mode === 'drive') score = Logic.Drive.update(ctx, w, h, pose);
             if(System.mode === 'run') score = Logic.Run.update(ctx, w, h, pose);
@@ -433,78 +485,84 @@
 
     /**
      * =================================================================
-     * 🎮 GAME LOGIC (CORRIGIDA)
+     * 🎮 LOGIC ENGINE (Física e Regras)
      * =================================================================
      */
     const Logic = {
         
-        // --- CARRO (Correção de Direção & Sensibilidade) ---
+        // --- JOGO 1: CARRO (Correção de Ângulo) ---
         Drive: {
-            x: 0, speed: 0, road: 0, curve: 0, steerSmooth: 0,
+            x: 0, speed: 0, road: 0, curve: 0, smoothSteer: 0,
             init: () => { Logic.Drive.x=0; Logic.Drive.speed=0; System.msg("SEGURE O VOLANTE"); },
             update: (ctx, w, h, pose) => {
                 const d = Logic.Drive;
                 const cx = w/2;
 
-                // 1. INPUT (Delta Y)
-                let steerTarget = 0;
+                // 1. INPUT
+                let targetAngle = 0;
                 if(pose) {
                     const lw = pose.keypoints.find(k=>k.name==='left_wrist');
                     const rw = pose.keypoints.find(k=>k.name==='right_wrist');
                     
                     if(lw.score > 0.3 && rw.score > 0.3) {
-                        // Delta Y puro: Se Mão Direita desce (Y aumenta) -> vira Direita (Positivo)
-                        const dy = rw.y - lw.y; 
-                        steerTarget = dy * 0.05 * System.sens; 
+                        // Math.atan2 calcula o ângulo exato em radianos entre os pulsos
+                        const dy = rw.y - lw.y;
+                        const dx = rw.x - lw.x;
+                        const radians = Math.atan2(dy, dx);
+                        
+                        // Fator de correção para volante (Sensibilidade)
+                        targetAngle = radians * 1.5 * System.sens;
 
-                        if(d.speed < 150) d.speed += 2;
+                        if(d.speed < 120) d.speed += 1.5;
                     } else {
-                        if(d.speed > 0) d.speed -= 2;
+                        if(d.speed > 0) d.speed -= 1;
                     }
                 }
 
-                // Suavização (Lerp) para não tremer
-                d.steerSmooth += (steerTarget - d.steerSmooth) * 0.1;
-                
-                // Atualiza Volante Visual
-                const wheel = document.getElementById('virtual-wheel');
-                if(wheel) wheel.style.transform = `rotate(${d.steerSmooth * 20}deg)`;
+                // Suavização (Lerp) para remover tremedeira
+                d.smoothSteer += (targetAngle - d.smoothSteer) * 0.1;
 
-                // Física
+                // Atualiza HUD Volante
+                const wheelEl = document.getElementById('wheel-indicator');
+                if(wheelEl) wheelEl.style.transform = `rotate(${d.smoothSteer * 40}deg)`;
+
+                // 2. FÍSICA
                 d.road += d.speed;
-                if(d.road > 2000) { d.tgtCurve = (Math.random()-0.5)*4; d.road=0; }
-                d.curve += ((d.tgtCurve||0) - d.curve) * 0.02;
+                // Gerador de Pista
+                if(d.road > 2000) { d.tgtCurve = (Math.random()-0.5)*3; d.road=0; }
+                d.curve += ((d.tgtCurve||0) - d.curve) * 0.01;
 
-                d.x += d.steerSmooth * (d.speed/1000); // Input
-                d.x -= d.curve * (d.speed/3000); // Centrífuga
+                // Movimento do Carro
+                d.x += d.smoothSteer * (d.speed/800); 
+                d.x -= d.curve * (d.speed/2000); // Força centrífuga
 
-                if(Math.abs(d.x) > 1.2) { d.speed *= 0.9; } // Grama
+                if(Math.abs(d.x) > 1.3) { d.speed *= 0.9; } // Grama
 
-                // Render
+                // 3. RENDER
                 ctx.clearRect(0,0,w,h);
                 // Céu
-                let grad = ctx.createLinearGradient(0,0,0,h/2);
-                grad.addColorStop(0, '#000033'); grad.addColorStop(1, '#660022');
+                const grad = ctx.createLinearGradient(0,0,0,h/2);
+                grad.addColorStop(0, '#000022'); grad.addColorStop(1, '#440022');
                 ctx.fillStyle = grad; ctx.fillRect(0,0,w,h/2);
                 // Chão
                 ctx.fillStyle = '#111'; ctx.fillRect(0,h/2,w,h/2);
                 
                 // Estrada
-                const curveOff = d.curve * 200;
-                ctx.fillStyle = '#444';
-                ctx.beginPath(); 
-                ctx.moveTo(cx+curveOff-20, h*0.4); ctx.lineTo(cx+curveOff+20, h*0.4);
-                ctx.lineTo(cx+w, h); ctx.lineTo(cx-w, h); 
+                const cOffset = d.curve * 200;
+                ctx.fillStyle = '#555';
+                ctx.beginPath();
+                ctx.moveTo(cx+cOffset-10, h*0.4); ctx.lineTo(cx+cOffset+10, h*0.4);
+                ctx.lineTo(cx+w, h); ctx.lineTo(cx-w, h);
                 ctx.fill();
 
                 // Carro
-                Gfx.drawFerrari(ctx, cx, h-80, d.steerSmooth * 0.5);
+                Gfx.drawFerrari(ctx, cx, h-80, d.smoothSteer * 0.5);
 
                 return Math.floor(d.road/100);
             }
         },
 
-        // --- CORRIDA (Lógica Invertida para Espelho) ---
+        // --- JOGO 2: CORRIDA (Correção de Espelhamento) ---
         Run: {
             lane: 0, score: 0, obs: [], frame: 0,
             init: () => { Logic.Run.lane=0; Logic.Run.score=0; Logic.Run.obs=[]; System.msg("CORRA!"); },
@@ -513,56 +571,56 @@
                 r.frame++;
                 const cx = w/2;
 
-                // 1. INPUT (INVERTIDO!)
-                // Camera raw: 0 (Esq) ... 640 (Dir).
-                // Tela Espelhada: Minha Dir Física -> Tela Dir -> Camera Esq (0-200)
+                // 1. INPUT (LÓGICA ESPELHO)
+                // Câmera Raw: 0 (Esq) -> 640 (Dir).
+                // Tela Espelhada: Minha Esquerda Física é a Esquerda da Tela (que é a Direita da Câmera Raw).
+                // Esquerda Física = Nariz Raw X > 400
+                // Direita Física = Nariz Raw X < 240
                 if(pose) {
                     const nose = pose.keypoints.find(k=>k.name==='nose');
                     if(nose) {
-                        // Se nariz está no pixel < 240 (Esq da camera)
-                        // Significa que o usuário foi para sua DIREITA física.
-                        // Lane 1 = Direita.
-                        if(nose.x < 240) r.lane = 1; 
-                        else if(nose.x > 400) r.lane = -1; // Esquerda física
+                        if(nose.x < 240) r.lane = 1; // Direita (Raw Esq)
+                        else if(nose.x > 400) r.lane = -1; // Esquerda (Raw Dir)
                         else r.lane = 0;
                     }
                 }
 
-                if(r.frame%40===0) r.obs.push({l: Math.floor(Math.random()*3)-1, z: 1000});
+                if(r.frame%50===0) r.obs.push({l: Math.floor(Math.random()*3)-1, z: 1000});
 
                 ctx.clearRect(0,0,w,h);
-                ctx.fillStyle = '#002200'; ctx.fillRect(0,0,w,h);
-                
-                // Lanes
-                ctx.strokeStyle = '#0f0'; ctx.lineWidth=2;
-                ctx.beginPath(); ctx.moveTo(cx-100, h/2); ctx.lineTo(0, h); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(cx+100, h/2); ctx.lineTo(w, h); ctx.stroke();
+                ctx.fillStyle = '#002000'; ctx.fillRect(0,0,w,h);
+
+                // Grid
+                ctx.strokeStyle='#0f0'; ctx.lineWidth=2;
+                ctx.beginPath(); ctx.moveTo(cx-120, h/2); ctx.lineTo(0,h); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(cx+120, h/2); ctx.lineTo(w,h); ctx.stroke();
 
                 r.obs.forEach((o, i) => {
                     o.z -= 25;
-                    if(o.z < -100) { r.obs.splice(i,1); r.score+=10; }
+                    if(o.z < -100) { r.obs.splice(i,1); r.score+=10; Sfx.coin(); }
+                    
                     const s = 500/(o.z+100);
                     if(s>0) {
                         const ox = cx + (o.l * 200 * s);
                         const oy = h/2 + (50 * s);
-                        const size = 80 * s;
-                        ctx.fillStyle = '#ff5500';
-                        ctx.fillRect(ox-size/2, oy, size, size);
+                        const sz = 80 * s;
+                        
+                        ctx.fillStyle = '#ff6600';
+                        ctx.fillRect(ox-sz/2, oy, sz, sz);
 
+                        // Colisão
                         if(o.z < 50 && o.z > -50 && o.l === r.lane) {
                             System.gameOver(r.score);
                         }
                     }
                 });
 
-                // Player
                 Gfx.drawRunner(ctx, cx + (r.lane*150), h-100, r.frame);
-
                 return r.score;
             }
         },
 
-        // --- LUTA (Com Esqueleto AR) ---
+        // --- JOGO 3: LUTA (Com Esqueleto) ---
         Fight: {
             targets: [], score: 0, last: 0,
             init: () => { Logic.Fight.targets=[]; Logic.Fight.score=0; System.msg("BOXE!"); },
@@ -571,22 +629,21 @@
                 const now = Date.now();
 
                 ctx.clearRect(0,0,w,h);
-
-                // 1. DESENHAR ESQUELETO (Obrigatório)
+                
+                // 1. DESENHAR ESQUELETO (Visualização Crucial)
                 Gfx.drawSkeleton(ctx, pose, w, h);
 
-                // 2. LOGICA
-                if(now - f.last > 800) {
+                // 2. SPAWN DE ALVOS
+                if(now - f.last > 900) {
                     f.targets.push({x: Math.random()*(w-100)+50, y: Math.random()*(h/2)+50, r: 50, s: now});
                     f.last = now;
+                    Sfx.whoosh();
                 }
 
+                // 3. DETECÇÃO DE HIT
                 if(pose) {
-                    const hands = [
-                        pose.keypoints.find(k=>k.name==='left_wrist'),
-                        pose.keypoints.find(k=>k.name==='right_wrist')
-                    ];
-                    
+                    const hands = [pose.keypoints.find(k=>k.name==='left_wrist'), pose.keypoints.find(k=>k.name==='right_wrist')];
+                    // Função Map para alinhar coordenada do vídeo com a tela
                     const mapX = x => w - (x / 640 * w);
                     const mapY = y => (y / 480 * h);
 
@@ -595,23 +652,27 @@
                             if(hnd && hnd.score > 0.3) {
                                 const hx = mapX(hnd.x);
                                 const hy = mapY(hnd.y);
+                                
+                                // Se punho tocar na bolha
                                 if(Math.hypot(hx-t.x, hy-t.y) < t.r) {
                                     f.targets.splice(i,1);
                                     f.score += 100;
-                                    Sfx.coin();
-                                    System.msg("HIT!");
+                                    Sfx.hit();
+                                    System.msg("POW!");
                                 }
                             }
                         });
                     });
                 }
 
+                // 4. DESENHO ALVOS
                 f.targets.forEach((t, i) => {
                     const age = (now - t.s)/1500;
                     if(age>1) f.targets.splice(i,1);
+                    
                     ctx.beginPath(); ctx.arc(t.x, t.y, t.r*(1-age), 0, Math.PI*2);
-                    ctx.fillStyle = `rgba(255,0,255,${1-age})`; ctx.fill();
-                    ctx.strokeStyle = '#fff'; ctx.stroke();
+                    ctx.fillStyle = `rgba(255, 0, 255, ${1-age})`; ctx.fill();
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth=3; ctx.stroke();
                 });
 
                 return f.score;
