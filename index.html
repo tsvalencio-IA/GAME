@@ -3,181 +3,197 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho WII: ULTIMATE ARCADE</title>
+    <title>thIAguinho WII: ULTIMATE FIXED</title>
     
-    <!-- TensorFlow.js Dependencies (Core Estável) -->
+    <!-- TENSORFLOW.JS (Core & Models) -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
-    <!-- Tailwind CSS -->
+    <!-- TAILWIND CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <!-- FONTS -->
+    <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Teko:wght@300;500;700&display=swap" rel="stylesheet">
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Russo+One&display=swap');
+        :root {
+            --neon-blue: #00F3FF;
+            --neon-pink: #FF0055;
+            --neon-green: #00FF9D;
+        }
 
         body {
             background-color: #000;
             margin: 0;
             overflow: hidden;
-            font-family: 'Russo One', sans-serif;
+            font-family: 'Teko', sans-serif;
             touch-action: none;
             user-select: none;
+            -webkit-user-select: none;
         }
 
-        #game-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
+        /* LAYOUT */
+        #game-container { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
 
-        /* VÍDEO (ESPELHO VISUAL) */
+        /* VÍDEO (Espelho Visual) */
         #webcam {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* O usuário se vê no espelho */
-            filter: brightness(0.5) contrast(1.1); /* Escurecido para o jogo brilhar */
+            transform: scaleX(-1);
+            filter: brightness(0.4) contrast(1.1);
             z-index: 0;
+            pointer-events: none;
         }
 
-        /* CAMADA DO JOGO */
+        /* CANVAS */
         #game-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 10;
+            pointer-events: none;
         }
 
-        /* UI */
+        /* UI LAYER - CRÍTICO: pointer-events none para não bloquear, mas filhos terão auto */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 20; pointer-events: none;
+            z-index: 20;
+            pointer-events: none; 
+            display: flex; flex-direction: column;
         }
 
-        .interactive { pointer-events: auto !important; }
+        /* ELEMENTOS INTERATIVOS DEVEM TER ISSO */
+        .interactive { pointer-events: auto !important; cursor: pointer; }
 
-        /* ESTILOS DE TEXTO E HUD */
-        .title-glitch {
-            text-shadow: 2px 2px 0px #00F3FF, -2px -2px 0px #FF0055;
-            animation: glitch 1s infinite alternate;
-        }
-        @keyframes glitch {
-            0% { transform: skew(0deg); }
-            20% { transform: skew(-1deg); }
-            40% { transform: skew(1deg); }
-            100% { transform: skew(0deg); }
-        }
-
-        .hud-panel {
-            background: rgba(0, 0, 0, 0.8);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 0 15px #00F3FF;
-            backdrop-filter: blur(8px);
+        /* MENU CARDS */
+        .game-card {
+            background: rgba(20, 20, 20, 0.9);
+            border: 2px solid #333;
             border-radius: 12px;
-        }
-
-        .btn-arcade {
-            background: linear-gradient(180deg, #222 0%, #111 100%);
-            border: 2px solid #444;
-            box-shadow: 0 4px 0 #000;
-            transition: all 0.1s;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
             position: relative;
             overflow: hidden;
         }
-        .btn-arcade:active { transform: translateY(4px); box-shadow: 0 0 0 #000; }
+        .game-card:active { transform: scale(0.95); border-color: white; }
         
-        .btn-arcade.kart:hover { border-color: #00F3FF; box-shadow: 0 0 20px #00F3FF; }
-        .btn-arcade.run:hover { border-color: #00FF9D; box-shadow: 0 0 20px #00FF9D; }
-        .btn-arcade.box:hover { border-color: #FF0055; box-shadow: 0 0 20px #FF0055; }
+        /* HOVER EFFECTS (Desktop) & ACTIVE STATE (Mobile) */
+        .game-card.kart { border-bottom: 4px solid var(--neon-blue); }
+        .game-card.run { border-bottom: 4px solid var(--neon-green); }
+        .game-card.box { border-bottom: 4px solid var(--neon-pink); }
 
-        /* FEEDBACK VISUAL */
-        #hit-feedback {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 4rem; color: white;
-            text-shadow: 0 0 20px white;
-            opacity: 0; pointer-events: none;
-            transition: opacity 0.1s;
-            z-index: 50;
+        .title-glitch {
+            font-family: 'Russo One', sans-serif;
+            text-shadow: 2px 2px 0px var(--neon-blue), -2px -2px 0px var(--neon-pink);
         }
+
+        /* HUD */
+        .hud-panel {
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(4px);
+            border-radius: 8px;
+            padding: 5px 15px;
+        }
+
+        /* LOADER */
+        .loader {
+            width: 40px; height: 40px; border: 4px solid #fff;
+            border-bottom-color: transparent; border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
     <div id="game-container">
-        <!-- VÍDEO -->
+        <!-- WEBCAM -->
         <video id="webcam" autoplay muted playsinline></video>
+        
         <!-- CANVAS -->
         <canvas id="game-canvas"></canvas>
 
         <!-- UI -->
-        <div id="ui-layer" class="flex flex-col items-center justify-between p-6">
+        <div id="ui-layer">
             
-            <!-- LOADER -->
-            <div id="screen-loading" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center interactive">
-                <h1 class="text-4xl text-cyan-400 font-black tracking-widest mb-4">thIAguinho WII</h1>
-                <div class="w-64 h-2 bg-gray-800 rounded overflow-hidden">
-                    <div id="loading-bar" class="h-full bg-cyan-400 w-0 transition-all duration-300"></div>
-                </div>
-                <p id="loading-text" class="text-gray-500 text-xs mt-2 uppercase">Inicializando Sensores...</p>
+            <!-- TELA DE LOADING (Inicia Visível) -->
+            <div id="screen-load" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center interactive">
+                <div class="loader mb-4"></div>
+                <h1 class="text-3xl text-white title-glitch mb-2">thIAguinho WII</h1>
+                <p id="load-status" class="text-gray-500 text-sm tracking-widest">INICIALIZANDO SISTEMA...</p>
             </div>
 
-            <!-- MENU PRINCIPAL -->
-            <div id="screen-menu" class="hidden absolute inset-0 bg-black/90 backdrop-blur-md z-40 flex flex-col items-center justify-center interactive">
-                <div class="mb-12 text-center">
-                    <h1 class="text-6xl md:text-8xl text-white font-black title-glitch leading-none">
-                        th<span class="text-cyan-400">IA</span>guinho<br>WII
+            <!-- MENU PRINCIPAL (Inicia Oculto) -->
+            <div id="screen-menu" class="hidden absolute inset-0 bg-black/90 backdrop-blur-md z-40 flex-col items-center justify-center interactive p-4">
+                <div class="text-center mb-8">
+                    <h1 class="text-5xl md:text-7xl text-white title-glitch leading-none">
+                        th<span class="text-cyan-400">IA</span>guinho
                     </h1>
-                    <p class="text-gray-400 tracking-[0.5em] text-sm mt-2">ULTIMATE COLLECTION</p>
+                    <p class="text-gray-400 text-lg tracking-widest mt-2">ARCADE COLLECTION</p>
+                </div>
+
+                <div class="flex flex-col w-full max-w-md gap-4">
+                    <!-- BOTÃO KART -->
+                    <div onclick="App.start('kart')" class="game-card kart h-24 flex items-center px-6 interactive w-full">
+                        <div class="text-4xl mr-4">🏎️</div>
+                        <div class="flex-1 text-left">
+                            <h2 class="text-2xl text-white font-bold leading-none">NEON KART</h2>
+                            <p class="text-gray-400 text-sm">Use as mãos como volante</p>
+                        </div>
+                        <div class="text-cyan-400 font-bold text-xl">GO</div>
+                    </div>
+
+                    <!-- BOTÃO RUN -->
+                    <div onclick="App.start('run')" class="game-card run h-24 flex items-center px-6 interactive w-full">
+                        <div class="text-4xl mr-4">🏃</div>
+                        <div class="flex-1 text-left">
+                            <h2 class="text-2xl text-white font-bold leading-none">STREET RUN</h2>
+                            <p class="text-gray-400 text-sm">Corra e pule no lugar</p>
+                        </div>
+                        <div class="text-green-400 font-bold text-xl">GO</div>
+                    </div>
+
+                    <!-- BOTÃO BOX -->
+                    <div onclick="App.start('box')" class="game-card box h-24 flex items-center px-6 interactive w-full">
+                        <div class="text-4xl mr-4">🥊</div>
+                        <div class="flex-1 text-left">
+                            <h2 class="text-2xl text-white font-bold leading-none">RHYTHM BOX</h2>
+                            <p class="text-gray-400 text-sm">Soco no ritmo da música</p>
+                        </div>
+                        <div class="text-pink-500 font-bold text-xl">GO</div>
+                    </div>
                 </div>
                 
-                <div class="flex flex-col md:flex-row gap-6 w-full max-w-4xl px-8">
-                    <!-- KART -->
-                    <button onclick="App.start('kart')" class="btn-arcade kart flex-1 h-64 rounded-2xl flex flex-col items-center justify-center group">
-                        <div class="text-6xl mb-4 group-hover:scale-110 transition-transform">🏎️</div>
-                        <h2 class="text-2xl font-bold text-white">AR KART</h2>
-                        <p class="text-xs text-gray-400 mt-2">Segure o Volante</p>
-                    </button>
-
-                    <!-- RUN -->
-                    <button onclick="App.start('run')" class="btn-arcade run flex-1 h-64 rounded-2xl flex flex-col items-center justify-center group">
-                        <div class="text-6xl mb-4 group-hover:scale-110 transition-transform">🏃</div>
-                        <h2 class="text-2xl font-bold text-white">STREET RUN</h2>
-                        <p class="text-xs text-gray-400 mt-2">Corra e Pule</p>
-                    </button>
-
-                    <!-- BOX -->
-                    <button onclick="App.start('box')" class="btn-arcade box flex-1 h-64 rounded-2xl flex flex-col items-center justify-center group">
-                        <div class="text-6xl mb-4 group-hover:scale-110 transition-transform">🥊</div>
-                        <h2 class="text-2xl font-bold text-white">RHYTHM BOX</h2>
-                        <p class="text-xs text-gray-400 mt-2">Soque no Ritmo</p>
-                    </button>
-                </div>
-                
-                <p class="text-gray-600 text-[10px] mt-8">Posicione o celular na horizontal ou vertical (Auto-Adaptável)</p>
+                <p class="text-gray-600 text-xs mt-8 text-center max-w-xs">
+                    *Mantenha o celular na vertical e afaste-se 1.5 metros da câmera.*
+                </p>
             </div>
 
-            <!-- HUD (IN-GAME) -->
-            <div id="screen-hud" class="hidden w-full flex-col justify-between h-full pointer-events-none">
+            <!-- HUD DO JOGO -->
+            <div id="screen-hud" class="hidden w-full h-full flex-col justify-between p-4 pointer-events-none">
                 <!-- Topo -->
-                <div class="flex justify-between items-start w-full">
-                    <div class="hud-panel px-4 py-2 flex flex-col">
-                        <span class="text-[10px] text-cyan-400 uppercase tracking-widest">SCORE</span>
-                        <span id="hud-score" class="text-3xl font-mono font-bold text-white leading-none">0</span>
+                <div class="flex justify-between items-start">
+                    <div class="hud-panel flex flex-col items-center">
+                        <span class="text-xs text-gray-400 uppercase tracking-widest">SCORE</span>
+                        <span id="hud-score" class="text-3xl text-white font-bold leading-none">0</span>
                     </div>
-                    
-                    <button onclick="App.stop()" class="interactive w-12 h-12 rounded-full bg-red-600/20 border-2 border-red-500 text-red-500 font-bold flex items-center justify-center backdrop-blur hover:bg-red-600 hover:text-white transition-all">
+                    <button onclick="App.stop()" class="interactive bg-red-600/20 border border-red-500 text-red-500 w-10 h-10 rounded-full font-bold flex items-center justify-center backdrop-blur">
                         ✕
                     </button>
                 </div>
 
-                <!-- Centro (Feedback) -->
-                <div id="hit-feedback"></div>
+                <!-- Mensagem Central -->
+                <div id="hud-msg" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <h2 id="msg-text" class="text-5xl font-black text-white italic drop-shadow-lg opacity-0 transition-opacity duration-200 text-center" style="-webkit-text-stroke: 1px black;"></h2>
+                </div>
 
-                <!-- Base (Instruções/Status) -->
-                <div class="flex justify-center w-full pb-4">
-                    <div id="hud-status" class="hud-panel px-6 py-2 text-sm text-white font-bold uppercase tracking-wider">
-                        AGUARDANDO...
+                <!-- Barra Inferior (Velocidade/Status) -->
+                <div class="w-full flex flex-col items-center pb-6">
+                    <div id="hud-bar-container" class="hidden w-64 h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-600 mb-2">
+                        <div id="hud-bar-fill" class="h-full bg-gradient-to-r from-green-500 to-cyan-400 w-0 transition-all duration-100"></div>
                     </div>
+                    <span id="hud-status" class="text-xs font-bold text-cyan-400 bg-black/60 px-3 py-1 rounded-full">AGUARDANDO...</span>
                 </div>
             </div>
 
@@ -187,7 +203,7 @@
     <script>
         /**
          * =========================================================================
-         * ENGINE GRÁFICA (Visual Procedural 2.5D)
+         * MOTOR GRÁFICO (Canvas 2D)
          * =========================================================================
          */
         const Gfx = {
@@ -212,37 +228,12 @@
 
             clear: () => Gfx.ctx.clearRect(0, 0, Gfx.width, Gfx.height),
 
-            // Utilitário: Desenha o Volante Virtual
-            drawSteeringWheel: (angle, active) => {
-                const cx = Gfx.width / 2;
-                const cy = 120; // Posição fixa no topo
-                const r = 60;
-                const ctx = Gfx.ctx;
-
-                ctx.save();
-                ctx.translate(cx, cy);
-                ctx.rotate(angle);
-
-                // Aro
-                ctx.beginPath(); ctx.arc(0,0, r, 0, Math.PI*2);
-                ctx.lineWidth = 10; 
-                ctx.strokeStyle = active ? '#00F3FF' : 'rgba(255,255,255,0.3)';
-                ctx.stroke();
-
-                // Raios
-                ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r, 0);
-                ctx.moveTo(0, 0); ctx.lineTo(0, r);
-                ctx.lineWidth = 6; ctx.stroke();
-
-                ctx.restore();
-            },
-
-            // Utilitário: Desenha Esqueleto
+            // Desenhar Esqueleto
             drawSkeleton: (pose, color) => {
                 if (!pose) return;
                 const ctx = Gfx.ctx;
                 ctx.save();
-                ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+                ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.lineCap = 'round';
                 
                 const path = (p1, p2) => {
                     if (p1.score > 0.3 && p2.score > 0.3) {
@@ -255,12 +246,33 @@
                 path(pose.shoulders.r, pose.elbows.r); path(pose.elbows.r, pose.wrists.r);
                 
                 ctx.restore();
+            },
+
+            // Volante Virtual
+            drawSteeringWheel: (angle, active) => {
+                const ctx = Gfx.ctx;
+                const cx = Gfx.width / 2;
+                const cy = 150;
+                
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(angle);
+                
+                ctx.beginPath(); ctx.arc(0,0, 60, 0, Math.PI*2);
+                ctx.lineWidth = 10;
+                ctx.strokeStyle = active ? '#00F3FF' : 'rgba(255,255,255,0.3)';
+                ctx.stroke();
+                
+                ctx.beginPath(); ctx.moveTo(-60,0); ctx.lineTo(60,0); 
+                ctx.lineWidth = 6; ctx.stroke();
+                
+                ctx.restore();
             }
         };
 
         /**
          * =========================================================================
-         * MOTION ENGINE (Correção de Espelho e Física)
+         * MOTION ENGINE (Pose Detection + Correção de Espelho)
          * =========================================================================
          */
         const Motion = {
@@ -270,12 +282,10 @@
             lastTime: 0,
 
             init: async () => {
-                const loadBar = document.getElementById('loading-bar');
-                const loadTxt = document.getElementById('loading-text');
-                
+                const status = document.getElementById('load-status');
                 try {
                     await tf.setBackend('webgl');
-                    loadBar.style.width = '30%'; loadTxt.innerText = "Acessando Câmera...";
+                    status.innerText = "LIGANDO CÂMERA...";
                     
                     const stream = await navigator.mediaDevices.getUserMedia({
                         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
@@ -285,19 +295,18 @@
                     await new Promise(r => Motion.video.onloadedmetadata = r);
                     Motion.video.play();
 
-                    loadBar.style.width = '70%'; loadTxt.innerText = "Carregando MoveNet...";
+                    status.innerText = "CARREGANDO IA...";
                     const config = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
                     Motion.detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, config);
                     
-                    loadBar.style.width = '100%';
                     return true;
                 } catch (e) {
-                    alert("Erro: Câmera não permitida ou HTTPS ausente.");
+                    alert("ERRO: Ative a câmera e use HTTPS. " + e.message);
                     return false;
                 }
             },
 
-            getPose: async () => {
+            update: async () => {
                 if (!Motion.detector) return null;
                 
                 const now = performance.now();
@@ -308,64 +317,58 @@
                 if (poses.length === 0) return null;
 
                 const raw = poses[0].keypoints;
+                
+                // Mapeamento Inteligente (Cover + Mirror Fix)
                 const vw = Motion.video.videoWidth;
                 const vh = Motion.video.videoHeight;
                 const sw = Gfx.width;
                 const sh = Gfx.height;
-
-                // Scale Cover
                 const scale = Math.max(sw / vw, sh / vh);
                 const ox = (sw - (vw * scale)) / 2;
                 const oy = (sh - (vh * scale)) / 2;
 
-                // CORREÇÃO DE ESPELHAMENTO: X = Width - Calculado
                 const map = (kp) => ({
+                    // INVERSÃO DO X: width - valor calculado
                     x: sw - (((vw - kp.x) * scale) + ox), 
                     y: (kp.y * scale) + oy,
                     score: kp.score
                 });
 
-                const find = (n) => raw.find(k => k.name === n);
+                const find = n => raw.find(k => k.name === n);
                 
-                const nose = map(find('nose'));
-                const ls = map(find('left_shoulder')); const rs = map(find('right_shoulder'));
-                const lw = map(find('left_wrist')); const rw = map(find('right_wrist'));
-                const le = map(find('left_elbow')); const re = map(find('right_elbow'));
-
-                // Largura do corpo (Referência métrica)
-                const bodyWidth = (ls.score > 0.3 && rs.score > 0.3) 
-                    ? Math.hypot(ls.x - rs.x, ls.y - rs.y) 
-                    : (Motion.prevPose ? Motion.prevPose.bodyWidth : 100);
-
-                const pose = {
-                    nose, 
-                    shoulders: { l: ls, r: rs },
-                    wrists: { l: lw, r: rw },
-                    elbows: { l: le, r: re },
-                    center: { x: (ls.x + rs.x)/2, y: (ls.y + rs.y)/2 },
-                    bodyWidth,
-                    dt
+                const p = {
+                    nose: map(find('nose')),
+                    shoulders: { l: map(find('left_shoulder')), r: map(find('right_shoulder')) },
+                    wrists: { l: map(find('left_wrist')), r: map(find('right_wrist')) },
+                    elbows: { l: map(find('left_elbow')), r: map(find('right_elbow')) },
+                    dt: dt
                 };
 
-                // Suavização (Lerp)
+                p.center = { 
+                    x: (p.shoulders.l.x + p.shoulders.r.x) / 2, 
+                    y: (p.shoulders.l.y + p.shoulders.r.y) / 2 
+                };
+                
+                // Largura do corpo para normalização
+                p.width = (p.shoulders.l.score > 0.3 && p.shoulders.r.score > 0.3) 
+                    ? Math.hypot(p.shoulders.l.x - p.shoulders.r.x, p.shoulders.l.y - p.shoulders.r.y) 
+                    : (Motion.prevPose ? Motion.prevPose.width : 100);
+
+                // Suavização simples
                 if (Motion.prevPose) {
-                    const alpha = 0.5; // 50% novo, 50% velho
-                    const smooth = (c, p) => c * alpha + p * (1-alpha);
-                    pose.center.y = smooth(pose.center.y, Motion.prevPose.center.y);
-                    pose.wrists.l.x = smooth(pose.wrists.l.x, Motion.prevPose.wrists.l.x);
-                    pose.wrists.l.y = smooth(pose.wrists.l.y, Motion.prevPose.wrists.l.y);
-                    pose.wrists.r.x = smooth(pose.wrists.r.x, Motion.prevPose.wrists.r.x);
-                    pose.wrists.r.y = smooth(pose.wrists.r.y, Motion.prevPose.wrists.r.y);
+                    const alpha = 0.5;
+                    p.center.x = p.center.x * alpha + Motion.prevPose.center.x * (1-alpha);
+                    p.center.y = p.center.y * alpha + Motion.prevPose.center.y * (1-alpha);
                 }
                 
-                Motion.prevPose = pose;
-                return pose;
+                Motion.prevPose = p;
+                return p;
             }
         };
 
         /**
          * =========================================================================
-         * JOGO 1: AR KART (VOLANTE REALISTA)
+         * JOGO 1: KART
          * =========================================================================
          */
         class GameKart {
@@ -373,94 +376,74 @@
                 this.speed = 0;
                 this.angle = 0;
                 this.carX = 0;
-                this.curve = 0;
                 this.score = 0;
                 this.obstacles = [];
-                this.handsActive = false;
-                document.getElementById('hud-status').innerText = "LEVANTE AS MÃOS PARA DIRIGIR";
+                document.getElementById('hud-gauge-container').classList.remove('hidden');
+                document.getElementById('hud-status').innerText = "LEVANTE AS MÃOS";
+                App.msg("START!", "#00F3FF");
             }
 
             update(pose, ctx, w, h) {
-                // LÓGICA DO VOLANTE
-                let steerInput = 0;
-                this.handsActive = false;
+                // Volante
+                let active = false;
+                let targetAngle = 0;
 
                 if (pose.wrists.l.score > 0.4 && pose.wrists.r.score > 0.4) {
-                    const midY = (pose.wrists.l.y + pose.wrists.r.y) / 2;
-                    // Mãos devem estar na metade superior
-                    if (midY < h * 0.6) {
-                        this.handsActive = true;
-                        
-                        // Ângulo entre pulsos
+                    if (pose.wrists.l.y < h * 0.7) { // Mãos levantadas
+                        active = true;
                         const dy = pose.wrists.r.y - pose.wrists.l.y;
                         const dx = pose.wrists.r.x - pose.wrists.l.x;
-                        const rawAngle = Math.atan2(dy, dx);
+                        const raw = Math.atan2(dy, dx);
                         
-                        // Compensar inclinação dos ombros
+                        // Correção com ombros
                         const sDy = pose.shoulders.r.y - pose.shoulders.l.y;
                         const sDx = pose.shoulders.r.x - pose.shoulders.l.x;
-                        const bodyAngle = Math.atan2(sDy, sDx);
-
-                        steerInput = rawAngle - bodyAngle;
-                        // Deadzone & Clamp
-                        if (Math.abs(steerInput) < 0.1) steerInput = 0;
-                        steerInput = Math.max(-1.2, Math.min(1.2, steerInput));
-
-                        // Aceleração
+                        const body = Math.atan2(sDy, sDx);
+                        
+                        targetAngle = raw - body;
+                        targetAngle = Math.max(-1.2, Math.min(1.2, targetAngle)); // Limit
+                        
                         this.speed = Math.min(150, this.speed + 60 * pose.dt);
                     }
                 }
 
-                if (!this.handsActive) {
-                    this.speed *= 0.95; // Freio
-                    steerInput = 0; // Retorno ao centro
+                if (!active) {
+                    this.speed *= 0.95;
+                    targetAngle = 0;
                 }
 
-                // Suavização do volante
-                this.angle += (steerInput - this.angle) * 5 * pose.dt;
-
-                // Física do Carro
-                this.curve = Math.sin(Date.now() / 1500) * 0.6; 
-                const turnForce = this.angle * 3.5;
-                const centrifugal = this.curve * (this.speed / 100);
-                this.carX += (turnForce - centrifugal) * pose.dt;
+                this.angle += (targetAngle - this.angle) * 5 * pose.dt;
                 
-                // Limites
+                // Física
+                const curve = Math.sin(Date.now() / 2000) * 0.6;
+                this.carX += (this.angle * 3.0 - curve * (this.speed/100)) * pose.dt;
                 if (this.carX < -1.5) { this.carX = -1.5; this.speed *= 0.8; }
                 if (this.carX > 1.5) { this.carX = 1.5; this.speed *= 0.8; }
 
                 this.score += Math.floor(this.speed * pose.dt);
 
-                // Obstáculos
-                if (Math.random() < 0.02 && this.speed > 30) this.obstacles.push({x: (Math.random()-0.5)*2.5, z: 0});
-
-                // RENDER
+                // Render
                 ctx.clearRect(0,0,w,h);
+                const hz = h * 0.4;
                 
-                // Pista
-                const horizon = h * 0.4;
-                ctx.fillStyle = '#111'; 
+                // Estrada
+                ctx.fillStyle = '#111';
                 ctx.beginPath();
-                const cTop = w/2 + (this.curve * 200);
-                const cBot = w/2 + (this.carX * -300);
-                
-                ctx.moveTo(cTop - 10, horizon); ctx.lineTo(cTop + 10, horizon);
-                ctx.lineTo(cBot + w*1.5, h); ctx.lineTo(cBot - w*1.5, h);
+                const top = w/2 + (curve * 200);
+                const bot = w/2 + (this.carX * -300);
+                ctx.moveTo(top-10, hz); ctx.lineTo(top+10, hz);
+                ctx.lineTo(bot+w, h); ctx.lineTo(bot-w, h);
                 ctx.fill();
 
-                // Linhas Neon
-                ctx.strokeStyle = '#00F3FF'; ctx.lineWidth = 2; ctx.beginPath();
-                ctx.moveTo(cTop - 10, horizon); ctx.lineTo(cBot - w*1.5, h);
-                ctx.moveTo(cTop + 10, horizon); ctx.lineTo(cBot + w*1.5, h);
-                ctx.stroke();
-
                 // Obstáculos
+                if (Math.random() < 0.02 && this.speed > 30) this.obstacles.push({x: (Math.random()-0.5)*2.5, z: 0});
+                
                 this.obstacles.forEach((obs, i) => {
-                    obs.z += (this.speed * 0.002) * pose.dt * 60;
+                    obs.z += this.speed * 0.002 * pose.dt * 60;
                     if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
-
-                    const drawY = horizon + (obs.z * (h - horizon));
-                    const roadX = cTop + (cBot - cTop) * obs.z;
+                    
+                    const drawY = hz + (obs.z * (h-hz));
+                    const roadX = top + (bot - top) * obs.z;
                     const drawX = roadX + (obs.x * w * 0.5 * obs.z);
                     const size = 40 * obs.z * obs.z;
 
@@ -469,146 +452,125 @@
 
                     if (obs.z > 0.85 && obs.z < 0.95 && Math.abs(drawX - w/2) < 80) {
                         this.speed = 10;
-                        App.showHit("BATIDA!");
+                        App.msg("BATEU!", "red");
                         ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
                     }
                 });
 
-                // Carro
-                const carY = h - 150;
-                ctx.save();
-                ctx.translate(w/2, carY);
-                ctx.rotate(this.angle * 0.3);
-                ctx.fillStyle = '#00F3FF';
-                ctx.beginPath(); ctx.roundRect(-60, -30, 120, 60, 10); ctx.fill();
-                ctx.fillStyle = '#FF0055'; 
-                ctx.beginPath(); ctx.arc(-40, 0, 12, 0, Math.PI*2); ctx.fill();
-                ctx.beginPath(); ctx.arc(40, 0, 12, 0, Math.PI*2); ctx.fill();
-                ctx.restore();
+                // Carro HUD
+                Gfx.drawSteeringWheel(this.angle, active);
+                
+                // Desenha Esqueleto
+                Gfx.drawSkeleton(pose, active ? '#00F3FF' : '#555');
 
-                // Volante Guia
-                Gfx.drawSteeringWheel(this.angle, this.handsActive);
-                Gfx.drawSkeleton(pose, this.handsActive ? '#00F3FF' : '#555');
-
+                document.getElementById('hud-gauge-fill').style.width = (this.speed/150)*100 + '%';
                 return this.score;
             }
         }
 
         /**
          * =========================================================================
-         * JOGO 2: STREET RUN (CADÊNCIA REAL)
+         * JOGO 2: RUN
          * =========================================================================
          */
         class GameRun {
             constructor() {
                 this.score = 0;
                 this.speed = 0;
-                this.lane = 0; // -1, 0, 1
+                this.lane = 0;
                 this.playerY = 0;
                 this.jumpVel = 0;
+                this.energy = 0;
+                this.lastY = 0;
                 this.obstacles = [];
-                this.lastShoulderY = 0;
-                this.runEnergy = 0;
-                document.getElementById('hud-status').innerText = "CORRA NO LUGAR PARA MOVER";
+                document.getElementById('hud-gauge-container').classList.remove('hidden');
+                document.getElementById('hud-subtext').innerText = "CORRA NO LUGAR";
+                App.msg("GO!", "#00FF9D");
             }
 
             update(pose, ctx, w, h) {
+                // Direção Lateral
                 if (pose.shoulders.l.score > 0.4) {
-                    const midX = pose.center.x;
-                    const midY = pose.center.y;
-
-                    // Direção (Posição lateral do corpo)
-                    const diffX = midX - (w/2);
+                    const diffX = pose.center.x - (w/2);
                     if (diffX < -w*0.1) this.lane = -1;
                     else if (diffX > w*0.1) this.lane = 1;
                     else this.lane = 0;
 
-                    // Corrida (Oscilação Vertical)
-                    if (!this.lastShoulderY) this.lastShoulderY = midY;
-                    const delta = Math.abs(midY - this.lastShoulderY);
-                    this.lastShoulderY = midY;
-
-                    const activity = delta / pose.bodyWidth; // Normalizado
-                    if (activity > 0.03) this.runEnergy = Math.min(1, this.runEnergy + 2.0 * pose.dt);
-                    else this.runEnergy = Math.max(0, this.runEnergy - 1.5 * pose.dt);
+                    // Corrida (Bounce)
+                    if (!this.lastY) this.lastY = pose.center.y;
+                    const delta = Math.abs(pose.center.y - this.lastY);
+                    this.lastY = pose.center.y;
                     
-                    this.speed = this.runEnergy * 70;
+                    if (delta/pose.width > 0.03) this.energy = Math.min(1, this.energy + 2*pose.dt);
+                    else this.energy = Math.max(0, this.energy - 1*pose.dt);
+                    
+                    this.speed = this.energy * 80;
 
                     // Pulo
-                    if (this.playerY === 0 && (midY < this.lastShoulderY - 10)) { // Subiu rápido
-                         // Detectar impulso positivo futuro na próxima iteração ou usar delta simples
-                    }
-                    // Simplificação: Se o corpo estiver muito acima da calibração inicial (futuro)
-                    // Por enquanto: Pulo por botão ou gesto brusco.
-                    // Vamos usar "Braços pra cima" para pular por confiabilidade
-                    if (pose.wrists.l.y < pose.nose.y && this.playerY === 0) {
-                        this.jumpVel = 20; this.playerY = 1; App.showHit("PULO!");
+                    if (this.playerY === 0 && pose.wrists.l.y < pose.nose.y) {
+                        this.jumpVel = 20; this.playerY = 1; App.msg("PULO!", "#00FF9D");
                     }
                 }
 
-                // Física
-                this.score += Math.floor(this.speed * pose.dt);
+                // Física Pulo
                 if (this.playerY > 0) {
                     this.playerY += this.jumpVel * pose.dt * 2;
                     this.jumpVel -= 60 * pose.dt;
                     if (this.playerY <= 0) { this.playerY = 0; this.jumpVel = 0; }
                 }
 
-                // Obstáculos
-                if (Math.random() < 0.02 && this.speed > 5) this.obstacles.push({lane: Math.floor(Math.random()*3)-1, z: 0});
+                this.score += Math.floor(this.speed * pose.dt);
 
-                // RENDER
+                // Render
                 ctx.clearRect(0,0,w,h);
-                const horizon = h * 0.4;
-                ctx.fillStyle = '#222'; 
-                ctx.beginPath(); ctx.moveTo(w/2, horizon); ctx.lineTo(w*1.5, h); ctx.lineTo(-w*0.5, h); ctx.fill();
-
-                // Linhas
-                ctx.strokeStyle = '#00FF9D'; ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(w/2, horizon); ctx.lineTo(w/2, h); // Centro
-                ctx.moveTo(w/2, horizon); ctx.lineTo(w*0.8, h); // Dir
-                ctx.moveTo(w/2, horizon); ctx.lineTo(w*0.2, h); // Esq
+                const hz = h * 0.4;
+                ctx.fillStyle = '#111'; ctx.fillRect(0,hz,w,h); // Chão
+                
+                // Grid
+                ctx.strokeStyle = '#00FF9D'; ctx.lineWidth = 2; ctx.beginPath();
+                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.2, h);
+                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.5, h);
+                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.8, h);
                 ctx.stroke();
 
                 // Obstáculos
+                if (Math.random() < 0.02 && this.speed > 5) this.obstacles.push({lane: Math.floor(Math.random()*3)-1, z:0});
+                
                 this.obstacles.forEach((obs, i) => {
-                    obs.z += (this.speed * 0.005 + 0.01) * 60 * pose.dt;
+                    obs.z += (this.speed * 0.005 + 0.02) * 60 * pose.dt;
                     if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
 
-                    const scale = obs.z;
-                    const roadW = w * 2 * scale;
-                    const drawX = (w/2) + (obs.lane * roadW * 0.15); // Pistas
-                    const drawY = horizon + (obs.z * (h - horizon));
-                    const size = 50 * scale;
+                    const roadW = w * 2 * obs.z;
+                    const drawX = (w/2) + (obs.lane * roadW * 0.15);
+                    const drawY = hz + (obs.z * (h-hz));
+                    const size = 50 * obs.z;
 
                     ctx.fillStyle = '#FF0055';
                     ctx.fillRect(drawX - size/2, drawY - size, size, size);
 
                     // Colisão
                     if (obs.z > 0.85 && obs.z < 0.95 && obs.lane === this.lane && this.playerY === 0) {
-                        this.speed = 0; this.runEnergy = 0;
-                        App.showHit("CRASH!");
+                        this.speed = 0; this.energy = 0;
+                        App.msg("BATIDA!", "red");
                         ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
                         this.obstacles.splice(i,1);
                     }
                 });
 
-                // Avatar (Esqueleto)
+                // Avatar
                 ctx.save();
-                const jumpPx = this.playerY * -200;
-                const lanePx = this.lane * 100;
-                ctx.translate(lanePx, jumpPx);
+                ctx.translate(this.lane * 100, this.playerY * -200);
                 Gfx.drawSkeleton(pose, '#00FF9D');
                 ctx.restore();
 
+                document.getElementById('hud-gauge-fill').style.width = (this.speed/80)*100 + '%';
                 return this.score;
             }
         }
 
         /**
          * =========================================================================
-         * JOGO 3: RHYTHM BOX (BOXE)
+         * JOGO 3: BOX
          * =========================================================================
          */
         class GameBox {
@@ -616,66 +578,58 @@
                 this.score = 0;
                 this.targets = [];
                 this.timer = 0;
-                document.getElementById('hud-status').innerText = "SOQUE AS BOLHAS COLORIDAS";
+                document.getElementById('hud-gauge-container').classList.add('hidden');
+                document.getElementById('hud-subtext').innerText = "SOQUE AS BOLHAS";
+                App.msg("FIGHT!", "#FF0055");
             }
 
             update(pose, ctx, w, h) {
                 this.timer += pose.dt;
-                if (this.timer > 1.0) { // Spawn
+                if (this.timer > 0.8) {
                     this.timer = 0;
                     const side = Math.random() > 0.5 ? 'left' : 'right';
                     this.targets.push({
-                        x: side === 'left' ? w * 0.25 : w * 0.75,
-                        y: Math.random() * (h * 0.5) + (h * 0.2),
-                        r: 10,
-                        active: true,
-                        side: side,
+                        x: side === 'left' ? w*0.25 : w*0.75,
+                        y: h*0.3 + Math.random()*h*0.3,
+                        r: 10, active: true, side: side,
                         color: side === 'left' ? '#00F3FF' : '#FF0055'
                     });
                 }
 
                 ctx.clearRect(0,0,w,h);
-                Gfx.drawSkeleton(pose, '#555'); // Fundo
+                Gfx.drawSkeleton(pose, '#555');
 
                 this.targets.forEach(t => {
                     if (!t.active) return;
-                    t.r += 80 * pose.dt;
+                    t.r += 100 * pose.dt;
 
-                    // Desenha
                     ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI*2);
-                    ctx.fillStyle = t.color + '44'; ctx.fill();
                     ctx.strokeStyle = t.color; ctx.lineWidth = 4; ctx.stroke();
+                    ctx.fillStyle = t.color + '44'; ctx.fill();
 
                     // Hit
                     if (pose && t.r > 40) {
                         const hand = t.side === 'left' ? pose.wrists.l : pose.wrists.r;
                         const dist = Math.hypot(hand.x - t.x, hand.y - t.y);
-                        
                         if (dist < t.r + 30) {
                             t.active = false;
                             this.score += 100;
-                            App.showHit("HIT!");
-                            // FX
-                            ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(t.x, t.y, 100, 0, Math.PI*2); ctx.fill();
+                            App.msg("HIT!", t.color);
+                            // Explosion
+                            ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(t.x, t.y, 80, 0, Math.PI*2); ctx.fill();
                         }
                     }
-
-                    if (t.r > 120) t.active = false; // Miss
+                    if (t.r > 100) t.active = false;
                 });
-
                 this.targets = this.targets.filter(t => t.active);
 
                 // Luvas
-                if (pose) {
-                    const drawGlove = (kp, color) => {
-                        if (kp.score > 0.3) {
-                            ctx.fillStyle = color;
-                            ctx.beginPath(); ctx.arc(kp.x, kp.y, 30, 0, Math.PI*2); ctx.fill();
-                        }
-                    };
-                    drawGlove(pose.wrists.l, '#00F3FF');
-                    drawGlove(pose.wrists.r, '#FF0055');
-                }
+                const glove = (p, c) => {
+                    if(p.score > 0.3) {
+                        ctx.fillStyle = c; ctx.beginPath(); ctx.arc(p.x, p.y, 30, 0, Math.PI*2); ctx.fill();
+                    }
+                };
+                glove(pose.wrists.l, '#00F3FF'); glove(pose.wrists.r, '#FF0055');
 
                 return this.score;
             }
@@ -683,7 +637,7 @@
 
         /**
          * =========================================================================
-         * APP CONTROL
+         * APP MAIN
          * =========================================================================
          */
         const App = {
@@ -694,13 +648,13 @@
                 Gfx.init();
                 const ready = await Motion.init();
                 if (ready) {
-                    document.getElementById('screen-loading').classList.add('hidden');
+                    document.getElementById('screen-load').classList.add('hidden');
                     document.getElementById('screen-menu').classList.remove('hidden');
                     document.getElementById('screen-menu').classList.add('flex');
                 }
             },
 
-            launch: (type) => {
+            start: (type) => {
                 document.getElementById('screen-menu').classList.remove('flex');
                 document.getElementById('screen-menu').classList.add('hidden');
                 document.getElementById('screen-hud').classList.remove('hidden');
@@ -722,20 +676,15 @@
                 Gfx.clear();
             },
 
-            showHit: (txt) => {
-                const el = document.getElementById('hit-feedback');
-                el.innerText = txt;
-                el.style.opacity = 1;
-                el.style.transform = "translate(-50%, -50%) scale(1.5)";
-                setTimeout(() => {
-                    el.style.opacity = 0;
-                    el.style.transform = "translate(-50%, -50%) scale(1)";
-                }, 300);
+            msg: (text, color) => {
+                const el = document.getElementById('msg-text');
+                el.innerText = text; el.style.color = color; el.style.opacity = 1;
+                setTimeout(() => el.style.opacity = 0, 500);
             },
 
             loop: async () => {
                 if (!App.game) return;
-                const pose = await Motion.getPose();
+                const pose = await Motion.update(Gfx.width, Gfx.height);
                 if (pose) {
                     const score = App.game.update(pose, Gfx.ctx, Gfx.width, Gfx.height);
                     document.getElementById('hud-score').innerText = score;
