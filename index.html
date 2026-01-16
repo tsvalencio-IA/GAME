@@ -5,206 +5,195 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#0f172a">
-    <title>thIAguinho Wii: ARCADE</title>
+    <meta name="theme-color" content="#000000">
+    <title>thIAguinho Wii: Ultimate</title>
     
-    <!-- TENSORFLOW.JS (Core & Models) -->
+    <!-- CORE: TENSORFLOW.JS -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
-    <!-- TAILWIND CSS -->
+    <!-- UI: TAILWIND -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- FONTS -->
-    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700;900&display=swap" rel="stylesheet">
 
     <style>
         :root {
-            --primary: #00F0FF;
-            --secondary: #FF003C;
-            --accent: #39FF14;
+            --neon-cyan: #00F3FF;
+            --neon-pink: #FF0055;
+            --neon-lime: #CCFF00;
             --bg-dark: #050505;
         }
 
         body {
             background-color: var(--bg-dark);
-            font-family: 'Exo 2', sans-serif;
+            font-family: 'Rajdhani', sans-serif;
+            margin: 0; padding: 0;
             overflow: hidden;
             touch-action: none;
             user-select: none;
             -webkit-user-select: none;
-            color: white;
-            margin: 0;
             width: 100vw; height: 100vh;
         }
 
-        /* LAYOUT & CAMADAS */
-        #viewport { position: relative; width: 100%; height: 100%; overflow: hidden; }
+        /* LAYOUT */
+        #app-root { position: relative; width: 100%; height: 100%; overflow: hidden; }
         
         #video-feed {
             position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%) scaleX(-1); /* Espelho Visual CSS */
+            transform: translate(-50%, -50%) scaleX(-1); /* Espelho Visual */
             min-width: 100%; min-height: 100%;
             width: auto; height: auto;
             object-fit: cover;
-            opacity: 0.2; /* Visibilidade sutil do vídeo real */
+            opacity: 0.15; /* Visibilidade para referência */
             z-index: 0;
             pointer-events: none;
         }
 
         #game-canvas { 
-            position: absolute; inset: 0; z-index: 10; width: 100%; height: 100%; 
-            /* O canvas NÃO é espelhado via CSS, será via Contexto 2D para controle total */
+            position: absolute; inset: 0; z-index: 10; 
+            width: 100%; height: 100%; 
         }
 
         #ui-layer { 
             position: absolute; inset: 0; z-index: 20; pointer-events: none; 
-            padding: env(safe-area-inset-top) 20px 40px 20px;
             display: flex; flex-direction: column; justify-content: space-between;
+            padding: env(safe-area-inset-top) 20px 40px 20px;
         }
         .interactive { pointer-events: auto; }
 
-        /* UI ELEMENTS */
+        /* ESTILOS DE MENU E HUD */
+        .glass-panel {
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
         .game-card {
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-left: 4px solid var(--primary);
+            background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+            border: 1px solid rgba(255,255,255,0.1);
             border-radius: 12px;
-            backdrop-filter: blur(10px);
-            transition: all 0.2s ease-out;
+            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             position: relative; overflow: hidden;
         }
-        .game-card:active { transform: scale(0.95); background: rgba(255, 255, 255, 0.1); }
-        .card-icon { font-size: 2.5rem; filter: drop-shadow(0 0 8px var(--primary)); }
+        .game-card:active { transform: scale(0.96); border-color: var(--neon-cyan); }
+        .game-card.kart { border-left: 4px solid var(--neon-cyan); }
+        .game-card.run { border-left: 4px solid var(--neon-lime); }
+        .game-card.beat { border-left: 4px solid var(--neon-pink); }
 
-        .brand-logo { letter-spacing: -1px; text-transform: uppercase; }
-        .brand-highlight { color: var(--primary); text-shadow: 0 0 15px var(--primary); }
+        .brand-text { letter-spacing: -1px; text-transform: uppercase; }
+        .brand-ia { color: var(--neon-cyan); text-shadow: 0 0 15px var(--neon-cyan); }
 
-        /* LOADER */
-        .loader {
+        /* LOADING SPINNER */
+        .spinner {
             width: 48px; height: 48px;
-            border: 4px solid #FFF;
-            border-bottom-color: var(--primary);
+            border: 4px solid #333;
+            border-top-color: var(--neon-cyan);
             border-radius: 50%;
-            display: inline-block;
-            box-sizing: border-box;
-            animation: rotation 1s linear infinite;
+            animation: spin 1s linear infinite;
         }
-        @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
 
-        /* HUD STYLES */
-        .hud-panel {
-            background: rgba(0,0,0,0.7);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 99px;
-            padding: 8px 24px;
-            display: flex; flex-direction: column; align-items: center;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        /* DEBUG CONSOLE */
+        #debug-log { 
+            font-family: monospace; font-size: 10px; color: #666; 
+            text-align: center; margin-top: 10px; 
         }
-        .hud-value { font-variant-numeric: tabular-nums; letter-spacing: 1px; }
-
-        /* ANIMATIONS */
-        @keyframes pulse-border { 0% { border-color: rgba(255,255,255,0.1); } 50% { border-color: var(--primary); } 100% { border-color: rgba(255,255,255,0.1); } }
-        .guide-box { animation: pulse-border 2s infinite; border: 2px dashed rgba(255,255,255,0.3); border-radius: 12px; }
-        
-        #debug-log { font-family: monospace; font-size: 10px; color: #555; text-align: center; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="viewport">
-        <!-- VÍDEO FEED (FUNDO) -->
+    <div id="app-root">
         <video id="video-feed" autoplay muted playsinline></video>
-        
-        <!-- CANVAS (JOGO + ESQUELETO) -->
         <canvas id="game-canvas"></canvas>
 
-        <!-- UI LAYER -->
         <div id="ui-layer">
             
             <!-- TELA DE LOADING -->
-            <div id="screen-load" class="absolute inset-0 bg-slate-900 z-50 flex flex-col items-center justify-center interactive">
-                <div class="loader mb-6"></div>
-                <h1 class="text-3xl font-black text-white brand-logo">th<span class="brand-highlight">IA</span>guinho</h1>
-                <p class="text-slate-400 text-xs font-bold tracking-[0.3em] mt-2">CALIBRANDO SENSORES...</p>
-                <div id="debug-log">Inicializando TensorFlow...</div>
+            <div id="screen-load" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center interactive">
+                <div class="spinner mb-6"></div>
+                <h1 class="text-4xl font-black text-white brand-text">th<span class="brand-ia">IA</span>guinho</h1>
+                <p class="text-gray-500 text-xs font-bold tracking-[0.4em] mt-2">WII SYSTEM LOADING</p>
+                <div id="debug-log">Inicializando IA...</div>
             </div>
 
             <!-- MENU PRINCIPAL -->
-            <div id="screen-menu" class="hidden absolute inset-0 bg-slate-900/90 backdrop-blur-md z-40 flex flex-col items-center justify-center interactive p-6">
-                <div class="text-center mb-10">
-                    <h1 class="text-6xl font-black text-white brand-logo leading-none drop-shadow-2xl italic">
-                        thIAguinho<br><span class="brand-highlight">ARCADE</span>
+            <div id="screen-menu" class="hidden absolute inset-0 bg-black/90 backdrop-blur-md z-40 flex flex-col items-center justify-center interactive p-6">
+                <div class="text-center mb-10 transform skew-x-[-5deg]">
+                    <h1 class="text-6xl font-black text-white brand-text leading-none italic">
+                        th<span class="brand-ia">IA</span>guinho
                     </h1>
-                    <div class="mt-4 flex justify-center gap-2">
-                        <span class="px-2 py-1 bg-white/10 rounded text-[10px] font-bold text-white">AR CORE</span>
-                        <span class="px-2 py-1 bg-white/10 rounded text-[10px] font-bold text-white">60 FPS</span>
+                    <div class="mt-2 inline-block bg-white/10 px-4 py-1 rounded text-[10px] font-bold text-white tracking-widest border border-white/20">
+                        WII ULTIMATE COLLECTION
                     </div>
                 </div>
 
                 <div class="grid grid-cols-1 gap-4 w-full max-w-sm">
                     <!-- KART -->
-                    <div onclick="App.launch('kart')" class="game-card flex items-center p-4 cursor-pointer hover:bg-white/5">
-                        <div class="card-icon mr-4">🏎️</div>
+                    <div onclick="App.launch('kart')" class="game-card kart flex items-center p-4 cursor-pointer">
+                        <div class="text-4xl mr-4 grayscale brightness-150">🏎️</div>
                         <div class="flex-1">
-                            <h2 class="text-xl font-bold text-white uppercase italic">NEON DRIFT</h2>
-                            <p class="text-xs text-slate-400">Direção Real 1:1</p>
+                            <h2 class="text-xl font-bold text-white italic">TURBO KART</h2>
+                            <p class="text-xs text-gray-400">Direção Real c/ Volante</p>
                         </div>
-                        <div class="text-slate-500 font-bold">GO</div>
+                        <div class="text-[10px] font-bold text-gray-500 border border-gray-600 px-2 py-1 rounded">PLAY</div>
                     </div>
 
                     <!-- RUN -->
-                    <div onclick="App.launch('run')" class="game-card flex items-center p-4 cursor-pointer hover:bg-white/5" style="border-left-color: var(--accent);">
-                        <div class="card-icon mr-4">🏃</div>
+                    <div onclick="App.launch('run')" class="game-card run flex items-center p-4 cursor-pointer">
+                        <div class="text-4xl mr-4 grayscale brightness-150">🏃</div>
                         <div class="flex-1">
-                            <h2 class="text-xl font-bold text-white uppercase italic">CYBER RUN</h2>
-                            <p class="text-xs text-slate-400">Corrida Física & Pulo</p>
+                            <h2 class="text-xl font-bold text-white italic">STREET RUN</h2>
+                            <p class="text-xs text-gray-400">Corra e Pule no Lugar</p>
                         </div>
-                        <div class="text-slate-500 font-bold">GO</div>
+                        <div class="text-[10px] font-bold text-gray-500 border border-gray-600 px-2 py-1 rounded">PLAY</div>
                     </div>
 
                     <!-- BOXE -->
-                    <div onclick="App.launch('beat')" class="game-card flex items-center p-4 cursor-pointer hover:bg-white/5" style="border-left-color: var(--secondary);">
-                        <div class="card-icon mr-4">🥊</div>
+                    <div onclick="App.launch('beat')" class="game-card beat flex items-center p-4 cursor-pointer">
+                        <div class="text-4xl mr-4 grayscale brightness-150">🥊</div>
                         <div class="flex-1">
-                            <h2 class="text-xl font-bold text-white uppercase italic">PRO BOXING</h2>
-                            <p class="text-xs text-slate-400">Impacto & Ritmo</p>
+                            <h2 class="text-xl font-bold text-white italic">RHYTHM BOX</h2>
+                            <p class="text-xs text-gray-400">Soco Rítmico de Academia</p>
                         </div>
-                        <div class="text-slate-500 font-bold">GO</div>
+                        <div class="text-[10px] font-bold text-gray-500 border border-gray-600 px-2 py-1 rounded">PLAY</div>
                     </div>
                 </div>
                 
-                <p class="text-slate-600 text-[10px] mt-8 max-w-xs text-center">
-                    Mantenha o celular estável. Afaste-se 1.5m para detecção de corpo inteiro.
+                <p class="text-gray-600 text-[10px] mt-8 max-w-xs text-center">
+                    DICA: Posicione o celular em pé e afaste-se 2 metros.
                 </p>
             </div>
 
-            <!-- HUD (IN-GAME) -->
+            <!-- HUD (DURANTE O JOGO) -->
             <div id="screen-hud" class="hidden w-full h-full flex flex-col justify-between pointer-events-none">
                 <!-- Top Bar -->
-                <div class="flex justify-between items-start w-full">
-                    <div class="hud-panel">
-                        <span class="text-[9px] text-cyan-400 font-bold uppercase tracking-widest">SCORE</span>
-                        <span id="hud-score" class="text-2xl font-black text-white leading-none hud-value">0</span>
+                <div class="flex justify-between items-start w-full pt-2">
+                    <div class="glass-panel px-6 py-2 flex flex-col items-center">
+                        <span class="text-[9px] text-[var(--neon-cyan)] font-bold uppercase tracking-widest">SCORE</span>
+                        <span id="hud-score" class="text-3xl font-black text-white leading-none font-mono">0</span>
                     </div>
                     
-                    <button onclick="App.stop()" class="interactive w-10 h-10 rounded-full bg-white/10 backdrop-blur border border-white/20 text-red-400 font-bold flex items-center justify-center active:bg-white/20 transition-all shadow-lg">
+                    <button onclick="App.stop()" class="interactive w-10 h-10 rounded-full bg-white/10 backdrop-blur border border-white/20 text-red-500 font-bold flex items-center justify-center active:bg-white/20 transition-all shadow-lg">
                         ✕
                     </button>
                 </div>
                 
-                <!-- Feedback Central -->
-                <div id="hud-msg" class="absolute inset-0 flex items-center justify-center text-5xl font-black text-white italic drop-shadow-[0_4px_0_rgba(0,0,0,0.8)] opacity-0 transition-opacity duration-150 text-center z-50 pointer-events-none" style="-webkit-text-stroke: 1px black;">
+                <!-- Feedback Central (Mensagens Grandes) -->
+                <div id="hud-msg" class="absolute inset-0 flex items-center justify-center text-5xl font-black text-white italic drop-shadow-[0_4px_0_rgba(0,0,0,1)] opacity-0 transition-opacity duration-150 text-center z-50 pointer-events-none" style="-webkit-text-stroke: 1px black;">
                 </div>
 
                 <!-- Bottom Stats -->
-                <div class="w-full flex flex-col items-center gap-2">
-                    <div id="hud-gauge-container" class="hidden w-64 h-2 bg-gray-800 rounded-full overflow-hidden border border-gray-600">
-                        <div id="hud-gauge-fill" class="h-full bg-gradient-to-r from-green-400 to-cyan-400 w-0 transition-all duration-100"></div>
+                <div class="w-full flex flex-col items-center gap-2 pb-4">
+                    <div id="hud-gauge-wrap" class="hidden w-64 h-3 bg-gray-900 rounded-full overflow-hidden border border-gray-700">
+                        <div id="hud-gauge-fill" class="h-full bg-gradient-to-r from-green-500 to-[var(--neon-cyan)] w-0 transition-all duration-100"></div>
                     </div>
-                    <span id="hud-subtext" class="text-xs font-bold text-slate-400 bg-black/50 px-3 py-1 rounded-full uppercase">READY</span>
+                    <span id="hud-subtext" class="text-xs font-bold text-gray-400 bg-black/60 px-3 py-1 rounded-full uppercase backdrop-blur">READY</span>
                 </div>
             </div>
 
@@ -214,8 +203,8 @@
     <script>
         /**
          * =========================================================================
-         * 1. MOTION ENGINE (CORE)
-         * Responsável por normalizar dados do TensorFlow e corrigir espelhamento.
+         * 1. MOTION ENGINE (CORE) - MOTOR DE VISÃO COMPUTACIONAL
+         * Lida com a câmera, TensorFlow, normalização de coordenadas e física.
          * =========================================================================
          */
         const Motion = {
@@ -223,7 +212,7 @@
             video: document.getElementById('video-feed'),
             prevPose: null,
             lastFrameTime: 0,
-            smoothing: 0.15, // Fator de suavização (menor = mais suave, maior = mais rápido)
+            smoothing: 0.2, // EMA Smoothing Factor
 
             init: async () => {
                 const log = (t) => {
@@ -249,17 +238,17 @@
                     Motion.detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, config);
                     return true;
                 } catch (e) {
-                    alert("ERRO CRÍTICO: " + e.message);
+                    alert("ERRO DE CÂMERA: Certifique-se de usar HTTPS ou Localhost.\n" + e.message);
                     return false;
                 }
             },
 
-            // Processamento do Frame
+            // Processa um frame e retorna dados normalizados
             update: async (width, height) => {
                 if (!Motion.detector) return null;
                 
                 const now = performance.now();
-                const dt = Math.min((now - Motion.lastFrameTime) / 1000, 0.1); // Cap DT em 0.1s
+                const dt = Math.min((now - Motion.lastFrameTime) / 1000, 0.1); 
                 Motion.lastFrameTime = now;
 
                 let poses = null;
@@ -271,23 +260,18 @@
 
                 const rawKeypoints = poses[0].keypoints;
                 
-                // Dimensões do vídeo fonte
+                // Dimensões do vídeo
                 const vw = Motion.video.videoWidth;
                 const vh = Motion.video.videoHeight;
                 
-                // Lógica de "Object-Fit: Cover"
+                // Lógica "Cover" para preencher a tela vertical
                 const scale = Math.max(width / vw, height / vh);
                 const ox = (width - (vw * scale)) / 2;
                 const oy = (height - (vh * scale)) / 2;
 
-                // CORREÇÃO DEFINITIVA DE ESPELHAMENTO:
-                // O vídeo CSS tem transform: scaleX(-1), invertendo visualmente.
-                // O Canvas vai desenhar em cima.
-                // Se desenharmos no X original, ficará invertido em relação ao visual.
-                // Para alinhar: Canvas X = LarguraTela - (VideoX_Mapeado)
+                // Mapeamento com INVERSÃO HORIZONTAL (Espelho)
                 const mapPoint = (kp) => ({
-                    // INVERSÃO: Inverte a coordenada X para alinhar com o vídeo espelhado
-                    x: width - (((vw - kp.x) * scale) + ox), 
+                    x: width - (((vw - kp.x) * scale) + ox), // Direita é Direita
                     y: (kp.y * scale) + oy,
                     score: kp.score,
                     name: kp.name
@@ -296,7 +280,7 @@
                 const rawMapped = rawKeypoints.map(mapPoint);
                 const find = n => rawMapped.find(k => k.name === n);
 
-                // Pontos de interesse
+                // Pontos Chave
                 const nose = find('nose');
                 const ls = find('left_shoulder');
                 const rs = find('right_shoulder');
@@ -305,44 +289,35 @@
                 const le = find('left_elbow');
                 const re = find('right_elbow');
 
-                // Normalização Antropométrica (Largura dos ombros)
-                let bodyWidth = 100; // Valor de fallback
+                // Largura do Corpo (Referência de Escala)
+                let bodyWidth = 100;
                 if (ls.score > 0.3 && rs.score > 0.3) {
                     bodyWidth = Math.hypot(ls.x - rs.x, ls.y - rs.y);
                 } else if (Motion.prevPose) {
                     bodyWidth = Motion.prevPose.bodyWidth;
                 }
 
-                // CORREÇÃO DE LADOS (ESQ/DIR)
-                // No espelho: 
-                // Minha mão esquerda (física) -> aparece na esquerda da tela.
-                // O TensorFlow detecta "left_wrist".
-                // Mas matematicamente, na tela, o X é pequeno (esquerda).
-                // Então: Left Wrist na tela = Esquerda Física.
-                // Isso significa que não precisamos inverter os nomes das variáveis, apenas confiar na coordenada X da tela.
-
                 const currentPose = {
                     nose, 
                     shoulders: { l: ls, r: rs },
                     wrists: { l: lw, r: rw },
                     elbows: { l: le, r: re },
+                    center: { x: (ls.x + rs.x)/2, y: (ls.y + rs.y)/2 }, // Centro do peito
                     bodyWidth,
                     dt,
-                    // Velocidade calculada (pixels/sec)
-                    velocity: { l: 0, r: 0 }
+                    velocity: { l: 0, r: 0 } // Velocidade dos pulsos
                 };
 
-                // Cálculo de Física e Suavização
+                // Suavização e Física
                 if (Motion.prevPose) {
-                    // Cálculo de velocidade bruta antes de suavizar
+                    // Velocidade (px/sec) normalizada pela largura do corpo
                     const distL = Math.hypot(currentPose.wrists.l.x - Motion.prevPose.rawWrists.l.x, currentPose.wrists.l.y - Motion.prevPose.rawWrists.l.y);
                     const distR = Math.hypot(currentPose.wrists.r.x - Motion.prevPose.rawWrists.r.x, currentPose.wrists.r.y - Motion.prevPose.rawWrists.r.y);
                     
-                    // Velocidade normalizada pelo tamanho do corpo
                     currentPose.velocity.l = (distL / dt) / bodyWidth;
                     currentPose.velocity.r = (distR / dt) / bodyWidth;
 
-                    // Suavização EMA (Exponential Moving Average)
+                    // EMA Smoothing
                     const lerp = (a, b, t) => a + (b - a) * t;
                     const smoothPoint = (curr, prev) => {
                         curr.x = lerp(prev.x, curr.x, Motion.smoothing);
@@ -354,11 +329,10 @@
                     smoothPoint(currentPose.shoulders.r, Motion.prevPose.shoulders.r);
                     smoothPoint(currentPose.wrists.l, Motion.prevPose.wrists.l);
                     smoothPoint(currentPose.wrists.r, Motion.prevPose.wrists.r);
-                    smoothPoint(currentPose.elbows.l, Motion.prevPose.elbows.l);
-                    smoothPoint(currentPose.elbows.r, Motion.prevPose.elbows.r);
+                    smoothPoint(currentPose.center, Motion.prevPose.center);
                 }
 
-                // Armazena dados para o próximo frame
+                // Salvar dados brutos para cálculo de velocidade no próximo frame
                 currentPose.rawWrists = { l: {x: lw.x, y: lw.y}, r: {x: rw.x, y: rw.y} };
                 Motion.prevPose = currentPose;
 
@@ -393,48 +367,42 @@
 
             clear: () => Gfx.ctx.clearRect(0, 0, Gfx.width, Gfx.height),
 
-            // RENDERIZADOR DE ESQUELETO (Personagem Principal)
-            drawSkeleton: (pose, color = '#00F0FF', thickness = 6) => {
+            // ESQUELETO VISUAL (Obrigatório em todos os jogos)
+            drawSkeleton: (pose, color = '#00F3FF') => {
                 if (!pose) return;
                 const ctx = Gfx.ctx;
                 
                 ctx.save();
                 ctx.strokeStyle = color;
-                ctx.lineWidth = thickness;
+                ctx.lineWidth = 6;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
-                
-                // Glow Effect
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = color;
 
-                const drawLine = (p1, p2) => {
+                const connect = (p1, p2) => {
                     if (p1.score > 0.3 && p2.score > 0.3) {
                         ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
                     }
                 };
 
-                // Conexões
-                drawLine(pose.shoulders.l, pose.shoulders.r); // Ombros
-                drawLine(pose.shoulders.l, pose.elbows.l);    // Braço Esq
-                drawLine(pose.elbows.l, pose.wrists.l);
-                drawLine(pose.shoulders.r, pose.elbows.r);    // Braço Dir
-                drawLine(pose.elbows.r, pose.wrists.r);
+                // Corpo
+                connect(pose.shoulders.l, pose.shoulders.r);
+                connect(pose.shoulders.l, pose.elbows.l);
+                connect(pose.elbows.l, pose.wrists.l);
+                connect(pose.shoulders.r, pose.elbows.r);
+                connect(pose.elbows.r, pose.wrists.r);
 
-                // Cabeça (Nariz)
+                // Cabeça
                 if (pose.nose.score > 0.3) {
-                    ctx.beginPath();
                     ctx.fillStyle = '#fff';
-                    ctx.arc(pose.nose.x, pose.nose.y, thickness * 1.5, 0, Math.PI*2);
-                    ctx.fill();
+                    ctx.beginPath(); ctx.arc(pose.nose.x, pose.nose.y, 8, 0, Math.PI*2); ctx.fill();
                 }
 
                 // Juntas
                 ctx.fillStyle = color;
-                [pose.shoulders.l, pose.shoulders.r, pose.elbows.l, pose.elbows.r, pose.wrists.l, pose.wrists.r].forEach(p => {
-                    if (p.score > 0.3) {
-                        ctx.beginPath(); ctx.arc(p.x, p.y, thickness/2, 0, Math.PI*2); ctx.fill();
-                    }
+                [pose.shoulders.l, pose.shoulders.r, pose.elbows.l, pose.elbows.r].forEach(p => {
+                    if(p.score > 0.3) { ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); }
                 });
 
                 ctx.restore();
@@ -443,232 +411,248 @@
 
         /**
          * =========================================================================
-         * JOGO 1: NEON DRIFT (KART)
+         * JOGO 1: TURBO KART (Volante Virtual)
          * =========================================================================
          */
         class GameKart {
             constructor() {
                 this.speed = 0;
-                this.steering = 0;
-                this.carX = 0;
-                this.curve = 0;
+                this.steering = 0; // -1 a 1
+                this.carX = 0; // Posição na pista
+                this.roadCurve = 0;
                 this.score = 0;
                 this.obstacles = [];
-                this.handsOnWheel = false;
+                this.handsActive = false;
                 
+                // Configuração HUD
                 document.getElementById('hud-gauge-container').classList.remove('hidden');
-                document.getElementById('hud-subtext').innerText = "SEGURE O VOLANTE";
-                App.msg("START!", "#00F0FF");
+                document.getElementById('hud-subtext').innerText = "MÃOS NO ALTO = VOLANTE";
+                App.msg("START!", "#00F3FF");
             }
 
             update(pose, ctx, w, h) {
-                // 1. CÁLCULO DE DIREÇÃO (VETOR PULSO A PULSO)
-                this.handsOnWheel = false;
-                let targetAngle = 0;
+                // 1. INPUT: VOLANTE VIRTUAL (Arco tangente entre pulsos)
+                let targetSteer = 0;
+                this.handsActive = false;
 
-                // Para o volante funcionar corretamente no espelho:
-                // Mão Esquerda na Tela (Física Esq) = wrist.l
-                // Mão Direita na Tela (Física Dir) = wrist.r
-                // Ângulo positivo = Virar para a Direita (Mão direita desce, esquerda sobe)
-                
                 if (pose.wrists.l.score > 0.4 && pose.wrists.r.score > 0.4) {
-                    // Diferença de altura
-                    const dy = pose.wrists.r.y - pose.wrists.l.y;
-                    const dx = pose.wrists.r.x - pose.wrists.l.x;
-                    const rawAngle = Math.atan2(dy, dx);
+                    // Verifica se as mãos estão na metade superior da tela
+                    if (pose.wrists.l.y < h * 0.7) {
+                        this.handsActive = true;
+                        
+                        // Ângulo dos pulsos
+                        const dy = pose.wrists.r.y - pose.wrists.l.y;
+                        const dx = pose.wrists.r.x - pose.wrists.l.x;
+                        const angle = Math.atan2(dy, dx);
+                        
+                        // Compensação do corpo (para não virar só de inclinar o tronco)
+                        const sDy = pose.shoulders.r.y - pose.shoulders.l.y;
+                        const sDx = pose.shoulders.r.x - pose.shoulders.l.x;
+                        const bodyAngle = Math.atan2(sDy, sDx);
 
-                    // Compensação de inclinação do corpo
-                    const sDy = pose.shoulders.r.y - pose.shoulders.l.y;
-                    const sDx = pose.shoulders.r.x - pose.shoulders.l.x;
-                    const bodyAngle = Math.atan2(sDy, sDx);
+                        let steer = angle - bodyAngle;
+                        
+                        // Clamp e Deadzone
+                        if (Math.abs(steer) < 0.1) steer = 0;
+                        steer = Math.max(-1.2, Math.min(1.2, steer)); // Max rotação
 
-                    let steeringAngle = rawAngle - bodyAngle;
-
-                    // Ajuste de sentido: No espelho, se eu giro para a direita (horário), 
-                    // minha mão direita (tela direita) desce. DY é positivo. Angle positivo.
-                    // Isso está correto para Math.atan2.
-
-                    // Limites e Deadzone
-                    if (Math.abs(steeringAngle) < 0.1) steeringAngle = 0; 
-                    steeringAngle = Math.max(-1.0, Math.min(1.0, steeringAngle));
-
-                    // Altura das mãos (Volante)
-                    const handsY = (pose.wrists.l.y + pose.wrists.r.y) / 2;
-                    if (handsY < h * 0.8) {
-                        this.handsOnWheel = true;
-                        targetAngle = steeringAngle;
-                        this.speed = Math.min(120, this.speed + 60 * pose.dt);
+                        targetSteer = steer;
+                        
+                        // Acelerar
+                        this.speed = Math.min(150, this.speed + 80 * pose.dt);
                     }
                 }
 
-                if (!this.handsOnWheel) {
-                    this.speed *= 0.95; 
-                    targetAngle = 0; 
+                if (!this.handsActive) {
+                    this.speed *= 0.95; // Freio
+                    targetSteer = 0; // Centraliza volante
                 }
 
-                this.steering += (targetAngle - this.steering) * 5 * pose.dt;
+                // Suavizar volante
+                this.steering += (targetSteer - this.steering) * 5 * pose.dt;
 
-                // Física do Carro
-                this.curve = Math.sin(Date.now() / 2000) * 0.5; 
-                const turnForce = this.steering * 3.5;
-                const centrifugal = this.curve * (this.speed / 100);
+                // 2. FÍSICA
+                this.roadCurve = Math.sin(Date.now() / 1500) * 0.7; // Pista sinuosa
+                const turnForce = this.steering * 3.0;
+                const centrifugal = this.roadCurve * (this.speed / 100);
                 
                 this.carX += (turnForce - centrifugal) * pose.dt;
                 
-                if (this.carX < -1.5) { this.carX = -1.5; this.speed *= 0.9; }
-                if (this.carX > 1.5) { this.carX = 1.5; this.speed *= 0.9; }
+                // Limites
+                if (this.carX < -1.6) { this.carX = -1.6; this.speed *= 0.9; }
+                if (this.carX > 1.6) { this.carX = 1.6; this.speed *= 0.9; }
 
                 this.score += Math.floor(this.speed * pose.dt);
 
-                // Spawn Obstáculos
+                // Obstáculos
                 if (Math.random() < 0.02 && this.speed > 30) {
                     this.obstacles.push({ x: (Math.random()-0.5)*2.5, z: 0 });
                 }
 
-                // --- RENDERIZAÇÃO ---
+                // 3. RENDERIZAÇÃO
                 ctx.clearRect(0,0,w,h);
                 
-                // Fundo & Pista
-                const horizon = h * 0.4;
+                const horizonY = h * 0.4;
+                
+                // Céu e Chão
                 const grad = ctx.createLinearGradient(0,0,0,h);
-                grad.addColorStop(0, '#020617'); grad.addColorStop(1, '#1e293b');
+                grad.addColorStop(0, '#000022'); grad.addColorStop(1, '#111133');
                 ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
 
                 // Pista
-                ctx.fillStyle = '#334155';
+                ctx.fillStyle = '#222';
                 ctx.beginPath();
-                const centerTop = w/2 + (this.curve * 200);
-                const centerBot = w/2 + (this.carX * -300); 
-                
-                ctx.moveTo(centerTop - 10, horizon);
-                ctx.lineTo(centerTop + 10, horizon);
-                ctx.lineTo(centerBot + w, h);
-                ctx.lineTo(centerBot - w, h);
+                const centerTop = w/2 + (this.roadCurve * 200);
+                const centerBot = w/2 + (this.carX * -300); // Movimento relativo
+                const topW = 10;
+                const botW = w * 1.5;
+
+                ctx.moveTo(centerTop - topW, horizonY);
+                ctx.lineTo(centerTop + topW, horizonY);
+                ctx.lineTo(centerBot + botW, h);
+                ctx.lineTo(centerBot - botW, h);
                 ctx.fill();
+
+                // Linhas da Pista
+                ctx.strokeStyle = '#00F3FF'; ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(centerTop - topW, horizonY); ctx.lineTo(centerBot - botW, h);
+                ctx.moveTo(centerTop + topW, horizonY); ctx.lineTo(centerBot + botW, h);
+                ctx.stroke();
 
                 // Obstáculos
                 this.obstacles.forEach((obs, i) => {
                     obs.z += (this.speed * 0.002) * pose.dt * 60;
-                    if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
+                    if (obs.z > 1.1) { this.obstacles.splice(i,1); return; }
 
-                    const scale = obs.z * obs.z;
-                    const drawY = horizon + (obs.z * (h - horizon));
+                    const scale = Math.pow(obs.z, 2);
+                    const drawY = horizonY + (obs.z * (h - horizonY));
                     const roadX = centerTop + (centerBot - centerTop) * obs.z;
                     const drawX = roadX + (obs.x * w * 0.5 * obs.z);
                     const size = 40 + (100 * scale);
 
-                    ctx.fillStyle = '#F43F5E';
+                    ctx.fillStyle = '#FF0055';
                     ctx.fillRect(drawX - size/2, drawY - size, size, size);
 
                     // Colisão
                     if (obs.z > 0.85 && obs.z < 0.95 && Math.abs(drawX - w/2) < 80) {
                         this.speed = 10;
-                        App.msg("CRASH!", "#F43F5E");
+                        App.msg("BATEU!", "#FF0055");
                         ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
                     }
                 });
 
                 // Carro
-                const cx = w/2; const cy = h - 120;
+                const carY = h - 150;
                 ctx.save();
-                ctx.translate(cx, cy);
-                ctx.rotate(this.steering * 0.4); 
+                ctx.translate(w/2, carY);
+                ctx.rotate(this.steering * 0.3); // Inclinação visual
                 
-                ctx.fillStyle = '#00F0FF';
+                // Chassi
+                ctx.fillStyle = '#00F3FF';
                 ctx.beginPath(); ctx.roundRect(-60, -30, 120, 60, 10); ctx.fill();
-                ctx.fillStyle = '#ef4444'; 
-                ctx.beginPath(); ctx.arc(-40, 0, 12, 0, Math.PI*2); ctx.fill(); 
-                ctx.beginPath(); ctx.arc(40, 0, 12, 0, Math.PI*2); ctx.fill();  
+                // Vidro
+                ctx.fillStyle = '#000'; ctx.fillRect(-50, -40, 100, 25);
+                // Luzes
+                ctx.fillStyle = '#FF0055';
+                ctx.beginPath(); ctx.arc(-45, 0, 12, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.arc(45, 0, 12, 0, Math.PI*2); ctx.fill();
                 ctx.restore();
 
-                // Volante Virtual
-                const wheelX = w/2; const wheelY = 150;
+                // Volante Virtual (HUD)
+                const wheelY = 150;
                 ctx.save();
-                ctx.translate(wheelX, wheelY);
+                ctx.translate(w/2, wheelY);
                 ctx.rotate(this.steering);
-                ctx.beginPath(); ctx.arc(0,0, 60, 0, Math.PI*2);
-                ctx.lineWidth = 10; 
-                ctx.strokeStyle = this.handsOnWheel ? 'rgba(0, 240, 255, 0.8)' : 'rgba(255,255,255,0.2)';
+                
+                ctx.beginPath(); ctx.arc(0,0, 70, 0, Math.PI*2);
+                ctx.lineWidth = 12; 
+                ctx.strokeStyle = this.handsActive ? 'rgba(0, 243, 255, 0.9)' : 'rgba(255,255,255,0.2)';
                 ctx.stroke();
                 // Raios
-                ctx.beginPath(); ctx.moveTo(-60,0); ctx.lineTo(60,0); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(-70, 0); ctx.lineTo(70, 0); ctx.stroke();
                 ctx.restore();
 
-                if (!this.handsOnWheel) {
-                    ctx.fillStyle = 'white'; ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
-                    ctx.fillText("SEGURE O VOLANTE AQUI", wheelX, wheelY + 90);
+                // Desenha Mãos Virtuais no Volante
+                if (this.handsActive) {
+                    const lx = w/2 + Math.cos(this.steering + Math.PI)*70;
+                    const ly = wheelY + Math.sin(this.steering + Math.PI)*70;
+                    const rx = w/2 + Math.cos(this.steering)*70;
+                    const ry = wheelY + Math.sin(this.steering)*70;
+                    
+                    ctx.fillStyle = '#FFFF00';
+                    ctx.beginPath(); ctx.arc(lx, ly, 15, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(rx, ry, 15, 0, Math.PI*2); ctx.fill();
+                } else {
+                    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center";
+                    ctx.fillText("SEGURE O VOLANTE", w/2, wheelY + 100);
                 }
 
-                Gfx.drawSkeleton(pose, this.handsOnWheel ? '#00F0FF' : '#555');
+                // Desenha Esqueleto
+                Gfx.drawSkeleton(pose, this.handsActive ? '#00F3FF' : '#555');
 
-                document.getElementById('hud-gauge-fill').style.width = (this.speed/120)*100 + '%';
+                document.getElementById('hud-gauge-fill').style.width = (this.speed/150)*100 + '%';
                 return this.score;
             }
         }
 
         /**
          * =========================================================================
-         * JOGO 2: CYBER RUN (CORRIDA DE RUA FÍSICA)
+         * JOGO 2: STREET RUN (Corrida de Rua)
          * =========================================================================
          */
         class GameRun {
             constructor() {
                 this.score = 0;
-                this.speed = 0;
+                this.speed = 0; 
                 this.playerX = 0; 
-                this.playerY = 0; 
-                this.jumpVel = 0;
-                this.runEnergy = 0;
-                this.obstacles = [];
-                this.lastShoulderY = 0;
                 this.distance = 0;
+                this.playerY = 0;
+                this.jumpVel = 0;
+                this.obstacles = [];
+                this.runEnergy = 0;
+                this.lastShoulderY = 0;
 
                 document.getElementById('hud-gauge-container').classList.remove('hidden');
-                document.getElementById('hud-subtext').innerText = "CORRA PARA MOVER";
-                App.msg("RUN!", "#39FF14");
+                document.getElementById('hud-subtext').innerText = "CORRA NO LUGAR";
+                App.msg("GO!", "#CCFF00");
             }
 
             update(pose, ctx, w, h) {
-                // 1. INPUT ANALÓGICO
+                // 1. INPUT
                 if (pose.shoulders.l.score > 0.4 && pose.shoulders.r.score > 0.4) {
-                    const midX = pose.center.x; // Já espelhado corretamente em Motion.update
-                    const midY = pose.center.y;
-
-                    // CONTROLE LATERAL 1:1
+                    // Posição Lateral (1:1 com corpo)
                     const screenCenter = w / 2;
-                    const diffX = midX - screenCenter;
-                    
-                    // Como o X já está invertido no Motion.update para ser visualmente correto:
-                    // Se eu vou para a Direita da tela, X aumenta. (X > Center). Diff > 0. Player vai pra direita.
-                    // Isso está correto.
-                    this.playerX = diffX / (pose.bodyWidth * 1.5); 
+                    const diffX = pose.center.x - screenCenter;
+                    this.playerX = diffX / (pose.bodyWidth * 1.5);
                     this.playerX = Math.max(-1, Math.min(1, this.playerX));
 
-                    // DETECÇÃO DE CORRIDA
-                    if (!this.lastShoulderY) this.lastShoulderY = midY;
-                    const deltaY = Math.abs(midY - this.lastShoulderY);
-                    this.lastShoulderY = midY;
-
-                    const activity = deltaY / pose.bodyWidth;
+                    // Detecção de Corrida (Oscilação Vertical do Centro de Massa)
+                    if (!this.lastShoulderY) this.lastShoulderY = pose.center.y;
+                    const deltaY = Math.abs(pose.center.y - this.lastShoulderY);
                     
-                    if (activity > 0.04) { 
+                    // Normaliza delta pela altura do corpo
+                    const activity = deltaY / pose.bodyWidth;
+                    this.lastShoulderY = pose.center.y;
+
+                    // Acumulador de energia
+                    if (activity > 0.03) { 
                         this.runEnergy = Math.min(1, this.runEnergy + 2.0 * pose.dt);
                     } else {
-                        this.runEnergy = Math.max(0, this.runEnergy - 1.5 * pose.dt);
+                        this.runEnergy = Math.max(0, this.runEnergy - 1.0 * pose.dt);
                     }
-                    this.speed = this.runEnergy * 60; 
+                    this.speed = this.runEnergy * 70;
 
-                    // DETECÇÃO DE PULO
-                    // Se subiu rápido? (Y diminui subindo)
-                    // No Motion.update, Y é raw pixel value. 0 = topo.
-                    // Subir = Y diminui.
-                    // Velocidade vertical (antiga - nova) > threshold positivo
-                    const jumpSpeed = (this.lastShoulderY - midY); // Positivo se subiu
+                    // PULO (Impulso Vertical)
+                    // Detecta se subiu rápido em relação à média móvel
+                    const velocityY = (pose.velocity.l + pose.velocity.r) / 2; // Bruto das mãos ajuda a detectar pulo
+                    // Se o corpo subiu rápido (Delta Y negativo grande)
+                    const jumpMetric = (Motion.prevPose.center.y - pose.center.y); // Positivo se subiu
                     
-                    if (this.playerY === 0 && jumpSpeed > (pose.bodyWidth * 0.1)) {
-                        this.jumpVel = 18;
+                    if (this.playerY === 0 && jumpMetric > pose.bodyWidth * 0.15) {
+                        this.jumpVel = 20;
                         this.playerY = 1;
-                        App.msg("PULO!", "#39FF14");
+                        App.msg("PULO!", "#CCFF00");
                     }
                 }
 
@@ -678,8 +662,8 @@
 
                 // Gravidade
                 if (this.playerY > 0) {
-                    this.playerY += this.jumpVel * pose.dt * 60 * 0.05; 
-                    this.jumpVel -= 50 * pose.dt; 
+                    this.playerY += this.jumpVel * pose.dt * 2;
+                    this.jumpVel -= 60 * pose.dt; 
                     if (this.playerY <= 0) { this.playerY = 0; this.jumpVel = 0; }
                 }
 
@@ -692,28 +676,31 @@
                 ctx.clearRect(0,0,w,h);
                 
                 const horizon = h * 0.4;
-                ctx.fillStyle = '#0f172a'; ctx.fillRect(0,0,w,h);
+                ctx.fillStyle = '#050505'; ctx.fillRect(0,0,w,h);
                 
-                ctx.fillStyle = '#1e293b';
+                // Chão
+                ctx.fillStyle = '#111';
                 ctx.beginPath(); ctx.moveTo(w/2, horizon); ctx.lineTo(w*2, h); ctx.lineTo(-w, h); ctx.fill();
 
-                // Grid
-                const gridOffset = (this.distance * 50) % 50;
-                ctx.strokeStyle = '#39FF14'; ctx.lineWidth = 2; ctx.globalAlpha = 0.3;
+                // Grid Cyberpunk
+                const gridOffset = (this.distance * 100) % 100;
+                ctx.strokeStyle = '#CCFF00'; ctx.lineWidth = 1; ctx.globalAlpha = 0.3;
                 ctx.beginPath();
-                ctx.moveTo(w/2, horizon); ctx.lineTo(w/2, h);
-                ctx.moveTo(w/2, horizon); ctx.lineTo(w*0.8, h);
+                // Verticais
                 ctx.moveTo(w/2, horizon); ctx.lineTo(w*0.2, h);
+                ctx.moveTo(w/2, horizon); ctx.lineTo(w*0.5, h);
+                ctx.moveTo(w/2, horizon); ctx.lineTo(w*0.8, h);
+                // Horizontais
                 for(let i=0; i<10; i++) {
-                    let y = h - (i*40) + gridOffset;
-                    if (y > horizon && y < h) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+                    let y = h - (i*50) + gridOffset;
+                    if(y > horizon && y < h) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
                 }
                 ctx.stroke();
                 ctx.globalAlpha = 1.0;
 
                 // Obstáculos
                 this.obstacles.forEach((obs, i) => {
-                    obs.z += (this.speed * 0.005 + 0.01) * 60 * pose.dt;
+                    obs.z += (this.speed * 0.005 + 0.02) * 60 * pose.dt;
                     if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
 
                     const scale = obs.z;
@@ -722,40 +709,43 @@
                     const drawY = horizon + (obs.z * (h - horizon));
                     const size = 50 * scale;
 
-                    ctx.fillStyle = obs.type === 'low' ? '#eab308' : '#ef4444';
-                    const yOffset = obs.type === 'high' ? size * 1.5 : 0;
+                    ctx.fillStyle = obs.type === 'low' ? '#FFAA00' : '#FF0055';
+                    const yOffset = obs.type === 'high' ? size * 1.8 : 0;
+                    
+                    ctx.shadowBlur = 20; ctx.shadowColor = ctx.fillStyle;
                     ctx.fillRect(drawX - size/2, drawY - size - yOffset, size, size);
+                    ctx.shadowBlur = 0;
 
                     // Colisão
                     if (obs.z > 0.85 && obs.z < 0.95) {
                         const dist = Math.abs(drawX - ((w/2) + (this.playerX * w * 0.4)));
-                        const hitLow = obs.type === 'low' && this.playerY < 0.5; 
-                        const hitHigh = obs.type === 'high' && this.playerY > 0.5; 
+                        const hitLow = obs.type === 'low' && this.playerY < 0.5;
+                        const hitHigh = obs.type === 'high' && this.playerY > 0.5;
                         
-                        if (dist < size && hitLow) {
+                        if (dist < size && (hitLow || hitHigh)) {
                             this.speed = 0; this.runEnergy = 0;
-                            App.msg("BATEU!", "#ef4444");
+                            App.msg("CRASH!", "#FF0055");
                             ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
                             this.obstacles.splice(i,1);
                         }
                     }
                 });
 
-                // AVATAR
+                // AVATAR AR
                 ctx.save();
-                const jumpPx = this.playerY * -150;
+                const jumpPx = this.playerY * -200;
                 ctx.translate(0, jumpPx);
-                Gfx.drawSkeleton(pose, '#39FF14');
+                Gfx.drawSkeleton(pose, '#CCFF00');
                 ctx.restore();
 
-                document.getElementById('hud-gauge-fill').style.width = (this.speed/60)*100 + '%';
+                document.getElementById('hud-gauge-fill').style.width = (this.speed/80)*100 + '%';
                 return this.score;
             }
         }
 
         /**
          * =========================================================================
-         * JOGO 3: PRO BOXING (FÍSICA E RITMO)
+         * JOGO 3: RHYTHM BOX (Boxe de Academia)
          * =========================================================================
          */
         class GameBox {
@@ -767,57 +757,57 @@
                 this.beatInterval = 1.0; 
                 
                 document.getElementById('hud-gauge-container').classList.add('hidden');
-                document.getElementById('hud-subtext').innerText = "SOQUE OS ALVOS";
-                App.msg("BOXE!", "#FF003C");
+                document.getElementById('hud-subtext').innerText = "SOQUE AS BOLHAS";
+                App.msg("BOXE!", "#FF0055");
             }
 
             update(pose, ctx, w, h) {
-                // SPAWN
+                // 1. SPAWN RÍTMICO
                 this.timer += pose.dt;
                 if (this.timer > this.beatInterval) {
                     this.timer = 0;
-                    const side = Math.random() > 0.5 ? 'left' : 'right';
+                    const side = Math.random() > 0.5 ? 'L' : 'R';
                     this.targets.push({
-                        x: side === 'left' ? w * 0.25 : w * 0.75,
+                        x: side === 'L' ? w * 0.25 : w * 0.75,
                         y: Math.random() > 0.5 ? h * 0.3 : h * 0.6,
                         radius: 10,
                         active: true,
                         side: side,
-                        color: side === 'left' ? '#00F0FF' : '#FF003C',
+                        color: side === 'L' ? '#00F3FF' : '#FF0055',
                         hit: false
                     });
                     this.beatInterval = Math.max(0.5, this.beatInterval * 0.98); 
                 }
 
-                // RENDER & COLISÃO
+                // 2. RENDER & COLISÃO
                 ctx.clearRect(0,0,w,h);
                 
-                Gfx.drawSkeleton(pose, '#555', 4);
+                Gfx.drawSkeleton(pose, '#555', 4); // Esqueleto de fundo
 
                 this.targets.forEach(t => {
                     if (!t.active) return;
                     
-                    t.radius += 100 * pose.dt;
-                    const hitZone = 70; 
+                    t.radius += 80 * pose.dt; 
+                    const hitZone = 70; // Tamanho ideal
 
+                    // Desenho Alvo
                     ctx.beginPath();
                     ctx.arc(t.x, t.y, t.radius, 0, Math.PI*2);
-                    ctx.fillStyle = t.color + '44';
+                    ctx.fillStyle = t.color + '44'; // Semi-transparente
                     ctx.fill();
                     ctx.lineWidth = 4;
                     ctx.strokeStyle = Math.abs(t.radius - hitZone) < 15 ? '#FFF' : t.color;
                     ctx.stroke();
 
-                    // Detectar Hit
-                    if (!t.hit && t.radius > 40) {
-                        const hand = t.side === 'left' ? pose.wrists.l : pose.wrists.r;
-                        const velocity = t.side === 'left' ? pose.velocity.l : pose.velocity.r;
+                    // Detectar Hit (Colisão Espacial + Velocidade)
+                    if (pose && t.radius > 40 && !t.hit) {
+                        const hand = t.side === 'L' ? pose.wrists.l : pose.wrists.r;
+                        const velocity = t.side === 'L' ? pose.velocity.l : pose.velocity.r;
                         
                         const dist = Math.hypot(hand.x - t.x, hand.y - t.y);
                         
-                        // Hitbox generosa mas exige velocidade
                         if (dist < t.radius + 30) {
-                            if (velocity > 2.0) { // Velocidade mínima
+                            if (velocity > 2.0) { // Exige força no soco
                                 t.hit = true;
                                 t.active = false;
                                 this.combo++;
@@ -835,26 +825,30 @@
                         }
                     }
 
+                    // Miss
                     if (t.radius > 110) {
                         t.active = false;
                         this.combo = 0;
-                        App.msg("MISS", "#555");
+                        App.msg("MISS", "#666");
                     }
                 });
 
                 this.targets = this.targets.filter(t => t.active);
 
-                const drawGlove = (kp, color, vel) => {
-                    if (kp.score > 0.3) {
-                        const size = 30 + Math.min(20, vel * 3);
-                        ctx.shadowBlur = 20; ctx.shadowColor = color;
-                        ctx.fillStyle = color;
-                        ctx.beginPath(); ctx.arc(kp.x, kp.y, size, 0, Math.PI*2); ctx.fill();
-                        ctx.shadowBlur = 0;
-                    }
-                };
-                drawGlove(pose.wrists.l, '#00F0FF', pose.velocity.l);
-                drawGlove(pose.wrists.r, '#FF003C', pose.velocity.r);
+                // Desenhar Luvas Virtuais
+                if (pose) {
+                    const drawGlove = (kp, color, vel) => {
+                        if (kp.score > 0.3) {
+                            const size = 30 + Math.min(25, vel * 3);
+                            ctx.shadowBlur = 20; ctx.shadowColor = color;
+                            ctx.fillStyle = color;
+                            ctx.beginPath(); ctx.arc(kp.x, kp.y, size, 0, Math.PI*2); ctx.fill();
+                            ctx.shadowBlur = 0;
+                        }
+                    };
+                    drawGlove(pose.wrists.l, '#00F3FF', pose.velocity.l);
+                    drawGlove(pose.wrists.r, '#FF0055', pose.velocity.r);
+                }
 
                 return this.score;
             }
@@ -906,10 +900,12 @@
                 el.innerText = text;
                 el.style.color = color;
                 el.style.opacity = 1;
-                el.style.transform = "scale(1.2) skewX(-10deg)";
+                el.style.transform = "scale(1.2) skewX(-12deg)";
+                el.style.textShadow = `0 0 20px ${color}`;
+                
                 setTimeout(() => {
                     el.style.opacity = 0;
-                    el.style.transform = "scale(1)";
+                    el.style.transform = "scale(0.5) skewX(-12deg)";
                 }, 600);
             },
 
@@ -929,5 +925,8 @@
         window.onload = App.init;
 
     </script>
+    <div style="position: fixed; bottom: 5px; right: 5px; font-size: 8px; color: rgba(255,255,255,0.2); font-family: monospace;">
+        Desenvolvido com 🤖 por thIAguinho Soluções
+    </div>
 </body>
 </html>
