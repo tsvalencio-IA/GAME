@@ -2,742 +2,552 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <title>thIAguinho WII: ULTIMATE</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>thIAguinho Wii: ORIGINAL FIXED</title>
     
-    <!-- CORE: TENSORFLOW.JS -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <!-- TensorFlow.js - Versões fixas para evitar erros -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.2"></script>
 
-    <!-- UI: TAILWIND -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- FONTS -->
-    <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Rajdhani:wght@500;700;900&display=swap" rel="stylesheet">
 
     <style>
-        :root {
-            --neon-blue: #00F3FF;
-            --neon-pink: #FF0055;
-            --neon-green: #00FF9D;
-            --bg-dark: #050505;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Russo+One&display=swap');
 
         body {
-            background-color: var(--bg-dark);
-            font-family: 'Rajdhani', sans-serif;
+            background-color: #000;
             margin: 0; overflow: hidden;
-            touch-action: none; user-select: none;
-            color: white;
-            width: 100vw; height: 100vh;
+            font-family: 'Russo One', sans-serif;
+            touch-action: none;
+            user-select: none;
         }
 
-        /* LAYOUT */
-        #game-container { position: relative; width: 100%; height: 100%; overflow: hidden; }
-        
-        /* VÍDEO (ESPELHO) */
+        #game-container { position: relative; width: 100vw; height: 100vh; background: #000; }
+
         #webcam {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             object-fit: cover;
             transform: scaleX(-1);
-            filter: brightness(0.5) contrast(1.2);
+            opacity: 0.4;
             z-index: 0;
-            pointer-events: none;
         }
+        #video-source { display: none; }
 
-        /* CANVAS (JOGO) */
         #game-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 10;
-            pointer-events: none;
         }
 
-        /* UI LAYER - CORREÇÃO DE CLIQUES */
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 20;
-            display: flex; flex-direction: column; justify-content: space-between;
-            pointer-events: none; /* Deixa passar clique para o canvas se necessário, mas... */
+        /* CURSOR WII */
+        #wii-cursor {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="white" stroke="%2300ffcc" stroke-width="2"/></svg>') no-repeat center;
+            background-size: contain;            pointer-events: none;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.2s;
         }
-        
-        /* ...filhos com pointer-events: auto recebem clique */
-        #ui-layer > * { pointer-events: auto; }
 
-        .interactive { cursor: pointer; active: scale: 0.95; transition: transform 0.1s; }
+        .layer {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 50;
+            transition: opacity 0.4s ease-in-out;
+        }
+        .hidden { display: none !important; }
+        .interactive { pointer-events: auto !important; }
 
-        /* CARDS */
-        .game-card {
-            background: rgba(20, 20, 30, 0.9);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-left: 6px solid #fff;
-            border-radius: 16px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        .btn-main {
+            background: linear-gradient(to bottom, #00ffcc, #009977);
+            border: 3px solid #fff;
+            color: #003322;
+            text-transform: uppercase;
+            box-shadow: 0 0 15px #00ffcc;
+            transition: transform 0.1s;
+        }
+        .btn-main:active { transform: scale(0.95); }
+
+        .card-menu {
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #fff;
+            box-shadow: 0 0 10px rgba(255,255,255,0.2);
             transition: all 0.2s;
-            position: relative; overflow: hidden;
         }
-        .game-card:active { transform: scale(0.96); background: rgba(50,50,60,1); }
-        .game-card.kart { border-color: var(--neon-blue); }
-        .game-card.run { border-color: var(--neon-green); }
-        .game-card.box { border-color: var(--neon-pink); }
-
-        /* HUD */
-        .hud-panel {
-            background: rgba(0, 0, 0, 0.8);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(8px);
-            border-radius: 99px;
-            padding: 8px 24px;
-            box-shadow: 0 0 20px rgba(0,243,255,0.2);
-            pointer-events: none;
+        .card-menu:hover {
+            border-color: #00ffcc;
+            transform: scale(1.05);
+            box-shadow: 0 0 20px #00ffcc;
         }
 
-        .title-font { font-family: 'Black Ops One', cursive; }
-        
-        /* STATUS DOT */
-        .status-dot {
-            width: 12px; height: 12px; border-radius: 50%;
-            background-color: #333; margin-right: 8px;
-            box-shadow: 0 0 5px currentColor;
+        .hud-box {
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+        }
+
+        /* Estilo Wii Icon */
+        .wii-icon {
+            background: linear-gradient(135deg, #1e3a8a, #0c4a6e);
+            border: 2px solid #00ffcc;
+            box-shadow: 0 8px 16px rgba(0, 255, 204, 0.3);            backdrop-filter: blur(4px);
+            transition: all 0.3s ease;
+        }
+        .wii-icon:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 25px #00ffcc, 0 12px 24px rgba(0, 255, 204, 0.5);
+            border-color: white;
         }
     </style>
 </head>
 <body>
-
     <div id="game-container">
+        <video id="video-source" playsinline></video>
         <video id="webcam" autoplay muted playsinline></video>
         <canvas id="game-canvas"></canvas>
+        <div id="wii-cursor"></div>
 
-        <div id="ui-layer" class="p-6">
-            
-            <!-- LOADER -->
-            <div id="screen-load" class="absolute inset-0 bg-black z-50 flex flex-col items-center justify-center pointer-events-auto">
-                <div class="w-16 h-16 border-4 border-gray-800 border-t-cyan-400 rounded-full animate-spin mb-6"></div>
-                <h1 class="text-5xl text-white title-font tracking-widest mb-2">thIAguinho</h1>
-                <p id="load-status" class="text-cyan-400 text-sm font-mono animate-pulse">INICIALIZANDO SISTEMA...</p>
-                <button id="btn-force-start" class="hidden mt-8 px-6 py-2 border border-white/20 rounded text-xs text-gray-500 hover:text-white" onclick="App.forceStart()">FORÇAR INÍCIO (SEM CÂMERA)</button>
-            </div>
-
-            <!-- MENU -->
-            <div id="screen-menu" class="hidden absolute inset-0 bg-black/90 backdrop-blur-xl z-40 flex flex-col items-center justify-center p-4 pointer-events-auto overflow-y-auto">
-                <div class="mb-10 text-center">
-                    <h1 class="text-6xl md:text-8xl text-white title-font leading-none">
-                        th<span class="text-[var(--neon-blue)]">IA</span>guinho
-                    </h1>
-                    <div class="flex items-center justify-center gap-2 mt-2">
-                        <div class="h-px w-10 bg-gray-600"></div>
-                        <p class="text-gray-400 tracking-[0.4em] text-xs font-bold">WII CONSOLE</p>
-                        <div class="h-px w-10 bg-gray-600"></div>
-                    </div>
+        <!-- TELA DE MENU PRINCIPAL (ESTILO WII) -->
+        <div id="screen-wii-menu" class="layer bg-gradient-to-b from-blue-900 to-black hidden interactive">
+            <div class="absolute inset-0 opacity-30" style="background: radial-gradient(circle, rgba(0,255,204,0.1) 0%, transparent 70%);"></div>
+            <h1 class="text-6xl md:text-8xl text-white font-bold mb-12 text-center drop-shadow-[0_0_20px_rgba(0,255,204,0.8)]">
+                thIAguinho<br><span class="text-cyan-400">Wii</span>
+            </h1>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-2xl w-full px-4">
+                <div onclick="Sfx.select(); Core.launch('drive')" class="wii-icon p-6 rounded-2xl flex flex-col items-center justify-center group cursor-pointer">
+                    <div class="text-6xl mb-3">🏎️</div>
+                    <h3 class="text-xl text-white font-bold">CORRIDA</h3>
                 </div>
-
-                <div class="grid grid-cols-1 gap-4 w-full max-w-sm">
-                    <!-- KART -->
-                    <div onclick="App.launch('kart')" class="game-card kart h-24 flex items-center px-6 interactive group cursor-pointer">
-                        <div class="text-5xl mr-6 group-hover:scale-110 transition-transform">🏎️</div>
-                        <div class="flex-1">
-                            <h2 class="text-2xl font-bold text-white italic">NEON KART</h2>
-                            <p class="text-[10px] text-gray-400 uppercase">Segure o Volante</p>
-                        </div>
-                        <div class="text-2xl font-black text-[var(--neon-blue)]">GO</div>
-                    </div>
-                    <!-- RUN -->
-                    <div onclick="App.launch('run')" class="game-card run h-24 flex items-center px-6 interactive group cursor-pointer">
-                        <div class="text-5xl mr-6 group-hover:scale-110 transition-transform">🏃</div>
-                        <div class="flex-1">
-                            <h2 class="text-2xl font-bold text-white italic">STREET RUN</h2>
-                            <p class="text-[10px] text-gray-400 uppercase">Corra e Pule</p>
-                        </div>
-                        <div class="text-2xl font-black text-[var(--neon-green)]">GO</div>
-                    </div>
-                    <!-- BOX -->
-                    <div onclick="App.launch('box')" class="game-card box h-24 flex items-center px-6 interactive group cursor-pointer">
-                        <div class="text-5xl mr-6 group-hover:scale-110 transition-transform">🥊</div>
-                        <div class="flex-1">
-                            <h2 class="text-2xl font-bold text-white italic">RHYTHM BOX</h2>
-                            <p class="text-[10px] text-gray-400 uppercase">Soco no Ritmo</p>
-                        </div>
-                        <div class="text-2xl font-black text-[var(--neon-pink)]">GO</div>
-                    </div>
+                <div onclick="Sfx.select(); Core.launch('run')" class="wii-icon p-6 rounded-2xl flex flex-col items-center justify-center group cursor-pointer">
+                    <div class="text-6xl mb-3">🏃</div>
+                    <h3 class="text-xl text-white font-bold">RUA</h3>
                 </div>
-                
-                <div class="mt-8 text-center text-gray-600 text-xs">
-                    <p>Posicione-se a 2 metros da câmera.</p>
+                <div onclick="Sfx.select(); Core.launch('fight')" class="wii-icon p-6 rounded-2xl flex flex-col items-center justify-center group cursor-pointer">
+                    <div class="text-6xl mb-3">🥊</div>
+                    <h3 class="text-xl text-white font-bold">BOXE</h3>
                 </div>
             </div>
+            <div class="absolute bottom-6 text-gray-400 text-sm">
+                Use os movimentos do corpo para jogar • thIAguinho Soluções
+            </div>
+        </div>
 
-            <!-- HUD (IN GAME) -->
-            <div id="screen-hud" class="hidden absolute inset-0 flex-col justify-between p-6 pointer-events-none z-30">
-                <!-- Top -->
-                <div class="flex justify-between items-start pointer-events-auto">
-                    <div class="hud-panel flex flex-col items-center">
-                        <span class="text-[9px] text-[var(--neon-blue)] font-bold uppercase tracking-widest">SCORE</span>
-                        <span id="hud-score" class="text-4xl font-mono font-bold text-white leading-none">0</span>
-                    </div>
-                    <button onclick="App.stop()" class="w-14 h-14 rounded-full bg-red-600/20 border-2 border-red-500 text-red-500 font-bold text-xl backdrop-blur interactive flex items-center justify-center hover:bg-red-600 hover:text-white transition-colors">✕</button>
+        <div id="screen-loading" class="layer bg-black/95 hidden">
+            <div class="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <h2 class="text-white text-xl">CARREGANDO SISTEMA...</h2>
+        </div>
+
+        <div id="screen-hud" class="layer hidden justify-between p-4 pointer-events-none !items-start">
+            <div class="w-full flex justify-between">
+                <div class="hud-box">                    <div class="text-[10px] text-cyan-400 font-bold uppercase">SCORE</div>
+                    <div id="hud-score" class="text-3xl text-white font-mono leading-none">0000</div>
                 </div>
-
-                <!-- Center Msg -->
-                <div id="hud-msg" class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <h2 id="msg-text" class="text-6xl md:text-8xl font-black text-white italic drop-shadow-2xl opacity-0 transition-all duration-200 transform scale-50" style="-webkit-text-stroke: 2px black;"></h2>
-                </div>
-
-                <!-- Bottom Status -->
-                <div class="w-full flex justify-center pointer-events-auto">
-                    <div class="flex items-center bg-black/80 border border-white/10 px-5 py-2 rounded-full backdrop-blur">
-                        <div id="status-dot" class="status-dot bg-red-500"></div>
-                        <span id="hud-status" class="text-xs font-bold text-gray-300 uppercase tracking-wider">AGUARDANDO...</span>
-                    </div>
+                <button onclick="Core.quit()" class="interactive bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full font-bold border-2 border-white text-xl">X</button>
+            </div>
+            <div id="game-msg" class="absolute top-1/3 w-full text-center text-4xl text-yellow-400 font-black drop-shadow-md"></div>
+            <div id="ui-wheel" class="absolute bottom-20 left-1/2 -translate-x-1/2 opacity-0 transition-opacity">
+                <div class="w-24 h-24 rounded-full border-4 border-cyan-500 flex items-center justify-center bg-black/50">
+                    <div id="wheel-bar" class="w-full h-2 bg-red-500 rounded"></div>
                 </div>
             </div>
-            
-            <!-- GAME OVER -->
-            <div id="screen-gameover" class="hidden absolute inset-0 bg-black/95 z-50 flex flex-col items-center justify-center pointer-events-auto p-6">
-                <h1 class="text-6xl text-white title-font mb-4 text-center">GAME OVER</h1>
-                <div class="bg-white/10 p-8 rounded-2xl border border-white/20 text-center mb-8 w-full max-w-sm">
-                    <p class="text-gray-400 text-xs uppercase tracking-widest mb-2">PONTUAÇÃO FINAL</p>
-                    <p id="final-score" class="text-8xl font-mono font-bold text-[var(--neon-blue)]">0</p>
-                </div>
-                <button onclick="App.showMenu()" class="w-full max-w-sm py-4 bg-white text-black font-black text-xl rounded-full hover:scale-105 transition-transform interactive">
-                    VOLTAR AO MENU
-                </button>
+            <div class="interactive absolute bottom-6 right-6 bg-black/80 p-3 rounded-lg border border-white/20">
+                <label class="text-[10px] text-white block text-center mb-1">SENSIBILIDADE</label>
+                <input type="range" min="0.5" max="3.0" step="0.5" value="1.0" class="w-24 accent-cyan-400" oninput="Core.setSens(this.value)">
             </div>
+        </div>
 
+        <div id="screen-over" class="layer bg-red-900/95 hidden interactive z-50">
+            <h1 class="text-6xl text-white font-black mb-4">GAME OVER</h1>
+            <div class="text-7xl text-yellow-400 font-mono font-bold mb-8" id="final-score">0</div>
+            <button onclick="Core.menu()" class="btn-main px-10 py-4 rounded-full text-xl font-bold">VOLTAR</button>
         </div>
     </div>
 
     <script>
         /**
-         * =========================================================================
-         * 1. MOTION ENGINE (IA + FÍSICA)
-         * =========================================================================
+         * =================================================================
+         * 🔊 AUDIO (Sintetizador Puro)
+         * =================================================================
          */
-        const Motion = {
-            detector: null,
-            video: document.getElementById('webcam'),
-            prevPose: null,
-            lastTime: 0,
-            
-            init: async () => {
-                const status = document.getElementById('load-status');
+        const Sfx = {
+            ctx: null,
+            init: () => {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                Sfx.ctx = new AudioContext();
+            },
+            play: (freq, type, dur, vol = 0.1) => {
+                if (!Sfx.ctx) return;
+                const o = Sfx.ctx.createOscillator();
+                const g = Sfx.ctx.createGain();
+                o.type = type;
+                o.frequency.value = freq;
+                g.gain.setValueAtTime(vol, Sfx.ctx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.01, Sfx.ctx.currentTime + dur);
+                o.connect(g);
+                g.connect(Sfx.ctx.destination);
+                o.start();
+                o.stop(Sfx.ctx.currentTime + dur);
+            },
+            coin: () => { Sfx.play(1200, 'square', 0.1); setTimeout(() => Sfx.play(1600, 'square', 0.1), 80); },            hit: () => { Sfx.play(100, 'sawtooth', 0.2); },
+            crash: () => { Sfx.play(80, 'sawtooth', 0.5, 0.3); },
+            start: () => { Sfx.play(440, 'triangle', 0.1); setTimeout(() => Sfx.play(880, 'triangle', 0.3), 100); },
+            select: () => { Sfx.play(660, 'sine', 0.1, 0.2); }
+        };
+
+        /**
+         * =================================================================
+         * 🎨 GRAPHICS
+         * =================================================================
+         */
+        const Gfx = {
+            drawSkeleton: (ctx, pose, w, h) => {
+                if (!pose) return;
+                const kp = pose.keypoints;
+                const find = n => kp.find(k => k.name === n);
+                const mapX = x => w - (x / 640 * w);
+                const mapY = y => y / 480 * h;
+
+                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 6;
+
+                const nose = find('nose');
+                const ls = find('left_shoulder'); const rs = find('right_shoulder');
+                const le = find('left_elbow'); const re = find('right_elbow');
+                const lw = find('left_wrist'); const rw = find('right_wrist');
+                const lh = find('left_hip'); const rh = find('right_hip');
+
+                const drawBone = (p1, p2) => {
+                    if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+                        ctx.beginPath();
+                        ctx.moveTo(mapX(p1.x), mapY(p1.y));
+                        ctx.lineTo(mapX(p2.x), mapY(p2.y));
+                        ctx.stroke();
+                    }
+                };
+
+                drawBone(ls, le); drawBone(le, lw);
+                drawBone(rs, re); drawBone(re, rw);
+                drawBone(ls, rs);
+                if (lh && rh && lh.score > 0.2) {
+                    drawBone(ls, lh); drawBone(rs, rh); drawBone(lh, rh);
+                } else if (ls && rs) {
+                    const midShoulderX = (ls.x + rs.x) / 2;
+                    const midShoulderY = (ls.y + rs.y) / 2;
+                    ctx.beginPath();
+                    ctx.moveTo(mapX(midShoulderX), mapY(midShoulderY));
+                    ctx.lineTo(mapX(midShoulderX), mapY(midShoulderY) + 150);
+                    ctx.stroke();
+                }
+                if (nose && nose.score > 0.3) {
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath(); ctx.arc(mapX(nose.x), mapY(nose.y - 20), 25, 0, Math.PI * 2); ctx.fill();
+                }
+                if (lw && lw.score > 0.3) { ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(mapX(lw.x), mapY(lw.y), 30, 0, Math.PI * 2); ctx.fill(); }
+                if (rw && rw.score > 0.3) { ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(mapX(rw.x), mapY(rw.y), 30, 0, Math.PI * 2); ctx.fill(); }
+            },
+
+            drawRoad: (ctx, w, h, pos, curve) => {
+                const cx = w / 2;
+                const horizon = h * 0.4;
+                ctx.fillStyle = '#050505';
+                ctx.fillRect(0, 0, w, h);
+                ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(0, horizon); ctx.lineTo(w, horizon); ctx.stroke();
+
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                const topW = 20;
+                const botW = w * 1.5;
+                const curveOffset = curve * 200;
+                ctx.moveTo(cx + curveOffset - topW, horizon);
+                ctx.lineTo(cx + curveOffset + topW, horizon);
+                ctx.lineTo(cx + botW, h);
+                ctx.lineTo(cx - botW, h);
+                ctx.fill();
+
+                ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 6;
+                ctx.setLineDash([40, 40]); ctx.lineDashOffset = -pos;
+                ctx.beginPath();
+                ctx.moveTo(cx + curveOffset, horizon);
+                ctx.quadraticCurveTo(cx + (curveOffset * 0.5), h * 0.7, cx, h);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            },
+
+            drawCar: (ctx, x, y, steer) => {
+                ctx.save(); ctx.translate(x, y);
+                ctx.rotate(steer);
+                ctx.scale(2, 2);
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-25, -10, 50, 40);
+                ctx.fillStyle = '#ff0033';
+                ctx.beginPath(); ctx.roundRect(-20, -20, 40, 40, 5); ctx.fill();
+                ctx.fillStyle = '#111'; ctx.fillRect(-15, -10, 30, 10);
+                ctx.fillStyle = '#ffcc00'; ctx.fillRect(-18, -18, 8, 5); ctx.fillRect(10, -18, 8, 5);
+                ctx.restore();
+            },
+
+            drawRunner: (ctx, x, y, frame) => {                ctx.save(); ctx.translate(x, y); ctx.scale(3, 3);
+                ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+                const s = Math.sin(frame * 0.5) * 10;
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -15); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-8 + s, 20); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(8 - s, 20); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(-10 - s, -5); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(10 + s, -5); ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -22, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+        };
+
+        /**
+         * =================================================================
+         * 🧠 ENGINE
+         * =================================================================
+         */
+        const Core = {
+            video: null, canvas: null, ctx: null, detector: null,
+            active: false, mode: null, sens: 1.0, loopId: null,
+
+            boot: async () => {
+                Sfx.init();
                 try {
-                    await tf.setBackend('webgl');
-                    status.innerText = "LIGANDO CÂMERA...";
-                    
                     const stream = await navigator.mediaDevices.getUserMedia({
                         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
                         audio: false
                     });
-                    Motion.video.srcObject = stream;
-                    await new Promise(r => Motion.video.onloadedmetadata = r);
-                    Motion.video.play();
+                    Core.video = document.getElementById('video-source');
+                    Core.video.srcObject = stream;
+                    document.getElementById('webcam').srcObject = stream;
+                    await new Promise(r => Core.video.onloadedmetadata = r);
+                    Core.video.play(); document.getElementById('webcam').play();
 
-                    status.innerText = "CARREGANDO REDE NEURAL...";
-                    const config = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
-                    Motion.detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, config);
-                    return true;
-                } catch (e) {
-                    console.warn(e);
-                    document.getElementById('btn-force-start').classList.remove('hidden');
-                    status.innerText = "ERRO: CÂMERA NÃO DETECTADA (HTTPS?)";
-                    status.classList.add('text-red-500');
-                    return false;
-                }
+                    document.getElementById('screen-loading').classList.remove('hidden');
+
+                    await tf.setBackend('webgl');
+                    Core.detector = await poseDetection.createDetector(
+                        poseDetection.SupportedModels.MoveNet,
+                        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+                    );
+
+                    Core.canvas = document.getElementById('game-canvas');
+                    Core.ctx = Core.canvas.getContext('2d');
+
+                    document.getElementById('screen-loading').classList.add('hidden');
+                    document.getElementById('screen-wii-menu').classList.remove('hidden');
+                } catch (e) { alert("Erro na câmera: " + e.message); }
             },
-
-            update: async (w, h) => {
-                if (!Motion.detector) return null;
-                
-                const now = performance.now();
-                const dt = Math.min((now - Motion.lastTime)/1000, 0.1);
-                Motion.lastTime = now;
-
-                let poses = [];
-                try { poses = await Motion.detector.estimatePoses(Motion.video); } catch (e) { return null; }
-
-                if (poses.length === 0) {
-                    App.setStatus(false, "CORPO NÃO DETECTADO");
-                    return null; 
-                }
-
-                App.setStatus(true, "CONECTADO");
-
-                const raw = poses[0].keypoints;
-                const vw = Motion.video.videoWidth;
-                const vh = Motion.video.videoHeight;
-                
-                // Scale Cover
-                const scale = Math.max(w / vw, h / vh);
-                const ox = (w - (vw * scale)) / 2;
-                const oy = (h - (vh * scale)) / 2;
-
-                // CORREÇÃO DE ESPELHO
-                const map = (kp) => ({
-                    x: w - (((vw - kp.x) * scale) + ox), 
-                    y: (kp.y * scale) + oy,
-                    score: kp.score
-                });
-
-                const find = n => raw.find(k => k.name === n);
-                
-                const p = {
-                    nose: map(find('nose')),
-                    shoulders: { l: map(find('left_shoulder')), r: map(find('right_shoulder')) },
-                    wrists: { l: map(find('left_wrist')), r: map(find('right_wrist')) },
-                    dt: dt
-                };
-
-                // Largura do corpo (Referência)
-                p.width = Math.hypot(p.shoulders.l.x - p.shoulders.r.x, p.shoulders.l.y - p.shoulders.r.y) || 100;
-                p.center = { x: (p.shoulders.l.x + p.shoulders.r.x)/2, y: (p.shoulders.l.y + p.shoulders.r.y)/2 };
-
-                // Suavização
-                if (Motion.prevPose) {
-                    const alpha = 0.5;
-                    const lerp = (a, b) => a * alpha + b * (1-alpha);
-                    p.center.x = lerp(p.center.x, Motion.prevPose.center.x);
-                    p.center.y = lerp(p.center.y, Motion.prevPose.center.y);
-                    p.wrists.l.x = lerp(p.wrists.l.x, Motion.prevPose.wrists.l.x);
-                    p.wrists.l.y = lerp(p.wrists.l.y, Motion.prevPose.wrists.l.y);
-                    p.wrists.r.x = lerp(p.wrists.r.x, Motion.prevPose.wrists.r.x);
-                    p.wrists.r.y = lerp(p.wrists.r.y, Motion.prevPose.wrists.r.y);
-                }
-                
-                Motion.prevPose = p;
-                return p;
-            }
-        };
-
-        /**
-         * =========================================================================
-         * 2. GRAPHICS ENGINE
-         * =========================================================================
-         */
-        const Gfx = {
-            canvas: document.getElementById('game-canvas'),
-            ctx: null,
-            width: 0, height: 0,
-
-            init: () => {
-                Gfx.ctx = Gfx.canvas.getContext('2d');
-                window.addEventListener('resize', Gfx.resize);
-                Gfx.resize();
-            },
-
-            resize: () => {
-                Gfx.width = window.innerWidth;
-                Gfx.height = window.innerHeight;
-                Gfx.canvas.width = Gfx.width;
-                Gfx.canvas.height = Gfx.height;
-            },
-
-            clear: () => Gfx.ctx.clearRect(0, 0, Gfx.width, Gfx.height),
-
-            drawSkeleton: (pose, color) => {
-                if (!pose) return;
-                const ctx = Gfx.ctx;
-                ctx.save();
-                ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
-                ctx.shadowBlur = 15; ctx.shadowColor = color;
-                
-                const line = (p1, p2) => {
-                    if (p1.score > 0.3 && p2.score > 0.3) {
-                        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-                    }
-                };
-                
-                line(pose.shoulders.l, pose.shoulders.r);
-                line(pose.shoulders.l, pose.wrists.l); // Simplificado: Ombro -> Pulso
-                line(pose.shoulders.r, pose.wrists.r);
-                
-                if (pose.nose.score > 0.3) {
-                    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(pose.nose.x, pose.nose.y, 10, 0, Math.PI*2); ctx.fill();
-                }
-                ctx.restore();
-            },
-
-            drawWheel: (angle, active, w, h) => {
-                const ctx = Gfx.ctx;
-                const cx = w/2; const cy = 150;
-                ctx.save();
-                ctx.translate(cx, cy);
-                ctx.rotate(angle);
-                
-                ctx.beginPath(); ctx.arc(0,0, 60, 0, Math.PI*2);
-                ctx.lineWidth = 10; 
-                ctx.strokeStyle = active ? '#00F3FF' : 'rgba(255,255,255,0.2)';
-                ctx.stroke();
-                
-                // Detalhe
-                ctx.beginPath(); ctx.moveTo(-60, 0); ctx.lineTo(60, 0); 
-                ctx.lineWidth = 6; ctx.stroke();
-                
-                ctx.restore();
-            }
-        };
-
-        /**
-         * =========================================================================
-         * JOGO 1: KART
-         * =========================================================================
-         */
-        class GameKart {
-            constructor() {
-                this.speed = 0;
-                this.angle = 0;
-                this.carX = 0;
-                this.score = 0;
-                this.curve = 0;
-                this.obstacles = [];
-                this.handsActive = false;
-                App.msg("LEVANTE AS MÃOS!", "#00F3FF");
-            }
-
-            update(pose, ctx, w, h) {
-                // VOLANTE
-                let targetAngle = 0;
-                this.handsActive = false;
-
-                if (pose && pose.wrists.l.score > 0.3 && pose.wrists.r.score > 0.3) {
-                    // Mãos na metade superior?
-                    if (pose.wrists.l.y < h * 0.7) {
-                        this.handsActive = true;
-                        const dy = pose.wrists.r.y - pose.wrists.l.y;
-                        const dx = pose.wrists.r.x - pose.wrists.l.x;
-                        let raw = Math.atan2(dy, dx);
-                        
-                        // Clamp
-                        raw = Math.max(-1.0, Math.min(1.0, raw));
-                        targetAngle = raw;
-                        
-                        this.speed = Math.min(150, this.speed + 80 * pose.dt);
-                    }
-                }
-
-                if (!this.handsActive) {
-                    this.speed *= 0.95;
-                    targetAngle = 0;
-                }
-
-                this.angle += (targetAngle - this.angle) * 5 * pose.dt;
-
-                // FÍSICA
-                this.curve = Math.sin(Date.now() / 2000) * 0.6;
-                this.carX += (this.angle * 3.0 - (this.curve * this.speed/100)) * pose.dt;
-                
-                if (this.carX < -1.5) this.carX = -1.5;
-                if (this.carX > 1.5) this.carX = 1.5;
-
-                this.score += Math.floor(this.speed * pose.dt);
-
-                // OBSTÁCULOS
-                if (Math.random() < 0.02 && this.speed > 30) this.obstacles.push({x: (Math.random()-0.5)*2.5, z: 0});
-
-                // RENDER
-                ctx.clearRect(0,0,w,h);
-                const hz = h * 0.4;
-                
-                // Estrada
-                ctx.fillStyle = '#111';
-                ctx.beginPath();
-                const cTop = w/2 + (this.curve * 200);
-                const cBot = w/2 + (this.carX * -300);
-                ctx.moveTo(cTop-10, hz); ctx.lineTo(cTop+10, hz);
-                ctx.lineTo(cBot+w*1.5, h); ctx.lineTo(cBot-w*1.5, h);
-                ctx.fill();
-                
-                // Bordas Neon
-                ctx.strokeStyle = '#00F3FF'; ctx.lineWidth = 4;
-                ctx.beginPath();
-                ctx.moveTo(cTop-10, hz); ctx.lineTo(cBot-w*1.5, h);
-                ctx.moveTo(cTop+10, hz); ctx.lineTo(cBot+w*1.5, h);
-                ctx.stroke();
-
-                // Obstáculos
-                this.obstacles.forEach((obs, i) => {
-                    obs.z += (this.speed * 0.002) * pose.dt * 60;
-                    if (obs.z > 1.2) { this.obstacles.splice(i, 1); return; }
-                    
-                    const drawY = hz + (obs.z * (h - hz));
-                    const roadX = cTop + (cBot - cTop) * obs.z;
-                    const drawX = roadX + (obs.x * w * 0.5 * obs.z);
-                    const size = 50 * obs.z * obs.z;
-
-                    ctx.fillStyle = '#FF0055';
-                    ctx.shadowBlur = 10; ctx.shadowColor = '#FF0055';
-                    ctx.fillRect(drawX - size/2, drawY - size, size, size);
-                    ctx.shadowBlur = 0;
-
-                    if (obs.z > 0.9 && obs.z < 1.0 && Math.abs(drawX - w/2) < 80) {
-                        this.speed = 10;
-                        App.msg("BATIDA!", "red");
-                        ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
-                    }
-                });
-
-                // Carro
-                ctx.save();
-                ctx.translate(w/2, h - 150);
-                ctx.rotate(this.angle * 0.3);
-                ctx.fillStyle = '#00F3FF';
-                ctx.beginPath(); ctx.roundRect(-50, -30, 100, 60, 10); ctx.fill();
-                ctx.restore();
-
-                // HUD
-                Gfx.drawSteeringWheel(this.angle, this.handsActive, w, h);
-                Gfx.drawSkeleton(pose, this.handsActive ? '#00F3FF' : '#555');
-
-                return this.score;
-            }
-        }
-
-        /**
-         * =========================================================================
-         * JOGO 2: STREET RUN
-         * =========================================================================
-         */
-        class GameRun {
-            constructor() {
-                this.score = 0;
-                this.speed = 0;
-                this.lane = 0;
-                this.playerY = 0;
-                this.jumpVel = 0;
-                this.obstacles = [];
-                this.lastY = 0;
-                App.msg("CORRA!", "#00FF9D");
-            }
-
-            update(pose, ctx, w, h) {
-                // INPUT
-                if (pose && pose.shoulders.l.score > 0.3) {
-                    const midX = pose.center.x;
-                    const midY = pose.center.y;
-
-                    // Direção
-                    const diffX = midX - (w/2);
-                    if (diffX < -w*0.15) this.lane = -1;
-                    else if (diffX > w*0.15) this.lane = 1;
-                    else this.lane = 0;
-
-                    // Corrida (Oscilação Vertical)
-                    if (!this.lastY) this.lastY = midY;
-                    const delta = Math.abs(midY - this.lastY);
-                    this.lastY = midY;
-                    
-                    if (delta/pose.width > 0.02) this.speed = Math.min(100, this.speed + 150*pose.dt);
-                    else this.speed = Math.max(0, this.speed - 50*pose.dt);
-
-                    // Pulo
-                    if (this.playerY === 0 && pose.wrists.l.y < pose.nose.y) {
-                        this.jumpVel = 20; this.playerY = 1; App.msg("PULO!", "#00FF9D");
-                    }
-                }
-
-                // Física Pulo
-                if (this.playerY > 0) {
-                    this.playerY += this.jumpVel * pose.dt * 2;
-                    this.jumpVel -= 60 * pose.dt;
-                    if (this.playerY <= 0) { this.playerY = 0; this.jumpVel = 0; }
-                }
-
-                this.score += Math.floor(this.speed * pose.dt);
-
-                // Render
-                ctx.clearRect(0,0,w,h);
-                const hz = h * 0.4;
-                
-                // Chão
-                ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(w/2, hz); ctx.lineTo(w*2, h); ctx.lineTo(-w, h); ctx.fill();
-                
-                // Grid
-                ctx.strokeStyle = '#00FF9D'; ctx.lineWidth = 2; ctx.beginPath();
-                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.2, h);
-                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.5, h);
-                ctx.moveTo(w/2, hz); ctx.lineTo(w*0.8, h);
-                ctx.stroke();
-
-                // Obstáculos
-                if (Math.random() < 0.02 && this.speed > 10) this.obstacles.push({lane: Math.floor(Math.random()*3)-1, z:0});
-                
-                this.obstacles.forEach((obs, i) => {
-                    obs.z += (this.speed * 0.005 + 0.01) * 60 * pose.dt;
-                    if (obs.z > 1.2) { this.obstacles.splice(i,1); return; }
-
-                    const drawY = hz + (obs.z * (h-hz));
-                    const drawX = (w/2) + (obs.lane * w * 2 * obs.z * 0.15);
-                    const size = 60 * obs.z;
-
-                    ctx.fillStyle = '#FF9900';
-                    ctx.shadowBlur = 10; ctx.shadowColor = '#FF9900';
-                    ctx.fillRect(drawX - size/2, drawY - size, size, size);
-                    ctx.shadowBlur = 0;
-
-                    // Colisão
-                    if (obs.z > 0.9 && obs.z < 1.0 && obs.lane === this.lane && this.playerY === 0) {
-                        this.speed = 0; 
-                        App.msg("CRASH!", "red");
-                        ctx.fillStyle = 'white'; ctx.fillRect(0,0,w,h);
-                        this.obstacles.splice(i,1);
-                    }
-                });
-
-                // Avatar
-                ctx.save();
-                ctx.translate(this.lane * 100, this.playerY * -200);
-                Gfx.drawSkeleton(pose, '#00FF9D');
-                ctx.restore();
-
-                return this.score;
-            }
-        }
-
-        /**
-         * =========================================================================
-         * JOGO 3: RHYTHM BOX
-         * =========================================================================
-         */
-        class GameBox {
-            constructor() {
-                this.score = 0;
-                this.targets = [];
-                this.timer = 0;
-                this.beatInterval = 0.8;
-                App.msg("FIGHT!", "#FF0055");
-            }
-
-            update(pose, ctx, w, h) {
-                // Spawn
-                this.timer += pose.dt;
-                if (this.timer > this.beatInterval) {
-                    this.timer = 0;
-                    const side = Math.random() > 0.5 ? 'L' : 'R';
-                    this.targets.push({
-                        x: side === 'L' ? w*0.2 : w*0.8,
-                        y: h*0.3 + Math.random() * h*0.3,
-                        r: 10, active: true, side: side,
-                        color: side === 'L' ? '#00F3FF' : '#FF0055'
-                    });
-                }
-
-                ctx.clearRect(0,0,w,h);
-                Gfx.drawSkeleton(pose, '#555');
-
-                this.targets.forEach(t => {
-                    if (!t.active) return;
-                    t.r += 80 * pose.dt;
-
-                    // Desenha
-                    ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI*2);
-                    ctx.strokeStyle = t.color; ctx.lineWidth = 4; ctx.stroke();
-                    ctx.fillStyle = t.color + '44'; ctx.fill();
-
-                    // Hit
-                    if (pose && t.r > 40 && !t.hit) {
-                        const hand = (t.side === 'L') ? pose.wrists.l : pose.wrists.r;
-                        const dist = Math.hypot(hand.x - t.x, hand.y - t.y);
-                        
-                        // Hitbox aumentada
-                        if (dist < t.r + 50) {
-                            t.active = false; t.hit = true;
-                            this.score += 100;
-                            App.msg("HIT!", t.color);
-                            // FX
-                            ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(t.x, t.y, 80, 0, Math.PI*2); ctx.fill();
-                        }
-                    }
-
-                    if (t.r > 100) { t.active = false; App.msg("MISS", "#555"); }
-                });
-
-                this.targets = this.targets.filter(t => t.active);
-                return this.score;
-            }
-        }
-
-        /**
-         * =========================================================================
-         * APP MAIN
-         * =========================================================================
-         */
-        const App = {
-            game: null,
-            loopId: null,
-
-            init: async () => {
-                Gfx.init();
-                const ready = await Motion.init();
-                if (ready) {
-                    document.getElementById('screen-load').classList.add('hidden');
-                    document.getElementById('screen-menu').classList.remove('hidden');
-                    document.getElementById('screen-menu').classList.add('flex');
-                }
-            },
-
-            // Função de fallback para testar sem câmera se necessário
-            forceStart: () => {
-                document.getElementById('screen-load').classList.add('hidden');
-                document.getElementById('screen-menu').classList.remove('hidden');
-                document.getElementById('screen-menu').classList.add('flex');
-            },
-
-            launch: (type) => {
-                document.getElementById('screen-menu').classList.remove('flex');
-                document.getElementById('screen-menu').classList.add('hidden');
-                document.getElementById('screen-hud').classList.remove('hidden');
-                document.getElementById('screen-hud').classList.add('flex');
-                document.getElementById('screen-gameover').classList.add('hidden');
-
-                if (type === 'kart') App.game = new GameKart();
-                if (type === 'run') App.game = new GameRun();
-                if (type === 'box') App.game = new GameBox();
-
-                App.loop();
-            },
-
-            stop: () => {
-                cancelAnimationFrame(App.loopId);
-                App.game = null;
+            menu: () => {
+                document.getElementById('screen-wii-menu').classList.remove('hidden');
                 document.getElementById('screen-hud').classList.add('hidden');
-                document.getElementById('screen-menu').classList.remove('hidden');
-                document.getElementById('screen-menu').classList.add('flex');
-                Gfx.clear();
+                document.getElementById('screen-over').classList.add('hidden');
             },
 
-            msg: (text, color) => {
-                const el = document.getElementById('msg-text');
-                el.innerText = text; el.style.color = color;
-                el.style.opacity = 1; el.style.transform = "scale(1.5)";
-                setTimeout(() => { el.style.opacity = 0; el.style.transform = "scale(1)"; }, 400);
+            launch: (m) => {
+                Core.mode = m; Core.active = true;
+                document.getElementById('screen-wii-menu').classList.add('hidden');
+                document.getElementById('screen-hud').classList.remove('hidden');
+                const wheel = document.getElementById('ui-wheel');
+                wheel.style.opacity = (m === 'drive') ? '1' : '0';
+
+                if (m === 'drive') Logic.Drive.init();
+                if (m === 'run') Logic.Run.init();
+                if (m === 'fight') Logic.Fight.init();
+
+                Sfx.start();
+                Core.loop();
             },
 
-            setStatus: (ok, text) => {
-                const dot = document.getElementById('status-dot');
-                const txt = document.getElementById('hud-status');
-                dot.style.backgroundColor = ok ? '#00FF9D' : '#FF0055';
-                txt.innerText = text;
+            quit: () => {
+                Core.active = false; cancelAnimationFrame(Core.loopId); Core.menu();
+            },
+
+            gameOver: (score) => {
+                Core.active = false; cancelAnimationFrame(Core.loopId);
+                Sfx.crash();
+                document.getElementById('final-score').innerText = score;
+                document.getElementById('screen-hud').classList.add('hidden');
+                document.getElementById('screen-over').classList.remove('hidden');
+            },
+
+            setSens: (v) => Core.sens = parseFloat(v),
+
+            msg: (txt) => {
+                const el = document.getElementById('game-msg');
+                el.innerText = txt;
+                setTimeout(() => el.innerText = '', 1500);
+            },
+
+            getScreen: () => {
+                if (!document.getElementById('screen-wii-menu').classList.contains('hidden')) return 'menu';
+                if (!document.getElementById('screen-hud').classList.contains('hidden')) return 'hud';
+                return 'other';
             },
 
             loop: async () => {
-                if (!App.game) return;
-                
-                // Sempre tenta atualizar o pose, mas não trava o jogo se falhar
-                const pose = await Motion.update(Gfx.width, Gfx.height);
-                
-                // Se o jogo precisa de pose para lógica interna, passa. Se não tiver pose,
-                // passa null e o jogo deve lidar (ex: pausar ou desacelerar)
-                const score = App.game.update(pose, Gfx.ctx, Gfx.width, Gfx.height);
-                document.getElementById('hud-score').innerText = score;
+                if (!Core.active) return;                if (Core.canvas.width !== window.innerWidth) {
+                    Core.canvas.width = window.innerWidth;
+                    Core.canvas.height = window.innerHeight;
+                }
+                const ctx = Core.ctx; const w = Core.canvas.width; const h = Core.canvas.height;
 
-                App.loopId = requestAnimationFrame(App.loop);
+                let pose = null;
+                try {
+                    const poses = await Core.detector.estimatePoses(Core.video, { flipHorizontal: false });
+                    if (poses.length > 0) pose = poses[0];
+                } catch (e) { }
+
+                // Atualiza cursor do Wii
+                if (pose && ['menu', 'hud'].includes(Core.getScreen())) {
+                    const rw = pose.keypoints.find(k => k.name === 'right_wrist');
+                    const cursor = document.getElementById('wii-cursor');
+                    if (rw && rw.score > 0.4) {
+                        const x = window.innerWidth - (rw.x / 640 * window.innerWidth);
+                        const y = (rw.y / 480 * window.innerHeight);
+                        cursor.style.left = (x - 20) + 'px';
+                        cursor.style.top = (y - 20) + 'px';
+                        cursor.style.opacity = '1';
+                    } else {
+                        cursor.style.opacity = '0';
+                    }
+                }
+
+                let score = 0;
+                if (Core.mode === 'drive') score = Logic.Drive.update(ctx, w, h, pose);
+                if (Core.mode === 'run') score = Logic.Run.update(ctx, w, h, pose);
+                if (Core.mode === 'fight') score = Logic.Fight.update(ctx, w, h, pose);
+
+                document.getElementById('hud-score').innerText = score;
+                Core.loopId = requestAnimationFrame(Core.loop);
             }
         };
 
-        window.onload = App.init;
+        /**
+         * =================================================================
+         * 🧠 LÓGICA DO JOGO (INALTERADA)
+         * =================================================================
+         */
+        const Logic = {
+            Drive: {
+                speed: 0, pos: 0, x: 0, steer: 0, curve: 0,
+                init: () => { Logic.Drive.speed = 0; Logic.Drive.pos = 0; Logic.Drive.x = 0; Core.msg("DIRIJA!"); },
+                update: (ctx, w, h, pose) => {
+                    const d = Logic.Drive;
+                    const cx = w / 2;
+                    let targetAngle = 0;                    if (pose) {
+                        const lw = pose.keypoints.find(k => k.name === 'left_wrist');
+                        const rw = pose.keypoints.find(k => k.name === 'right_wrist');
+                        if (lw && rw && lw.score > 0.3 && rw.score > 0.3) {
+                            const dy = rw.y - lw.y;
+                            const dx = rw.x - lw.x;
+                            const rads = Math.atan2(dy, dx);
+                            targetAngle = rads * 1.5 * Core.sens;
+                            if (d.speed < 100) d.speed += 1;
+                        } else {
+                            d.speed *= 0.95;
+                        }
+                    }
+                    d.steer += (targetAngle - d.steer) * 0.2;
+                    const bar = document.getElementById('wheel-bar');
+                    if (bar) bar.style.transform = `rotate(${d.steer * 57}deg)`;
+                    d.pos += d.speed;
+                    d.curve = Math.sin(d.pos * 0.005) * 1.5;
+                    d.x += d.steer * (d.speed / 500);
+                    d.x -= d.curve * (d.speed / 1000);
+                    if (Math.abs(d.x) > 1.2) { d.speed *= 0.9; }
+                    Gfx.drawRoad(ctx, w, h, d.pos, d.curve);
+                    const carX = cx + (d.x * w * 0.25);
+                    Gfx.drawCar(ctx, carX, h - 80, d.steer);
+                    return Math.floor(d.pos / 100);
+                }
+            },
 
+            Run: {
+                lane: 0, score: 0, frame: 0, obs: [],
+                init: () => { Logic.Run.score = 0; Logic.Run.obs = []; Core.msg("CORRA!"); },
+                update: (ctx, w, h, pose) => {
+                    const r = Logic.Run;
+                    const cx = w / 2;
+                    r.frame++;
+                    if (pose) {
+                        const nose = pose.keypoints.find(k => k.name === 'nose');
+                        if (nose && nose.score > 0.4) {
+                            if (nose.x < 240) r.lane = 1;
+                            else if (nose.x > 400) r.lane = -1;
+                            else r.lane = 0;
+                        }
+                    }
+                    if (r.frame % 50 === 0) r.obs.push({ l: Math.floor(Math.random() * 3) - 1, z: 1000 });
+                    ctx.clearRect(0, 0, w, h);
+                    ctx.fillStyle = '#111'; ctx.fillRect(0, 0, w, h);
+                    ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(cx - 150, h / 2); ctx.lineTo(0, h); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(cx + 150, h / 2); ctx.lineTo(w, h); ctx.stroke();
+                    r.obs.forEach((o, i) => {                        o.z -= 20;
+                        if (o.z < -100) { r.obs.splice(i, 1); r.score += 10; Sfx.coin(); }
+                        const scale = 500 / (o.z + 100);
+                        if (scale > 0) {
+                            const ox = cx + (o.l * 200 * scale);
+                            const oy = h / 2 + (50 * scale);
+                            const sz = 80 * scale;
+                            ctx.fillStyle = '#ff3300';
+                            ctx.fillRect(ox - sz / 2, oy, sz, sz);
+                            if (o.z < 50 && o.z > -50 && o.l === r.lane) {
+                                Core.gameOver(r.score);
+                            }
+                        }
+                    });
+                    Gfx.drawRunner(ctx, cx + (r.lane * 150), h - 100, r.frame);
+                    return r.score;
+                }
+            },
+
+            Fight: {
+                score: 0, targets: [], last: 0,
+                init: () => { Logic.Fight.score = 0; Logic.Fight.targets = []; Core.msg("BOXE!"); },
+                update: (ctx, w, h, pose) => {
+                    const f = Logic.Fight;
+                    const now = Date.now();
+                    ctx.clearRect(0, 0, w, h);
+                    Gfx.drawSkeleton(ctx, pose, w, h);
+                    let punches = [];
+                    if (pose) {
+                        const mapX = x => w - (x / 640 * w);
+                        const mapY = y => y / 480 * h;
+                        const lw = pose.keypoints.find(k => k.name === 'left_wrist');
+                        const rw = pose.keypoints.find(k => k.name === 'right_wrist');
+                        if (lw && lw.score > 0.3) punches.push({ x: mapX(lw.x), y: mapY(lw.y) });
+                        if (rw && rw.score > 0.3) punches.push({ x: mapX(rw.x), y: mapY(rw.y) });
+                    }
+                    if (now - f.last > 800) {
+                        f.targets.push({ x: Math.random() * (w - 100) + 50, y: Math.random() * (h / 2) + 50, r: 40, s: now });
+                        f.last = now;
+                    }
+                    f.targets.forEach((t, i) => {
+                        const age = (now - t.s) / 1500;
+                        if (age > 1) { f.targets.splice(i, 1); return; }
+                        ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255,255,0,${1 - age})`; ctx.fill();
+                        ctx.strokeStyle = '#fff'; ctx.stroke();
+                        punches.forEach(p => {
+                            if (Math.hypot(p.x - t.x, p.y - t.y) < t.r + 30) {
+                                f.targets.splice(i, 1);
+                                f.score += 100;                                Sfx.hit();
+                            }
+                        });
+                    });
+                    return f.score;
+                }
+            }
+        };
+
+        // Iniciar
+        window.onload = () => Core.boot();
     </script>
 </body>
 </html>
