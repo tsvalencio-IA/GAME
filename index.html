@@ -2,552 +2,665 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>thIAguinho Wii: ORIGINAL FIXED</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>thIAguinho Wii: MOBILE EDITION</title>
     
-    <!-- TensorFlow.js - Versões fixas para evitar erros -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.16.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.16.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.16.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.2"></script>
-
-    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Russo+One&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Russo+One&family=Roboto:wght@300;400;700&display=swap');
 
+        :root {
+            --wii-bg: #e6e6e6;
+            --wii-highlight: #68c9e6;
+            --wii-gray: #b0b0b0;
+        }
+
+        /* RESET GERAL */
         body {
             background-color: #000;
-            margin: 0; overflow: hidden;
-            font-family: 'Russo One', sans-serif;
-            touch-action: none;
+            margin: 0; padding: 0;
+            overflow: hidden; /* Trava rolagem */
+            font-family: 'Roboto', sans-serif;
+            touch-action: none; /* Desativa gestos do navegador */
             user-select: none;
+            width: 100vw;
+            height: 100dvh; /* Altura dinâmica para mobile */
         }
 
-        #game-container { position: relative; width: 100vw; height: 100vh; background: #000; }
+        /* LAYER SYSTEM */
+        #os-layer { 
+            position: relative; width: 100%; height: 100%; 
+            background: transparent; pointer-events: none; z-index: 50; 
+        }
+        
+        #game-hardware { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            z-index: 0; background: #000;
+        }
 
+        /* VÍDEO E CANVAS (COVER MODE) */
+        #video-source { display: none; }
         #webcam {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1);
-            opacity: 0.4;
-            z-index: 0;
+            object-fit: cover; /* Preenche a tela toda sem esticar */
+            transform: scaleX(-1); opacity: 0; transition: opacity 0.5s;
         }
-        #video-source { display: none; }
-
-        #game-canvas {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 10;
+        #game-canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            display: block;
         }
 
-        /* CURSOR WII */
-        #wii-cursor {
-            position: absolute;
-            width: 40px;
-            height: 40px;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="white" stroke="%2300ffcc" stroke-width="2"/></svg>') no-repeat center;
-            background-size: contain;            pointer-events: none;
-            z-index: 100;
-            opacity: 0;
-            transition: opacity 0.2s;
-        }
-
-        .layer {
+        /* TELAS DO SISTEMA */
+        .screen {
             position: absolute; inset: 0;
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
-            z-index: 50;
-            transition: opacity 0.4s ease-in-out;
+            background: var(--wii-bg);
+            pointer-events: auto;
+            transition: opacity 0.3s, transform 0.3s;
         }
-        .hidden { display: none !important; }
-        .interactive { pointer-events: auto !important; }
+        .hidden { opacity: 0; pointer-events: none; z-index: -1; }
 
-        .btn-main {
-            background: linear-gradient(to bottom, #00ffcc, #009977);
-            border: 3px solid #fff;
-            color: #003322;
-            text-transform: uppercase;
-            box-shadow: 0 0 15px #00ffcc;
-            transition: transform 0.1s;
-        }
-        .btn-main:active { transform: scale(0.95); }
-
-        .card-menu {
-            background: rgba(0,0,0,0.8);
-            border: 2px solid #fff;
-            box-shadow: 0 0 10px rgba(255,255,255,0.2);
-            transition: all 0.2s;
-        }
-        .card-menu:hover {
-            border-color: #00ffcc;
-            transform: scale(1.05);
-            box-shadow: 0 0 20px #00ffcc;
-        }
-
-        .hud-box {
-            background: rgba(0,0,0,0.8);
-            border: 2px solid #fff;
-            padding: 10px 20px;
+        /* TELA DE SEGURANÇA (BOOT) */
+        #screen-safety { background: #fff; text-align: center; color: #555; padding: 2rem; z-index: 100; }
+        .safety-card { 
+            border: 1px solid #ccc; padding: 2rem; 
+            width: 90%; max-width: 600px; 
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
             border-radius: 8px;
         }
 
-        /* Estilo Wii Icon */
-        .wii-icon {
-            background: linear-gradient(135deg, #1e3a8a, #0c4a6e);
-            border: 2px solid #00ffcc;
-            box-shadow: 0 8px 16px rgba(0, 255, 204, 0.3);            backdrop-filter: blur(4px);
-            transition: all 0.3s ease;
+        /* MENU WII (GRID RESPONSIVO) */
+        #screen-menu { 
+            background: linear-gradient(#f2f2f2, #d9d9d9); 
+            justify-content: flex-start; 
+            padding-top: 5vh;
         }
-        .wii-icon:hover {
-            transform: scale(1.1);
-            box-shadow: 0 0 25px #00ffcc, 0 12px 24px rgba(0, 255, 204, 0.5);
-            border-color: white;
+        
+        .wii-grid {
+            display: grid;
+            width: 95%; 
+            height: 70%;
+            gap: 8px;
+            /* RESPONSIVIDADE DO GRID */
+            grid-template-columns: repeat(2, 1fr); /* Mobile: 2 colunas */
+            grid-template-rows: repeat(4, 1fr);
         }
+
+        /* Tablet/Desktop: 4 colunas */
+        @media (min-width: 768px) {
+            .wii-grid {
+                width: 80%;
+                grid-template-columns: repeat(4, 1fr);
+                grid-template-rows: repeat(3, 1fr);
+                gap: 15px;
+            }
+        }
+
+        .channel {
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #ccc;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer;
+            position: relative; overflow: hidden;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+            transition: transform 0.1s;
+        }
+        .channel:active { transform: scale(0.95); border-color: var(--wii-highlight); }
+        
+        .channel-icon { font-size: clamp(2rem, 5vw, 4rem); margin-bottom: 5px; } /* Ícone escala com a tela */
+        .channel-name { font-size: clamp(0.6rem, 2vw, 0.9rem); color: #888; text-transform: uppercase; font-weight: bold; }
+        .channel-empty { background: #eee; }
+
+        /* BARRA INFERIOR */
+        .bottom-bar {
+            position: absolute; bottom: 0; width: 100%; height: 12%;
+            background: #cdcdcd; border-top: 2px solid #fff;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0 20px; box-sizing: border-box;
+        }
+        .wii-btn-round {
+            width: 40px; height: 40px; background: #eee; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            border: 2px solid #aaa; color: #888; font-weight: bold; font-size: 0.8rem;
+        }
+
+        /* HUD JOGO */
+        #game-ui { pointer-events: none; }
+        .hud-element { pointer-events: auto; }
+        #hud-score { font-family: 'Russo One', sans-serif; text-shadow: 2px 2px 0 #000; }
+        
+        /* Controles de Toque (Opcionais para Menu, mas o jogo é movimento) */
+        .btn-action {
+            background: linear-gradient(to bottom, #4facfe 0%, #00f2fe 100%);
+            border: 2px solid white; color: white;
+            padding: 15px 30px; border-radius: 50px;
+            font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
     </style>
 </head>
 <body>
-    <div id="game-container">
-        <video id="video-source" playsinline></video>
-        <video id="webcam" autoplay muted playsinline></video>
-        <canvas id="game-canvas"></canvas>
-        <div id="wii-cursor"></div>
 
-        <!-- TELA DE MENU PRINCIPAL (ESTILO WII) -->
-        <div id="screen-wii-menu" class="layer bg-gradient-to-b from-blue-900 to-black hidden interactive">
-            <div class="absolute inset-0 opacity-30" style="background: radial-gradient(circle, rgba(0,255,204,0.1) 0%, transparent 70%);"></div>
-            <h1 class="text-6xl md:text-8xl text-white font-bold mb-12 text-center drop-shadow-[0_0_20px_rgba(0,255,204,0.8)]">
-                thIAguinho<br><span class="text-cyan-400">Wii</span>
-            </h1>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-2xl w-full px-4">
-                <div onclick="Sfx.select(); Core.launch('drive')" class="wii-icon p-6 rounded-2xl flex flex-col items-center justify-center group cursor-pointer">
-                    <div class="text-6xl mb-3">🏎️</div>
-                    <h3 class="text-xl text-white font-bold">CORRIDA</h3>
-                </div>
-                <div onclick="Sfx.select(); Core.launch('run')" class="wii-icon p-6 rounded-2xl flex flex-col items-center justify-center group cursor-pointer">
-                    <div class="text-6xl mb-3">🏃</div>
-                    <h3 class="text-xl text-white font-bold">RUA</h3>
-                </div>
-                <div onclick="Sfx.select(); Core.launch('fight')" class="wii-icon p-6 rounded-2xl flex flex-col items-center justify-center group cursor-pointer">
-                    <div class="text-6xl mb-3">🥊</div>
-                    <h3 class="text-xl text-white font-bold">BOXE</h3>
-                </div>
-            </div>
-            <div class="absolute bottom-6 text-gray-400 text-sm">
-                Use os movimentos do corpo para jogar • thIAguinho Soluções
-            </div>
-        </div>
+<div id="game-hardware">
+    <video id="video-source" playsinline></video>
+    <video id="webcam" autoplay muted playsinline></video>
+    <canvas id="game-canvas"></canvas>
+</div>
 
-        <div id="screen-loading" class="layer bg-black/95 hidden">
-            <div class="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-            <h2 class="text-white text-xl">CARREGANDO SISTEMA...</h2>
-        </div>
+<div id="os-layer">
 
-        <div id="screen-hud" class="layer hidden justify-between p-4 pointer-events-none !items-start">
-            <div class="w-full flex justify-between">
-                <div class="hud-box">                    <div class="text-[10px] text-cyan-400 font-bold uppercase">SCORE</div>
-                    <div id="hud-score" class="text-3xl text-white font-mono leading-none">0000</div>
-                </div>
-                <button onclick="Core.quit()" class="interactive bg-red-600 hover:bg-red-500 text-white w-12 h-12 rounded-full font-bold border-2 border-white text-xl">X</button>
-            </div>
-            <div id="game-msg" class="absolute top-1/3 w-full text-center text-4xl text-yellow-400 font-black drop-shadow-md"></div>
-            <div id="ui-wheel" class="absolute bottom-20 left-1/2 -translate-x-1/2 opacity-0 transition-opacity">
-                <div class="w-24 h-24 rounded-full border-4 border-cyan-500 flex items-center justify-center bg-black/50">
-                    <div id="wheel-bar" class="w-full h-2 bg-red-500 rounded"></div>
-                </div>
-            </div>
-            <div class="interactive absolute bottom-6 right-6 bg-black/80 p-3 rounded-lg border border-white/20">
-                <label class="text-[10px] text-white block text-center mb-1">SENSIBILIDADE</label>
-                <input type="range" min="0.5" max="3.0" step="0.5" value="1.0" class="w-24 accent-cyan-400" oninput="Core.setSens(this.value)">
-            </div>
-        </div>
-
-        <div id="screen-over" class="layer bg-red-900/95 hidden interactive z-50">
-            <h1 class="text-6xl text-white font-black mb-4">GAME OVER</h1>
-            <div class="text-7xl text-yellow-400 font-mono font-bold mb-8" id="final-score">0</div>
-            <button onclick="Core.menu()" class="btn-main px-10 py-4 rounded-full text-xl font-bold">VOLTAR</button>
+    <div id="screen-safety" class="screen">
+        <div class="safety-card">
+            <h1 class="text-xl md:text-2xl font-bold mb-4">Saúde e Segurança</h1>
+            <p class="mb-6 text-sm text-gray-600">
+                ⚠️ Mantenha distância da tela e certifique-se de ter espaço livre ao seu redor para se mover.
+            </p>
+            <button onclick="System.boot()" class="btn-action text-lg animate-pulse">
+                Tocar para Iniciar (A)
+            </button>
+            <div id="boot-log" class="mt-4 text-xs text-cyan-500 font-mono h-4"></div>
         </div>
     </div>
 
-    <script>
-        /**
-         * =================================================================
-         * 🔊 AUDIO (Sintetizador Puro)
-         * =================================================================
-         */
-        const Sfx = {
-            ctx: null,
-            init: () => {
-                window.AudioContext = window.AudioContext || window.webkitAudioContext;
-                Sfx.ctx = new AudioContext();
-            },
-            play: (freq, type, dur, vol = 0.1) => {
-                if (!Sfx.ctx) return;
-                const o = Sfx.ctx.createOscillator();
-                const g = Sfx.ctx.createGain();
-                o.type = type;
-                o.frequency.value = freq;
-                g.gain.setValueAtTime(vol, Sfx.ctx.currentTime);
-                g.gain.exponentialRampToValueAtTime(0.01, Sfx.ctx.currentTime + dur);
-                o.connect(g);
-                g.connect(Sfx.ctx.destination);
-                o.start();
-                o.stop(Sfx.ctx.currentTime + dur);
-            },
-            coin: () => { Sfx.play(1200, 'square', 0.1); setTimeout(() => Sfx.play(1600, 'square', 0.1), 80); },            hit: () => { Sfx.play(100, 'sawtooth', 0.2); },
-            crash: () => { Sfx.play(80, 'sawtooth', 0.5, 0.3); },
-            start: () => { Sfx.play(440, 'triangle', 0.1); setTimeout(() => Sfx.play(880, 'triangle', 0.3), 100); },
-            select: () => { Sfx.play(660, 'sine', 0.1, 0.2); }
-        };
+    <div id="screen-load" class="screen hidden" style="background: #000; color: #fff;">
+        <div class="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="font-mono text-sm">CARREGANDO SISTEMA...</p>
+    </div>
 
-        /**
-         * =================================================================
-         * 🎨 GRAPHICS
-         * =================================================================
-         */
-        const Gfx = {
-            drawSkeleton: (ctx, pose, w, h) => {
-                if (!pose) return;
-                const kp = pose.keypoints;
-                const find = n => kp.find(k => k.name === n);
-                const mapX = x => w - (x / 640 * w);
-                const mapY = y => y / 480 * h;
+    <div id="screen-menu" class="screen hidden">
+        <div class="wii-grid">
+            <div onclick="System.launch('drive')" class="channel">
+                <div class="channel-icon">🏎️</div>
+                <div class="channel-name">Kart Wii</div>
+            </div>
+            <div onclick="System.launch('run')" class="channel">
+                <div class="channel-icon">🏃</div>
+                <div class="channel-name">Street Run</div>
+            </div>
+            <div onclick="System.launch('fight')" class="channel">
+                <div class="channel-icon">🥊</div>
+                <div class="channel-name">Wii Boxe</div>
+            </div>
+            <div class="channel">
+                <div class="channel-icon">🙂</div>
+                <div class="channel-name">Mii Channel</div>
+            </div>
+            <div class="channel channel-empty"></div>
+            <div class="channel channel-empty"></div>
+            <div class="channel channel-empty"></div>
+            <div class="channel channel-empty"></div>
+        </div>
 
-                ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 6;
+        <div class="bottom-bar justify-between">
+            <div class="wii-btn-round">Wii</div>
+            <div class="text-gray-500 font-bold text-sm tracking-widest">MENU</div>
+            <div id="clock" class="text-gray-600 font-bold text-lg">00:00</div>
+        </div>
+    </div>
 
-                const nose = find('nose');
-                const ls = find('left_shoulder'); const rs = find('right_shoulder');
-                const le = find('left_elbow'); const re = find('right_elbow');
-                const lw = find('left_wrist'); const rw = find('right_wrist');
-                const lh = find('left_hip'); const rh = find('right_hip');
+    <div id="game-ui" class="screen hidden" style="background: transparent;">
+        <button onclick="System.home()" class="hud-element absolute top-4 right-4 bg-blue-500/80 text-white w-10 h-10 rounded-full border-2 border-white flex items-center justify-center font-bold text-[10px] shadow-lg">
+            ⌂
+        </button>
 
-                const drawBone = (p1, p2) => {
-                    if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
-                        ctx.beginPath();
-                        ctx.moveTo(mapX(p1.x), mapY(p1.y));
-                        ctx.lineTo(mapX(p2.x), mapY(p2.y));
-                        ctx.stroke();
+        <div class="absolute top-4 left-4 bg-black/60 px-4 py-2 rounded-full border border-white/30">
+            <span class="text-[10px] text-cyan-300 block leading-none">SCORE</span>
+            <div id="hud-score" class="text-2xl text-white leading-none">0</div>
+        </div>
+
+        <div id="game-msg" class="absolute top-1/3 w-full text-center text-4xl md:text-6xl text-yellow-400 font-black drop-shadow-lg" style="text-shadow: 2px 2px 0 #000;"></div>
+
+        <div id="ui-wheel" class="absolute bottom-24 left-1/2 -translate-x-1/2 opacity-0 transition-opacity pointer-events-none">
+            <div class="w-24 h-24 rounded-full border-4 border-white/50 bg-black/20 flex items-center justify-center">
+                <div id="wheel-bar" class="w-full h-3 bg-cyan-400 rounded shadow"></div>
+            </div>
+        </div>
+
+        <div class="hud-element absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-full flex gap-2 items-center">
+            <span class="text-[10px] text-white">SENS</span>
+            <input type="range" min="0.5" max="3.0" step="0.5" value="1.0" class="w-20 accent-cyan-400" oninput="System.setSens(this.value)">
+        </div>
+    </div>
+
+    <div id="screen-over" class="screen hidden" style="background: rgba(255,255,255,0.95); z-index: 60;">
+        <h1 class="text-5xl text-gray-800 font-black mb-2">FIM</h1>
+        <div class="text-xl text-cyan-600 font-bold">PONTUAÇÃO</div>
+        <div id="final-score" class="text-7xl text-gray-800 font-bold mb-8 font-mono">0</div>
+        <div class="flex flex-col gap-3 w-64">
+            <button onclick="System.restart()" class="btn-action">JOGAR NOVAMENTE</button>
+            <button onclick="System.menu()" class="text-gray-500 font-bold py-2">Voltar ao Menu</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    /* =================================================================
+       🔊 AUDIO (Sintetizador Web Audio API - Leve e Compatível)
+       ================================================================= */
+    const Sfx = {
+        ctx: null,
+        init: () => { 
+            window.AudioContext = window.AudioContext || window.webkitAudioContext; 
+            Sfx.ctx = new AudioContext(); 
+        },
+        play: (freq, type, dur, vol=0.1) => {
+            if(!Sfx.ctx) return;
+            const o = Sfx.ctx.createOscillator(); const g = Sfx.ctx.createGain();
+            o.type=type; o.frequency.value=freq;
+            g.gain.setValueAtTime(vol, Sfx.ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.01, Sfx.ctx.currentTime+dur);
+            o.connect(g); g.connect(Sfx.ctx.destination);
+            o.start(); o.stop(Sfx.ctx.currentTime+dur);
+        },
+        // Sons do Wii
+        hover: () => Sfx.play(800, 'sine', 0.05, 0.02),
+        click: () => Sfx.play(1200, 'sine', 0.1, 0.1),
+        coin: () => { Sfx.play(1500,'square',0.1, 0.05); setTimeout(()=>Sfx.play(2000,'square',0.1, 0.05), 80); },
+        hit: () => Sfx.play(150,'sawtooth',0.1, 0.2),
+        crash: () => Sfx.play(80,'sawtooth',0.4, 0.4)
+    };
+
+    /* =================================================================
+       🎨 GRAPHICS (Escalável: Porcentagem % da tela ao invés de Pixels fixos)
+       ================================================================= */
+    const Gfx = {
+        // Função mágica que converte coordenadas do vídeo para a tela do celular
+        mapPoint: (p, w, h) => {
+            // O vídeo original do MoveNet é geralmente 640x480
+            // Precisamos mapear isso para w e h (tela cheia)
+            // Invertemos X pois a câmera é espelhada
+            return {
+                x: w - (p.x / 640 * w),
+                y: p.y / 480 * h
+            };
+        },
+
+        drawSkeleton: (ctx, pose, w, h) => {
+            if(!pose) return;
+            ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#00ffff'; ctx.lineWidth = w * 0.015; // Linha escala com a tela
+
+            const kp = pose.keypoints;
+            const get = n => kp.find(k=>k.name===n);
+            
+            const bone = (n1, n2) => {
+                const p1 = get(n1); const p2 = get(n2);
+                if(p1 && p2 && p1.score>0.3 && p2.score>0.3) {
+                    const mp1 = Gfx.mapPoint(p1, w, h);
+                    const mp2 = Gfx.mapPoint(p2, w, h);
+                    ctx.beginPath(); ctx.moveTo(mp1.x, mp1.y); ctx.lineTo(mp2.x, mp2.y); ctx.stroke();
+                }
+            };
+            
+            bone('left_shoulder','left_elbow'); bone('left_elbow','left_wrist');
+            bone('right_shoulder','right_elbow'); bone('right_elbow','right_wrist');
+            bone('left_shoulder','right_shoulder');
+
+            // Luvas (Boxe)
+            const lw = get('left_wrist'); const rw = get('right_wrist');
+            const gloveSize = w * 0.08; // Luva é 8% da tela
+            if(lw && lw.score>0.3) { const p = Gfx.mapPoint(lw, w, h); ctx.fillStyle='red'; ctx.beginPath(); ctx.arc(p.x, p.y, gloveSize, 0, Math.PI*2); ctx.fill(); }
+            if(rw && rw.score>0.3) { const p = Gfx.mapPoint(rw, w, h); ctx.fillStyle='red'; ctx.beginPath(); ctx.arc(p.x, p.y, gloveSize, 0, Math.PI*2); ctx.fill(); }
+        },
+
+        drawRoad: (ctx, w, h, pos, curve) => {
+            const cx = w/2; const horizon = h * 0.4;
+            // Céu e Chão
+            ctx.fillStyle = '#111'; ctx.fillRect(0,0,w,h);
+            ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(0, horizon); ctx.lineTo(w, horizon); ctx.stroke();
+
+            // Pista
+            ctx.fillStyle = '#333'; ctx.beginPath();
+            const topW = w * 0.05; // 5% da tela no horizonte
+            const botW = w * 1.2;  // 120% da tela na base
+            const curveOffset = curve * (w * 0.3);
+
+            ctx.moveTo(cx + curveOffset - topW, horizon); 
+            ctx.lineTo(cx + curveOffset + topW, horizon);
+            ctx.lineTo(cx + botW, h); 
+            ctx.lineTo(cx - botW, h); 
+            ctx.fill();
+
+            // Linha Central
+            ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = w * 0.02;
+            ctx.setLineDash([h*0.05, h*0.05]); ctx.lineDashOffset = -pos;
+            ctx.beginPath(); ctx.moveTo(cx + curveOffset, horizon);
+            ctx.quadraticCurveTo(cx + (curveOffset*0.5), h*0.7, cx, h); ctx.stroke();
+            ctx.setLineDash([]);
+        },
+
+        drawCar: (ctx, x, y, steer, w) => {
+            ctx.save(); ctx.translate(x, y); ctx.rotate(steer); 
+            const s = w * 0.003; // Escala baseada na largura da tela
+            ctx.scale(s, s); 
+            
+            ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(-25, -10, 50, 40);
+            ctx.fillStyle = '#ff0033'; ctx.beginPath(); ctx.roundRect(-20, -20, 40, 40, 5); ctx.fill();
+            ctx.fillStyle = '#111'; ctx.fillRect(-15, -10, 30, 10);
+            ctx.fillStyle = '#ffcc00'; ctx.fillRect(-18, -18, 8, 5); ctx.fillRect(10, -18, 8, 5);
+            ctx.restore();
+        }
+    };
+
+    /* =================================================================
+       🧠 SYSTEM CORE
+       ================================================================= */
+    const System = {
+        video: null, canvas: null, ctx: null, detector: null,
+        activeGame: null, loopId: null, sens: 1.0,
+
+        boot: async () => {
+            document.getElementById('boot-log').innerText = "Iniciando Câmera...";
+            Sfx.init(); Sfx.click();
+
+            try {
+                // Configuração de vídeo mobile-friendly
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'user', 
+                        width: {ideal: 640}, 
+                        height: {ideal: 480} 
+                    },
+                    audio: false
+                });
+                
+                System.video = document.getElementById('video-source');
+                System.video.srcObject = stream;
+                // Webcam visual
+                document.getElementById('webcam').srcObject = stream;
+
+                await new Promise(r => System.video.onloadedmetadata = r);
+                System.video.play(); document.getElementById('webcam').play();
+
+                document.getElementById('screen-safety').classList.add('hidden');
+                document.getElementById('screen-load').classList.remove('hidden');
+
+                await tf.setBackend('webgl');
+                System.detector = await poseDetection.createDetector(
+                    poseDetection.SupportedModels.MoveNet,
+                    { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+                );
+
+                System.canvas = document.getElementById('game-canvas');
+                System.ctx = System.canvas.getContext('2d');
+                
+                // Força resize inicial
+                System.resize();
+                window.addEventListener('resize', System.resize);
+
+                document.getElementById('screen-load').classList.add('hidden');
+                System.menu();
+
+            } catch(e) { 
+                alert("Erro: Permita o uso da câmera! " + e.message); 
+                document.getElementById('boot-log').innerText = "Erro: Câmera negada.";
+            }
+        },
+
+        menu: () => {
+            System.stopGame();
+            document.getElementById('screen-menu').classList.remove('hidden');
+            document.getElementById('screen-over').classList.add('hidden');
+            document.getElementById('game-ui').classList.add('hidden');
+            document.getElementById('webcam').style.opacity = '0';
+        },
+
+        launch: (gameId) => {
+            Sfx.click();
+            System.activeGame = gameId;
+            document.getElementById('screen-menu').classList.add('hidden');
+            document.getElementById('game-ui').classList.remove('hidden');
+            document.getElementById('webcam').style.opacity = '0.3'; // Background leve
+
+            const wheel = document.getElementById('ui-wheel');
+            wheel.style.opacity = (gameId==='drive') ? '1' : '0';
+
+            if(gameId==='drive') Logic.Drive.init();
+            if(gameId==='run') Logic.Run.init();
+            if(gameId==='fight') Logic.Fight.init();
+
+            System.loop();
+        },
+
+        loop: async () => {
+            if(!System.activeGame) return;
+
+            const ctx = System.ctx; 
+            const w = System.canvas.width; 
+            const h = System.canvas.height;
+
+            let pose = null;
+            try {
+                const poses = await System.detector.estimatePoses(System.video, {flipHorizontal: false});
+                if(poses.length>0) pose = poses[0];
+            } catch(e){}
+
+            let score = 0;
+            if(System.activeGame==='drive') score = Logic.Drive.update(ctx, w, h, pose);
+            if(System.activeGame==='run') score = Logic.Run.update(ctx, w, h, pose);
+            if(System.activeGame==='fight') score = Logic.Fight.update(ctx, w, h, pose);
+
+            document.getElementById('hud-score').innerText = score;
+            System.loopId = requestAnimationFrame(System.loop);
+        },
+
+        stopGame: () => {
+            System.activeGame = null;
+            if(System.loopId) cancelAnimationFrame(System.loopId);
+        },
+
+        home: () => { Sfx.click(); System.menu(); },
+        
+        gameOver: (score) => {
+            System.stopGame(); Sfx.crash();
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('game-ui').classList.add('hidden');
+            document.getElementById('screen-over').classList.remove('hidden');
+        },
+
+        restart: () => System.menu(),
+
+        setSens: (v) => System.sens = parseFloat(v),
+        
+        msg: (txt) => {
+            const el = document.getElementById('game-msg');
+            el.innerText = txt;
+            setTimeout(()=>el.innerText='', 1500);
+        },
+
+        // Resize inteligente para telas de alta DPI (Retina/Mobile)
+        resize: () => {
+            if(System.canvas) {
+                System.canvas.width = window.innerWidth;
+                System.canvas.height = window.innerHeight;
+            }
+        }
+    };
+
+    /* =================================================================
+       🎮 LÓGICA DE JOGO (ADAPTADA PARA MOBILE)
+       ================================================================= */
+    const Logic = {
+        
+        // --- JOGO 1: KART (Volante) ---
+        Drive: {
+            speed: 0, pos: 0, x: 0, steer: 0, curve: 0,
+            init: () => { Logic.Drive.speed=0; Logic.Drive.pos=0; Logic.Drive.x=0; System.msg("GO!"); },
+            update: (ctx, w, h, pose) => {
+                const d = Logic.Drive; const cx = w/2;
+                
+                // Input
+                let targetAngle = 0;
+                if(pose) {
+                    const kp = pose.keypoints;
+                    const lw = kp.find(k=>k.name==='left_wrist');
+                    const rw = kp.find(k=>k.name==='right_wrist');
+                    if(lw && rw && lw.score>0.3 && rw.score>0.3) {
+                        const dy = rw.y - lw.y; 
+                        const dx = rw.x - lw.x;
+                        targetAngle = Math.atan2(dy, dx) * 1.5 * System.sens;
+                        if(d.speed < h*0.1) d.speed += h*0.001; // Aceleração relativa à tela
+                    } else { d.speed *= 0.95; }
+                }
+                d.steer += (targetAngle - d.steer) * 0.2;
+                
+                // UI Volante
+                const bar = document.getElementById('wheel-bar');
+                if(bar) bar.style.transform = `rotate(${d.steer * 57}deg)`;
+
+                // Física
+                d.pos += d.speed;
+                d.curve = Math.sin(d.pos * 0.005) * 1.5;
+                d.x += d.steer * (d.speed / (h*0.5));
+                d.x -= d.curve * (d.speed / (h));
+
+                if(Math.abs(d.x) > 1.3) { d.speed *= 0.9; } // Colisão borda
+
+                Gfx.drawRoad(ctx, w, h, d.pos, d.curve);
+                const carX = cx + (d.x * w * 0.25);
+                Gfx.drawCar(ctx, carX, h * 0.85, d.steer, w); // Carro mais baixo na tela
+
+                return Math.floor(d.pos/100);
+            }
+        },
+
+        // --- JOGO 2: CORRIDA (Desvio Lateral) ---
+        Run: {
+            lane: 0, score: 0, frame: 0, obs: [],
+            init: () => { Logic.Run.score=0; Logic.Run.obs=[]; System.msg("CORRA!"); },
+            update: (ctx, w, h, pose) => {
+                const r = Logic.Run; const cx = w/2; r.frame++;
+                
+                // Input (Zonas da Câmera)
+                if(pose) {
+                    const nose = pose.keypoints.find(k=>k.name==='nose');
+                    if(nose && nose.score > 0.4) {
+                        // Divide a câmera (640px) em 3 zonas
+                        if(nose.x < 210) r.lane = 1;      // Direita
+                        else if(nose.x > 430) r.lane = -1; // Esquerda
+                        else r.lane = 0;
                     }
-                };
-
-                drawBone(ls, le); drawBone(le, lw);
-                drawBone(rs, re); drawBone(re, rw);
-                drawBone(ls, rs);
-                if (lh && rh && lh.score > 0.2) {
-                    drawBone(ls, lh); drawBone(rs, rh); drawBone(lh, rh);
-                } else if (ls && rs) {
-                    const midShoulderX = (ls.x + rs.x) / 2;
-                    const midShoulderY = (ls.y + rs.y) / 2;
-                    ctx.beginPath();
-                    ctx.moveTo(mapX(midShoulderX), mapY(midShoulderY));
-                    ctx.lineTo(mapX(midShoulderX), mapY(midShoulderY) + 150);
-                    ctx.stroke();
                 }
-                if (nose && nose.score > 0.3) {
-                    ctx.fillStyle = '#fff';
-                    ctx.beginPath(); ctx.arc(mapX(nose.x), mapY(nose.y - 20), 25, 0, Math.PI * 2); ctx.fill();
-                }
-                if (lw && lw.score > 0.3) { ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(mapX(lw.x), mapY(lw.y), 30, 0, Math.PI * 2); ctx.fill(); }
-                if (rw && rw.score > 0.3) { ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(mapX(rw.x), mapY(rw.y), 30, 0, Math.PI * 2); ctx.fill(); }
-            },
 
-            drawRoad: (ctx, w, h, pos, curve) => {
-                const cx = w / 2;
-                const horizon = h * 0.4;
-                ctx.fillStyle = '#050505';
-                ctx.fillRect(0, 0, w, h);
-                ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(0, horizon); ctx.lineTo(w, horizon); ctx.stroke();
+                if(r.frame%50===0) r.obs.push({l: Math.floor(Math.random()*3)-1, z: 1000});
 
-                ctx.fillStyle = '#333';
-                ctx.beginPath();
-                const topW = 20;
-                const botW = w * 1.5;
-                const curveOffset = curve * 200;
-                ctx.moveTo(cx + curveOffset - topW, horizon);
-                ctx.lineTo(cx + curveOffset + topW, horizon);
-                ctx.lineTo(cx + botW, h);
-                ctx.lineTo(cx - botW, h);
-                ctx.fill();
+                // Desenho do Fundo Grid
+                ctx.clearRect(0,0,w,h);
+                ctx.fillStyle = '#111'; ctx.fillRect(0,0,w,h);
+                ctx.strokeStyle='#00ffcc'; ctx.lineWidth=1;
+                ctx.beginPath(); ctx.moveTo(cx - (w*0.3), h/2); ctx.lineTo(0,h); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(cx + (w*0.3), h/2); ctx.lineTo(w,h); ctx.stroke();
 
-                ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 6;
-                ctx.setLineDash([40, 40]); ctx.lineDashOffset = -pos;
-                ctx.beginPath();
-                ctx.moveTo(cx + curveOffset, horizon);
-                ctx.quadraticCurveTo(cx + (curveOffset * 0.5), h * 0.7, cx, h);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            },
+                // Obstáculos
+                r.obs.forEach((o, i) => {
+                    o.z -= 20; 
+                    if(o.z < -100) { r.obs.splice(i,1); r.score+=10; Sfx.coin(); }
+                    
+                    const scale = 500/(o.z+100);
+                    if(scale > 0) {
+                        const laneWidth = w * 0.3; // Largura da pista proporcional
+                        const ox = cx + (o.l * laneWidth * scale);
+                        const oy = h/2 + (50 * scale);
+                        const sz = (w * 0.15) * scale;
 
-            drawCar: (ctx, x, y, steer) => {
-                ctx.save(); ctx.translate(x, y);
-                ctx.rotate(steer);
-                ctx.scale(2, 2);
-                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-25, -10, 50, 40);
-                ctx.fillStyle = '#ff0033';
-                ctx.beginPath(); ctx.roundRect(-20, -20, 40, 40, 5); ctx.fill();
-                ctx.fillStyle = '#111'; ctx.fillRect(-15, -10, 30, 10);
-                ctx.fillStyle = '#ffcc00'; ctx.fillRect(-18, -18, 8, 5); ctx.fillRect(10, -18, 8, 5);
+                        ctx.fillStyle = '#ff3300'; ctx.fillRect(ox-sz/2, oy, sz, sz);
+                        
+                        // Colisão
+                        if(o.z < 50 && o.z > -50 && o.l === r.lane) { System.gameOver(r.score); }
+                    }
+                });
+
+                // Desenha Jogador
+                // Fixar jogador na parte inferior, escala relativa
+                ctx.save();
+                ctx.translate(cx + (r.lane * w * 0.25), h * 0.85);
+                const pScale = w * 0.005; 
+                ctx.scale(pScale, pScale);
+                
+                // Stickman simples
+                ctx.strokeStyle='#00ff00'; ctx.lineWidth=3; ctx.lineCap='round';
+                const s = Math.sin(r.frame*0.5)*10;
+                ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-15); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-8+s, 20); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(8-s, 20); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(-10-s, -5); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(10+s, -5); ctx.stroke();
+                ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,-22,5,0,Math.PI*2); ctx.fill();
                 ctx.restore();
-            },
 
-            drawRunner: (ctx, x, y, frame) => {                ctx.save(); ctx.translate(x, y); ctx.scale(3, 3);
-                ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-                const s = Math.sin(frame * 0.5) * 10;
-                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -15); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-8 + s, 20); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(8 - s, 20); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(-10 - s, -5); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(10 + s, -5); ctx.stroke();
-                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -22, 5, 0, Math.PI * 2); ctx.fill();
-                ctx.restore();
+                return r.score;
             }
-        };
+        },
 
-        /**
-         * =================================================================
-         * 🧠 ENGINE
-         * =================================================================
-         */
-        const Core = {
-            video: null, canvas: null, ctx: null, detector: null,
-            active: false, mode: null, sens: 1.0, loopId: null,
+        // --- JOGO 3: BOXE (Alvos) ---
+        Fight: {
+            score: 0, targets: [], last: 0,
+            init: () => { Logic.Fight.score=0; Logic.Fight.targets=[]; System.msg("BOXE!"); },
+            update: (ctx, w, h, pose) => {
+                const f = Logic.Fight; const now = Date.now();
+                ctx.clearRect(0,0,w,h);
+                
+                // Desenha Esqueleto Mapeado
+                Gfx.drawSkeleton(ctx, pose, w, h);
 
-            boot: async () => {
-                Sfx.init();
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-                        audio: false
-                    });
-                    Core.video = document.getElementById('video-source');
-                    Core.video.srcObject = stream;
-                    document.getElementById('webcam').srcObject = stream;
-                    await new Promise(r => Core.video.onloadedmetadata = r);
-                    Core.video.play(); document.getElementById('webcam').play();
-
-                    document.getElementById('screen-loading').classList.remove('hidden');
-
-                    await tf.setBackend('webgl');
-                    Core.detector = await poseDetection.createDetector(
-                        poseDetection.SupportedModels.MoveNet,
-                        { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-                    );
-
-                    Core.canvas = document.getElementById('game-canvas');
-                    Core.ctx = Core.canvas.getContext('2d');
-
-                    document.getElementById('screen-loading').classList.add('hidden');
-                    document.getElementById('screen-wii-menu').classList.remove('hidden');
-                } catch (e) { alert("Erro na câmera: " + e.message); }
-            },
-            menu: () => {
-                document.getElementById('screen-wii-menu').classList.remove('hidden');
-                document.getElementById('screen-hud').classList.add('hidden');
-                document.getElementById('screen-over').classList.add('hidden');
-            },
-
-            launch: (m) => {
-                Core.mode = m; Core.active = true;
-                document.getElementById('screen-wii-menu').classList.add('hidden');
-                document.getElementById('screen-hud').classList.remove('hidden');
-                const wheel = document.getElementById('ui-wheel');
-                wheel.style.opacity = (m === 'drive') ? '1' : '0';
-
-                if (m === 'drive') Logic.Drive.init();
-                if (m === 'run') Logic.Run.init();
-                if (m === 'fight') Logic.Fight.init();
-
-                Sfx.start();
-                Core.loop();
-            },
-
-            quit: () => {
-                Core.active = false; cancelAnimationFrame(Core.loopId); Core.menu();
-            },
-
-            gameOver: (score) => {
-                Core.active = false; cancelAnimationFrame(Core.loopId);
-                Sfx.crash();
-                document.getElementById('final-score').innerText = score;
-                document.getElementById('screen-hud').classList.add('hidden');
-                document.getElementById('screen-over').classList.remove('hidden');
-            },
-
-            setSens: (v) => Core.sens = parseFloat(v),
-
-            msg: (txt) => {
-                const el = document.getElementById('game-msg');
-                el.innerText = txt;
-                setTimeout(() => el.innerText = '', 1500);
-            },
-
-            getScreen: () => {
-                if (!document.getElementById('screen-wii-menu').classList.contains('hidden')) return 'menu';
-                if (!document.getElementById('screen-hud').classList.contains('hidden')) return 'hud';
-                return 'other';
-            },
-
-            loop: async () => {
-                if (!Core.active) return;                if (Core.canvas.width !== window.innerWidth) {
-                    Core.canvas.width = window.innerWidth;
-                    Core.canvas.height = window.innerHeight;
-                }
-                const ctx = Core.ctx; const w = Core.canvas.width; const h = Core.canvas.height;
-
-                let pose = null;
-                try {
-                    const poses = await Core.detector.estimatePoses(Core.video, { flipHorizontal: false });
-                    if (poses.length > 0) pose = poses[0];
-                } catch (e) { }
-
-                // Atualiza cursor do Wii
-                if (pose && ['menu', 'hud'].includes(Core.getScreen())) {
-                    const rw = pose.keypoints.find(k => k.name === 'right_wrist');
-                    const cursor = document.getElementById('wii-cursor');
-                    if (rw && rw.score > 0.4) {
-                        const x = window.innerWidth - (rw.x / 640 * window.innerWidth);
-                        const y = (rw.y / 480 * window.innerHeight);
-                        cursor.style.left = (x - 20) + 'px';
-                        cursor.style.top = (y - 20) + 'px';
-                        cursor.style.opacity = '1';
-                    } else {
-                        cursor.style.opacity = '0';
-                    }
+                // Detecta Socos
+                let punches = [];
+                if(pose) {
+                    const kp = pose.keypoints;
+                    const lw = kp.find(k=>k.name==='left_wrist');
+                    const rw = kp.find(k=>k.name==='right_wrist');
+                    if(lw && lw.score>0.3) punches.push(Gfx.mapPoint(lw, w, h));
+                    if(rw && rw.score>0.3) punches.push(Gfx.mapPoint(rw, w, h));
                 }
 
-                let score = 0;
-                if (Core.mode === 'drive') score = Logic.Drive.update(ctx, w, h, pose);
-                if (Core.mode === 'run') score = Logic.Run.update(ctx, w, h, pose);
-                if (Core.mode === 'fight') score = Logic.Fight.update(ctx, w, h, pose);
-
-                document.getElementById('hud-score').innerText = score;
-                Core.loopId = requestAnimationFrame(Core.loop);
-            }
-        };
-
-        /**
-         * =================================================================
-         * 🧠 LÓGICA DO JOGO (INALTERADA)
-         * =================================================================
-         */
-        const Logic = {
-            Drive: {
-                speed: 0, pos: 0, x: 0, steer: 0, curve: 0,
-                init: () => { Logic.Drive.speed = 0; Logic.Drive.pos = 0; Logic.Drive.x = 0; Core.msg("DIRIJA!"); },
-                update: (ctx, w, h, pose) => {
-                    const d = Logic.Drive;
-                    const cx = w / 2;
-                    let targetAngle = 0;                    if (pose) {
-                        const lw = pose.keypoints.find(k => k.name === 'left_wrist');
-                        const rw = pose.keypoints.find(k => k.name === 'right_wrist');
-                        if (lw && rw && lw.score > 0.3 && rw.score > 0.3) {
-                            const dy = rw.y - lw.y;
-                            const dx = rw.x - lw.x;
-                            const rads = Math.atan2(dy, dx);
-                            targetAngle = rads * 1.5 * Core.sens;
-                            if (d.speed < 100) d.speed += 1;
-                        } else {
-                            d.speed *= 0.95;
-                        }
-                    }
-                    d.steer += (targetAngle - d.steer) * 0.2;
-                    const bar = document.getElementById('wheel-bar');
-                    if (bar) bar.style.transform = `rotate(${d.steer * 57}deg)`;
-                    d.pos += d.speed;
-                    d.curve = Math.sin(d.pos * 0.005) * 1.5;
-                    d.x += d.steer * (d.speed / 500);
-                    d.x -= d.curve * (d.speed / 1000);
-                    if (Math.abs(d.x) > 1.2) { d.speed *= 0.9; }
-                    Gfx.drawRoad(ctx, w, h, d.pos, d.curve);
-                    const carX = cx + (d.x * w * 0.25);
-                    Gfx.drawCar(ctx, carX, h - 80, d.steer);
-                    return Math.floor(d.pos / 100);
+                // Cria Alvos
+                if(now - f.last > 800) {
+                    // Alvos dentro da área segura da tela (margin 10%)
+                    const tx = (Math.random() * (w * 0.8)) + (w * 0.1);
+                    const ty = (Math.random() * (h * 0.5)) + (h * 0.1);
+                    f.targets.push({x: tx, y: ty, r: w*0.08, s: now}); // Raio proporcional
+                    f.last = now;
                 }
-            },
 
-            Run: {
-                lane: 0, score: 0, frame: 0, obs: [],
-                init: () => { Logic.Run.score = 0; Logic.Run.obs = []; Core.msg("CORRA!"); },
-                update: (ctx, w, h, pose) => {
-                    const r = Logic.Run;
-                    const cx = w / 2;
-                    r.frame++;
-                    if (pose) {
-                        const nose = pose.keypoints.find(k => k.name === 'nose');
-                        if (nose && nose.score > 0.4) {
-                            if (nose.x < 240) r.lane = 1;
-                            else if (nose.x > 400) r.lane = -1;
-                            else r.lane = 0;
-                        }
-                    }
-                    if (r.frame % 50 === 0) r.obs.push({ l: Math.floor(Math.random() * 3) - 1, z: 1000 });
-                    ctx.clearRect(0, 0, w, h);
-                    ctx.fillStyle = '#111'; ctx.fillRect(0, 0, w, h);
-                    ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 2;
-                    ctx.beginPath(); ctx.moveTo(cx - 150, h / 2); ctx.lineTo(0, h); ctx.stroke();
-                    ctx.beginPath(); ctx.moveTo(cx + 150, h / 2); ctx.lineTo(w, h); ctx.stroke();
-                    r.obs.forEach((o, i) => {                        o.z -= 20;
-                        if (o.z < -100) { r.obs.splice(i, 1); r.score += 10; Sfx.coin(); }
-                        const scale = 500 / (o.z + 100);
-                        if (scale > 0) {
-                            const ox = cx + (o.l * 200 * scale);
-                            const oy = h / 2 + (50 * scale);
-                            const sz = 80 * scale;
-                            ctx.fillStyle = '#ff3300';
-                            ctx.fillRect(ox - sz / 2, oy, sz, sz);
-                            if (o.z < 50 && o.z > -50 && o.l === r.lane) {
-                                Core.gameOver(r.score);
-                            }
+                f.targets.forEach((t, i) => {
+                    const age = (now - t.s)/1500; // Tempo de vida
+                    if(age>1) { f.targets.splice(i,1); return; }
+
+                    ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI*2);
+                    ctx.fillStyle=`rgba(255,255,0,${1-age})`; ctx.fill();
+                    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+
+                    // Verifica colisão soco vs alvo
+                    punches.forEach(p => {
+                        const dist = Math.hypot(p.x - t.x, p.y - t.y);
+                        if(dist < t.r + (w*0.05)) { // Hitbox permissiva
+                            f.targets.splice(i,1); f.score += 100; Sfx.hit();
                         }
                     });
-                    Gfx.drawRunner(ctx, cx + (r.lane * 150), h - 100, r.frame);
-                    return r.score;
-                }
-            },
+                });
 
-            Fight: {
-                score: 0, targets: [], last: 0,
-                init: () => { Logic.Fight.score = 0; Logic.Fight.targets = []; Core.msg("BOXE!"); },
-                update: (ctx, w, h, pose) => {
-                    const f = Logic.Fight;
-                    const now = Date.now();
-                    ctx.clearRect(0, 0, w, h);
-                    Gfx.drawSkeleton(ctx, pose, w, h);
-                    let punches = [];
-                    if (pose) {
-                        const mapX = x => w - (x / 640 * w);
-                        const mapY = y => y / 480 * h;
-                        const lw = pose.keypoints.find(k => k.name === 'left_wrist');
-                        const rw = pose.keypoints.find(k => k.name === 'right_wrist');
-                        if (lw && lw.score > 0.3) punches.push({ x: mapX(lw.x), y: mapY(lw.y) });
-                        if (rw && rw.score > 0.3) punches.push({ x: mapX(rw.x), y: mapY(rw.y) });
-                    }
-                    if (now - f.last > 800) {
-                        f.targets.push({ x: Math.random() * (w - 100) + 50, y: Math.random() * (h / 2) + 50, r: 40, s: now });
-                        f.last = now;
-                    }
-                    f.targets.forEach((t, i) => {
-                        const age = (now - t.s) / 1500;
-                        if (age > 1) { f.targets.splice(i, 1); return; }
-                        ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
-                        ctx.fillStyle = `rgba(255,255,0,${1 - age})`; ctx.fill();
-                        ctx.strokeStyle = '#fff'; ctx.stroke();
-                        punches.forEach(p => {
-                            if (Math.hypot(p.x - t.x, p.y - t.y) < t.r + 30) {
-                                f.targets.splice(i, 1);
-                                f.score += 100;                                Sfx.hit();
-                            }
-                        });
-                    });
-                    return f.score;
-                }
+                return f.score;
             }
-        };
+        }
+    };
 
-        // Iniciar
-        window.onload = () => Core.boot();
-    </script>
+    // Relógio
+    setInterval(() => {
+        const d = new Date();
+        document.getElementById('clock').innerText = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    }, 1000);
+
+</script>
 </body>
 </html>
