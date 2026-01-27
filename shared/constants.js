@@ -1,0 +1,1 @@
+window.K = { MAX_SPEED: 240, LANES: 3 };
