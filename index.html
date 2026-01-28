@@ -1,100 +1,177 @@
-<!DOCTYPE html>
+
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>thIAguinho Wii: PLATINUM EDITION</title>
+    <title>thIAguinho Wii: OTTO REMASTER</title>
     
+    <!-- IA e Visão -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    
+    <!-- Estilos -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- FIREBASE (O Carteiro do Multiplayer) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;700&family=Russo+One&family=Roboto:wght@300;400;700&display=swap');
-        :root { --wii-bg: #ececec; --wii-highlight: #3498db; }
-        body { background-color: #111; margin: 0; padding: 0; overflow: hidden; font-family: 'Roboto', sans-serif; touch-action: none; user-select: none; width: 100vw; height: 100dvh; }
-        #game-hardware { position: absolute; inset: 0; z-index: 0; background: #000; }
-        #os-layer { position: relative; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
-        #webcam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); opacity: 0; transition: opacity 0.8s; mix-blend-mode: screen; }
-        #game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-        .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--wii-bg); pointer-events: auto; transition: opacity 0.4s; }
-        .hidden { opacity: 0; pointer-events: none; z-index: -1; }
-        #screen-menu { background: radial-gradient(circle at center, #ffffff, #dcdcdc); justify-content: flex-start; padding-top: 5vh; }
-        .wii-grid { display: grid; width: 95%; height: 70%; gap: 12px; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(4, 1fr); perspective: 1000px; }
-        @media (min-width: 768px) { .wii-grid { width: 85%; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr); gap: 20px; } }
-        .channel { background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%); border-radius: 16px; border: 2px solid #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; position: relative; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: all 0.2s; }
-        .channel:active { transform: scale(0.95); border-color: var(--wii-highlight); }
-        .channel-icon { font-size: clamp(2.5rem, 5vw, 4rem); margin-bottom: 5px; z-index: 2; }
-        .channel-name { font-size: clamp(0.7rem, 2vw, 1rem); color: #555; font-weight: 800; font-family: 'Chakra Petch', sans-serif; }
-        .channel-empty { background: #e0e0e0; opacity: 0.5; }
-        #game-msg { position: absolute; top: 40%; width: 100%; text-align: center; font-size: 4rem; color: #fff; font-family: 'Russo One'; text-shadow: 0 0 20px rgba(0,0,0,0.8); transform: scale(0); transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        #game-msg.pop { transform: scale(1); }
-        .btn-action { background: #3498db; color: white; padding: 15px 40px; border-radius: 50px; font-weight: bold; font-size: 1.2rem; box-shadow: 0 5px 15px rgba(52, 152, 219, 0.4); border: 2px solid #fff; }
+
+        :root { 
+            --wii-bg: #ececec; 
+            --wii-highlight: #3498db; 
+            --glass-bg: rgba(255, 255, 255, 0.85);
+        }
+        
+        body { background-color: #111; margin: 0; overflow: hidden; font-family: 'Roboto', sans-serif; user-select: none; }
+        
+        /* Efeito de Scanlines (TV Antiga/Futurista) */
+        .scanlines {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.1));
+            background-size: 100% 4px;
+        }
+
+        #game-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; object-fit: cover; }
+        #webcam { position: absolute; top: 10px; right: 10px; width: 160px; border-radius: 10px; opacity: 0; z-index: 5; transform: scaleX(-1); border: 2px solid rgba(255,255,255,0.3); transition: opacity 0.5s; }
+        
+        /* UI do Menu Wii */
+        .wii-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
+            padding: 2rem; max-width: 1200px; margin: 0 auto; z-index: 20; position: relative;
+        }
+        
+        .channel {
+            aspect-ratio: 16/9; background: var(--glass-bg); border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            border: 3px solid transparent; position: relative; overflow: hidden;
+        }
+        
+        .channel:hover { transform: scale(1.05); border-color: var(--wii-highlight); box-shadow: 0 0 20px var(--wii-highlight); }
+        .channel-icon { font-size: 3rem; margin-bottom: 0.5rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2)); }
+        .channel-title { font-family: 'Chakra Petch', sans-serif; font-weight: 700; color: #333; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .hidden { display: none !important; }
+        .screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        
+        /* Loading */
+        .loader { width: 50px; height: 50px; border: 5px solid #fff; border-bottom-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Multiplayer Status */
+        #mp-status {
+            position: absolute; top: 1rem; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.8); color: #00ff00; padding: 5px 15px;
+            border-radius: 20px; font-family: 'Chakra Petch'; font-size: 12px;
+            border: 1px solid #00ff00; z-index: 100; display: none;
+        }
     </style>
 </head>
 <body>
 
-<div id="game-hardware">
-    <video id="video-source" playsinline style="display:none"></video>
-    <video id="webcam" autoplay muted playsinline></video>
+    <!-- VIDEO INPUT (Escondido, mas a IA vê) -->
+    <video id="webcam" autoplay playsinline muted></video>
+    
+    <!-- MOTOR GRÁFICO -->
     <canvas id="game-canvas"></canvas>
-</div>
+    <div class="scanlines"></div>
 
-<div id="os-layer">
-    <div id="screen-safety" class="screen" style="z-index: 100;">
-        <div style="padding: 2rem; max-width: 500px; text-align: center; background: #fff; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.2);">
-            <div style="font-size: 4rem;">⚠️</div>
-            <h1 style="font-weight: 900; color: #333; margin: 10px 0;">ÁREA SEGURA</h1>
-            <p style="color: #666; margin-bottom: 30px;">Garanta espaço livre para jogar.</p>
-            <button onclick="window.System.boot()" class="btn-action">INICIAR SISTEMA</button>
-            <div id="boot-log" style="margin-top: 20px; font-size: 0.8rem; color: #aaa;">Aguardando...</div>
+    <!-- MENSAGENS DO SISTEMA -->
+    <div id="game-msg" style="position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); font-family: 'Russo One'; font-size: 80px; color: yellow; text-shadow: 4px 4px 0 #000; pointer-events: none; z-index: 80; white-space: nowrap; transition: transform 0.2s, opacity 0.5s;"></div>
+    
+    <!-- STATUS MULTIPLAYER -->
+    <div id="mp-status">● CONECTADO: SALA 1</div>
+
+    <!-- TELA DE MENU -->
+    <div id="menu-screen" class="screen" style="background: linear-gradient(135deg, #ddd 0%, #fff 100%); z-index: 50;">
+        <div style="position: absolute; top: 2rem; left: 2rem; display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 50px; height: 50px; background: #333; border-radius: 50%; display: flex; align-items: center; justifyContent: center; color: white; font-weight: bold;">IA</div>
+            <div>
+                <h2 style="margin:0; font-family:'Russo One'; color:#333;">THIAGUINHO WII</h2>
+                <p style="margin:0; font-size: 0.8rem; color:#666;">Motion Console v2.0</p>
+            </div>
+        </div>
+
+        <div class="wii-grid" id="channel-grid">
+            <!-- Canais gerados pelo JS -->
+        </div>
+        
+        <div style="position:absolute; bottom: 2rem; font-size: 0.8rem; color: #888;">
+            Mova as mãos para controlar o cursor • Aperte para selecionar
         </div>
     </div>
 
-    <div id="screen-load" class="screen hidden" style="background:#111; color:#fff;">
-        <div class="animate-spin" style="width: 50px; height: 50px; border: 5px solid #333; border-top: 5px solid #3498db; border-radius: 50%;"></div>
-        <p style="margin-top: 20px; letter-spacing: 2px;">CALIBRANDO SENSORES...</p>
+    <!-- LOADING -->
+    <div id="loading" class="screen hidden" style="background: #000; z-index: 100;">
+        <div class="loader"></div>
+        <p class="mt-4 text-white font-bold tracking-widest">CARREGANDO SISTEMA...</p>
     </div>
 
-    <div id="screen-menu" class="screen hidden">
-        <div class="wii-grid" id="channel-grid"></div>
-        <div style="position: absolute; bottom: 0; width: 100%; height: 10%; background: #ddd; display: flex; align-items: center; justify-content: center; color: #888; font-weight: bold;">
-            THIAGUINHO OS v10.0
+    <!-- HUD DO JOGO -->
+    <div id="game-ui" class="hidden" style="position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 40;">
+        <div class="hud-element" style="position:absolute; top:1.5rem; left:2rem; background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:20px; border-left: 5px solid #ffcc00;">
+            <span class="text-white font-bold text-xl" style="font-family: 'Russo One'">SCORE</span>
+            <span id="hud-score" class="text-yellow-400 font-bold text-2xl ml-2 font-mono">0</span>
+        </div>
+        
+        <button onclick="window.System.home()" style="pointer-events: auto; position:absolute; top:1.5rem; right:2rem; background:#fff; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justifyContent:center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border:none; cursor:pointer;">
+            🏠
+        </button>
+
+        <!-- Controle de Sensibilidade -->
+        <div class="hud-element" style="pointer-events: auto; position:absolute; bottom:1.5rem; right:6rem; background:rgba(0,0,0,0.7); backdrop-filter: blur(5px); padding:0.8rem 1.2rem; border-radius:30px; display:flex; align-items:center; gap:0.8rem; border: 1px solid rgba(255,255,255,0.2);">
+            <span style="font-size:0.7rem; color:#aaa; font-weight:bold;">SENSIBILIDADE</span>
+            <input type="range" min="0.5" max="3.0" step="0.5" value="1.0" class="accent-blue-500" style="width:6rem;" oninput="window.System.setSens(this.value)">
         </div>
     </div>
 
-    <div id="game-ui" class="screen hidden" style="background: transparent;">
-        <button onclick="window.System.home()" style="position:absolute; top:1.5rem; right:1.5rem; background:#3498db; color:white; width:50px; height:50px; border-radius:50%; border:2px solid white; font-weight:bold; pointer-events:auto;">⌂</button>
-        <div style="position:absolute; top:1.5rem; left:1.5rem; background:rgba(0,0,0,0.6); padding:0.5rem 1.2rem; border-radius:16px; border-left:6px solid #3498db; color:#fff; font-family:'Russo One';">
-            <span style="font-size:0.7rem; color:#3498db;">SCORE</span><br><span id="hud-score">0</span>
-        </div>
-        <div id="game-msg"></div>
-        <div id="kart-ui-layer"></div>
+    <div id="screen-over" class="screen hidden" style="background: rgba(255,255,255,0.95); z-index: 60; backdrop-filter: blur(10px);">
+        <h1 class="text-6xl text-gray-900 font-black mb-0 tracking-tighter">FIM DE JOGO</h1>
+        <div class="text-sm text-gray-500 font-bold mb-6 tracking-widest uppercase">Pontuação Final</div>
+        <div id="final-score" class="text-8xl text-blue-600 font-black mb-10 font-mono drop-shadow-lg">0</div>
+        <button onclick="window.System.home()" class="bg-blue-600 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:scale-105 transition-transform text-xl">
+            VOLTAR AO MENU
+        </button>
     </div>
 
-    <div id="screen-over" class="screen hidden" style="background: rgba(255,255,255,0.95); z-index: 60;">
-        <h1 style="font-size: 3rem; color: #333; font-weight: 900;">FIM DE JOGO</h1>
-        <div id="final-score" style="font-size: 5rem; color: #3498db; font-family: 'Russo One';">0</div>
-        <button onclick="window.System.menu()" class="btn-action" style="margin-top: 30px;">MENU PRINCIPAL</button>
-    </div>
-</div>
+    <!-- CONFIGURAÇÃO DO FIREBASE (MULTIPLAYER) -->
+    <script>
+        // *** IMPORTANTE: COLE SUAS CHAVES DO FIREBASE AQUI ***
+        const firebaseConfig = {
+            apiKey: "SUA_API_KEY_AQUI",
+            authDomain: "seu-projeto.firebaseapp.com",
+            databaseURL: "https://seu-projeto-default-rtdb.firebaseio.com",
+            projectId: "seu-projeto",
+            storageBucket: "seu-projeto.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
 
-<!-- ORDEM DE CARREGAMENTO -->
-<script type="module" src="js/firebase_bridge.js"></script>
-<script src="shared/utils.js"></script>
-<script src="shared/constants.js"></script>
-<script src="js/core.js"></script>
+        // Inicializa se as chaves estiverem presentes (segurança)
+        if (firebaseConfig.apiKey !== "SUA_API_KEY_AQUI" && window.firebase) {
+            firebase.initializeApp(firebaseConfig);
+            window.DB = firebase.database();
+            console.log("🔥 Firebase Conectado!");
+        } else {
+            console.log("⚠️ Multiplayer Offline: Configure o Firebase no index.html");
+            window.DB = null; // Modo Offline forçado
+        }
+    </script>
 
-<!-- JOGOS -->
-<script src="js/game_run.js"></script>
-<script src="js/game_box.js"></script>
-<script src="js/game_tennis.js"></script>
-<script src="js/game_kart_pro.js"></script>
+    <!-- SISTEMA -->
+    <script src="js/core.js"></script>
+    <!-- JOGOS -->
+    <script src="js/game_box.js"></script>
+    <script src="js/game_run.js"></script>
+    <script src="js/game_tennis.js"></script>
+    <script src="js/game_kart.js"></script>
 
 </body>
 </html>
-
-
