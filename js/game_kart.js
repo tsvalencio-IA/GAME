@@ -1,6 +1,6 @@
 // =====================================================
-// KART DO OTTO – FINAL PLATINUM EDITION
-// FEAT: LOBBY INTELIGENTE, LIMPEZA DE GHOSTS & AUTO-START
+// KART DO OTTO – FINAL STABLE BUILD
+// VOLANTE 3D CORRIGIDO + GESTÃO DE MEMÓRIA OTIMIZADA
 // =====================================================
 
 (function() {
@@ -34,7 +34,7 @@
         CRASH_PENALTY: 0.55,
         DEADZONE: 0.05,
         INPUT_SMOOTHING: 0.22,
-        TURBO_ZONE_Y: 0.45, // Zona de ativação facilitada
+        TURBO_ZONE_Y: 0.45, 
         DRAW_DISTANCE: 60,
         FOV: 100
     };
@@ -68,33 +68,29 @@
     }
 
     const Logic = {
-        // MÁQUINA DE ESTADOS: 'MODE_SELECT' -> 'LOBBY' -> 'WAITING' -> 'RACE' -> 'FINISHED'
-        state: 'MODE_SELECT',
+        state: 'MODE_SELECT', // MODE_SELECT -> LOBBY -> WAITING -> RACE -> FINISHED
         roomId: 'room_01',
         
-        // Seleção
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
         isOnline: false,
 
-        // Multiplayer Lógica
         dbRef: null,
         lastSync: 0,
-        startTimeRef: null, // Timestamp de inicio forçado
-        autoStartTimer: null, // Contador visual
+        autoStartTimer: null,
 
-        // Física do Jogador
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
         nitro: 100, turboLock: false,
         driftState: 0, driftDir: 0, driftCharge: 0, mtStage: 0, boostTimer: 0,    
         finishTimer: 0, lap: 1, totalLaps: 3,
         time: 0, rank: 1, score: 0,
         
-        // Visuais
         visualTilt: 0, bounce: 0, skyColor: 0, 
         stats: { drifts: 0, overtakes: 0, crashes: 0 },
         inputState: 0, gestureTimer: 0,
+        
+        // Objeto do Volante Virtual
         virtualWheel: { x:0, y:0, r:0, opacity:0 },
         
         rivals: [],
@@ -169,7 +165,6 @@
             nitroBtn.addEventListener('mousedown', toggleTurbo);
             document.getElementById('game-ui').appendChild(nitroBtn);
 
-            // INPUT DO MENU
             window.System.canvas.onclick = (e) => {
                 const rect = window.System.canvas.getBoundingClientRect();
                 const y = e.clientY - rect.top;
@@ -183,7 +178,7 @@
                 }
 
                 if (this.state === 'LOBBY') {
-                    if (y > h * 0.7) this.toggleReady(); // Start/Ready
+                    if (y > h * 0.7) this.toggleReady(); 
                     else if (y < h * 0.3) {
                         this.selectedChar = (this.selectedChar + 1) % CHARACTERS.length;
                         window.Sfx.hover();
@@ -197,11 +192,8 @@
             };
         },
 
-        // -------------------------------------------------------------
-        // INICIALIZAÇÃO E MODOS
-        // -------------------------------------------------------------
         init: function() { 
-            this.cleanup(); // Garante que não tem lixo anterior
+            this.cleanup(); 
             this.state = 'MODE_SELECT';
             this.setupUI();
             this.resetPhysics();
@@ -211,13 +203,13 @@
             this.speed = 0; this.pos = 0; this.playerX = 0; this.steer = 0;
             this.lap = 1; this.score = 0; this.driftState = 0; this.nitro = 100;
             this.virtualWheel = { x:0, y:0, r:0, opacity:0 };
+            particles = []; // Limpa partículas antigas
         },
 
         selectMode: function(mode) {
             if (mode === 'OFFLINE') {
                 this.isOnline = false;
                 window.System.msg("MODO SOLO");
-                // Bots Imediatos
                 this.rivals = [
                     { pos: 1000, lap: 1, x: -0.4, speed: 0, color: '#2ecc71', name: 'Luigi', aggro: 0.03 },
                     { pos: 800,  lap: 1, x: 0.4,  speed: 0, color: '#3498db', name: 'Toad',  aggro: 0.025 }
@@ -239,18 +231,15 @@
         connectMultiplayer: function() {
             this.dbRef = window.DB.ref('rooms/' + this.roomId);
             
-            // 1. REGISTRO COM LIMPEZA AUTOMÁTICA (SOLUÇÃO GHOST)
             const myRef = this.dbRef.child('players/' + window.System.playerId);
             myRef.set({
                 name: 'Player',
                 charId: 0,
                 ready: false,
-                lastSeen: firebase.database.ServerValue.TIMESTAMP // Heartbeat inicial
+                lastSeen: firebase.database.ServerValue.TIMESTAMP 
             });
-            // Se desconectar (fechar aba), remove do banco
             myRef.onDisconnect().remove();
 
-            // 2. OUVIR JOGADORES
             this.dbRef.child('players').on('value', (snap) => {
                 const data = snap.val();
                 if (!data) return;
@@ -259,7 +248,6 @@
                 this.rivals = Object.keys(data)
                     .filter(id => id !== window.System.playerId)
                     .filter(id => {
-                        // FILTRO DE GHOSTS: Se não atualizou nos últimos 15s, ignora
                         const p = data[id];
                         return (now - (p.lastSeen || 0)) < 15000; 
                     })
@@ -271,7 +259,6 @@
                         color: CHARACTERS[data[id].charId || 0].color
                     }));
 
-                // 3. LÓGICA DE AUTO-START (20 SEGUNDOS)
                 this.checkAutoStart(data);
             });
         },
@@ -279,26 +266,21 @@
         checkAutoStart: function(allPlayers) {
             if (this.state !== 'WAITING' && this.state !== 'LOBBY') return;
 
-            // Conta quantos estão prontos (Eu + Rivais)
             let readyCount = (this.isReady ? 1 : 0);
             this.rivals.forEach(r => { if(r.ready) readyCount++; });
-            
             const totalPlayers = this.rivals.length + 1;
 
-            // Se tem pelo menos 2 players e pelo menos 2 deram Ready
             if (totalPlayers >= 2 && readyCount >= 2) {
                 if (!this.autoStartTimer) {
-                    this.autoStartTimer = Date.now() + 20000; // 20 segundos no futuro
+                    this.autoStartTimer = Date.now() + 20000; 
                 }
-                // Se já passou o tempo, inicia forçado
                 if (Date.now() > this.autoStartTimer) {
-                    this.startRace(this.selectedTrack); // Cada um inicia localmente
+                    this.startRace(this.selectedTrack);
                 }
             } else {
-                this.autoStartTimer = null; // Cancela timer se alguém sair
+                this.autoStartTimer = null; 
             }
 
-            // Se TODOS derem ready, inicia imediatamente (bypass do timer)
             if (totalPlayers > 1 && readyCount === totalPlayers) {
                 this.startRace(this.selectedTrack);
             }
@@ -311,19 +293,20 @@
             }
             if(nitroBtn) nitroBtn.remove();
             window.System.canvas.onclick = null;
+            segments = [];
+            minimapPoints = [];
+            particles = [];
         },
 
         toggleReady: function() {
             if (this.state !== 'LOBBY') return;
             
-            // Se for OFFLINE, inicia direto
             if (!this.isOnline) {
                 window.Sfx.click();
                 this.startRace(this.selectedTrack);
                 return;
             }
 
-            // Se for ONLINE, marca como pronto e espera
             this.isReady = !this.isReady;
             window.Sfx.click();
             
@@ -332,7 +315,7 @@
                 window.System.msg("AGUARDANDO OPONENTES...");
             } else {
                 this.state = 'LOBBY';
-                this.autoStartTimer = null; // Cancela timer se eu desistir
+                this.autoStartTimer = null; 
             }
             this.syncLobby();
         },
@@ -343,13 +326,13 @@
                     charId: this.selectedChar,
                     trackId: this.selectedTrack,
                     ready: this.isReady,
-                    lastSeen: firebase.database.ServerValue.TIMESTAMP // Atualiza Heartbeat
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP 
                 });
             }
         },
 
         startRace: function(trackId) {
-            if (this.state === 'RACE') return; // Evita duplo start
+            if (this.state === 'RACE') return; 
             this.state = 'RACE';
             this.buildTrack(trackId); 
             nitroBtn.style.display = 'flex'; 
@@ -361,7 +344,6 @@
         // GAME LOOP
         // =============================================================
         update: function(ctx, w, h, pose) {
-            // Renderiza Telas de Menu
             if (this.state === 'MODE_SELECT') {
                 this.renderModeSelect(ctx, w, h);
                 return;
@@ -379,20 +361,19 @@
                 this.renderWorld(ctx, w, h);
                 this.renderUI(ctx, w, h);
                 if (this.isOnline) this.syncMultiplayer();
-            } catch (err) {
-                console.error("Erro recuperado:", err);
-            }
+            } catch (err) { }
             return Math.floor(this.score);
         },
 
         syncMultiplayer: function() {
-            if (Date.now() - this.lastSync > 50) {
+            // Rate Limit para evitar sobrecarga (100ms)
+            if (Date.now() - this.lastSync > 100) {
                 this.lastSync = Date.now();
                 this.dbRef.child('players/' + window.System.playerId).update({
                     pos: Math.floor(this.pos),
                     x: this.playerX,
                     lap: this.lap,
-                    lastSeen: firebase.database.ServerValue.TIMESTAMP // Mantém vivo
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP 
                 });
             }
         },
@@ -407,13 +388,13 @@
             let detected = 0;
             let pLeft = null, pRight = null;
 
-            // Input Tolerante
             if (d.state === 'RACE' && pose && pose.keypoints) {
                 const lw = pose.keypoints.find(k => k.name === 'left_wrist');
                 const rw = pose.keypoints.find(k => k.name === 'right_wrist');
                 
-                if (lw && lw.score > 0.2) { pLeft = window.Gfx.map(lw, w, h); detected++; }
-                if (rw && rw.score > 0.2) { pRight = window.Gfx.map(rw, w, h); detected++; }
+                // DETECÇÃO SUPER SENSÍVEL (0.1)
+                if (lw && lw.score > 0.1) { pLeft = window.Gfx.map(lw, w, h); detected++; }
+                if (rw && rw.score > 0.1) { pRight = window.Gfx.map(rw, w, h); detected++; }
                 
                 if (detected >= 1) {
                     let avgY = h;
@@ -435,8 +416,12 @@
                 const dx = pRight.x - pLeft.x; const dy = pRight.y - pLeft.y;
                 const rawAngle = Math.atan2(dy, dx);
                 d.targetSteer = (Math.abs(rawAngle) > CONF.DEADZONE) ? rawAngle * 2.3 : 0;
-                d.virtualWheel.x = (pLeft.x + pRight.x) / 2; d.virtualWheel.y = (pLeft.y + pRight.y) / 2;
-                d.virtualWheel.r = Math.hypot(dx, dy) / 2; d.virtualWheel.opacity = 1;
+                
+                // ATUALIZAÇÃO DO VOLANTE (FLUTUANTE)
+                d.virtualWheel.x = (pLeft.x + pRight.x) / 2;
+                d.virtualWheel.y = (pLeft.y + pRight.y) / 2;
+                d.virtualWheel.r = Math.hypot(dx, dy) / 2;
+                d.virtualWheel.opacity = 1; // Força visibilidade total
             } else {
                 d.inputState = 0; d.targetSteer = 0; d.virtualWheel.opacity *= 0.9;
             }
@@ -457,7 +442,6 @@
 
             if (Math.abs(d.playerX) > 2.2) d.speed *= CONF.OFFROAD_DECEL;
 
-            // Sanitização
             if (isNaN(d.speed)) d.speed = 0;
             if (isNaN(d.playerX)) d.playerX = 0;
             if (isNaN(d.steer)) d.steer = 0;
@@ -507,7 +491,7 @@
 
             let pAhead = 0;
             d.rivals.forEach(r => {
-                if (!r.isRemote) { // IA Simples
+                if (!r.isRemote) { 
                     let dist = r.pos - d.pos;
                     if(dist > trackLength/2) dist -= trackLength; if(dist < -trackLength/2) dist += trackLength;
                     let targetS = CONF.MAX_SPEED * 0.45;
@@ -618,7 +602,20 @@
             const playerColor = CHARACTERS[d.selectedChar].color;
             this.drawKartSprite(ctx, cx, h*0.85 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d, playerColor);
             
-            particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.l--; if(p.l<=0) particles.splice(i,1); else { ctx.fillStyle=p.c; ctx.globalAlpha = p.l / 50; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); ctx.globalAlpha = 1.0; } });
+            // Loop reverso seguro para remover partículas sem erro de índice
+            for(let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.l--;
+                if(p.l <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.fillStyle = p.c; ctx.globalAlpha = p.l / 50; 
+                    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill(); 
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+            // Limite de segurança para partículas
+            if(particles.length > 50) particles.length = 50;
         },
 
         drawKartSprite: function(ctx, cx, y, carScale, steer, tilt, d, color) {
@@ -728,21 +725,42 @@
             d.rivals.forEach(r => { const ri = Math.floor((r.pos / trackLength) * minimapPoints.length) % minimapPoints.length; ctx.fillStyle = r.color; ctx.beginPath(); ctx.arc(minimapPoints[ri].x, minimapPoints[ri].y, 4, 0, Math.PI * 2); ctx.fill(); });
             ctx.restore();
 
-            // VOLANTE
+            // VOLANTE VIRTUAL 3D (ENTRE AS MÃOS) - RENDERING
             if (d.virtualWheel.opacity > 0.01) {
-                const vw = d.virtualWheel; ctx.save(); ctx.globalAlpha = vw.opacity; ctx.translate(vw.x, vw.y);
-                ctx.lineWidth = 8; ctx.strokeStyle = '#222'; ctx.beginPath(); ctx.arc(0, 0, vw.r, 0, Math.PI * 2); ctx.stroke();
-                ctx.lineWidth = 4; ctx.strokeStyle = '#00ffff'; ctx.beginPath(); ctx.arc(0, 0, vw.r - 8, 0, Math.PI * 2); ctx.stroke();
-                ctx.rotate(d.steer * 1.4); ctx.fillStyle = '#ff3300'; ctx.fillRect(-4, -vw.r + 10, 8, 22);
-                ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+                const vw = d.virtualWheel; 
+                ctx.save(); 
+                ctx.globalAlpha = vw.opacity; // Opacidade definida pela detecção (1.0 = detectado)
+                ctx.translate(vw.x, vw.y);
+
+                // Aro Externo
+                ctx.lineWidth = 8; 
+                ctx.strokeStyle = '#222'; 
+                ctx.beginPath(); ctx.arc(0, 0, vw.r, 0, Math.PI * 2); ctx.stroke();
+
+                // Aro Interno (Neon)
+                ctx.lineWidth = 4; 
+                ctx.strokeStyle = '#00ffff'; 
+                ctx.beginPath(); ctx.arc(0, 0, vw.r - 8, 0, Math.PI * 2); ctx.stroke();
+
+                // Marcador de Direção (Gira com steer)
+                ctx.rotate(d.steer * 1.4); 
+                ctx.fillStyle = '#ff3300'; 
+                ctx.fillRect(-4, -vw.r + 10, 8, 22); 
+
+                // Centro
+                ctx.fillStyle = '#111'; 
+                ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); 
+
+                ctx.restore();
             }
         }
     };
 
     if(window.System) {
+        // Desativa o volante fixo do DOM para focar no 3D Canvas
         window.System.registerGame('drive', 'Otto Kart GP', '🏎️', Logic, {
             camOpacity: 0.1, 
-            showWheel: false
+            showWheel: false // Mantém o volante fixo do HTML escondido para usar o volante 3D dinâmico
         });
     }
 })()
