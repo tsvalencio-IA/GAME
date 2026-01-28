@@ -1,25 +1,25 @@
 // =====================================================
-// KART DO OTTO – ULTIMATE STABLE EDITION
-// CORREÇÕES: INPUT SENSÍVEL, TURBO FÁCIL & MEMORY FIX
+// KART DO OTTO – FINAL PLATINUM EDITION
+// FEAT: LOBBY INTELIGENTE, LIMPEZA DE GHOSTS & AUTO-START
 // =====================================================
 
 (function() {
 
-    // --- PERSONAGENS (Balanceamento) ---
+    // --- CONFIGURAÇÃO DE PERSONAGENS ---
     const CHARACTERS = [
-        { id: 0, name: 'OttO', color: '#e74c3c', speedInfo: 1.0, turnInfo: 1.0, desc: 'Equilibrado' },
-        { id: 1, name: 'ThIAgo', color: '#f1c40f', speedInfo: 1.08, turnInfo: 0.85, desc: 'Velocidade Máxima' },
-        { id: 2, name: 'Thamis', color: '#3498db', speedInfo: 0.92, turnInfo: 1.15, desc: 'Controle Total' }
+        { id: 0, name: 'OTTO', color: '#e74c3c', speedInfo: 1.0, turnInfo: 1.0, desc: 'Equilibrado' },
+        { id: 1, name: 'SPEED', color: '#f1c40f', speedInfo: 1.08, turnInfo: 0.85, desc: 'Velocidade Máxima' },
+        { id: 2, name: 'TANK', color: '#3498db', speedInfo: 0.92, turnInfo: 1.15, desc: 'Controle Total' }
     ];
 
-    // --- PISTAS (Temas) ---
+    // --- CONFIGURAÇÃO DE PISTAS ---
     const TRACKS = [
         { id: 0, name: 'GP CIRCUITO', theme: 'grass', sky: 0, curveMult: 1.0 },
         { id: 1, name: 'DESERTO SECO', theme: 'sand', sky: 1, curveMult: 0.8 },
         { id: 2, name: 'PICO NEVADO', theme: 'snow', sky: 0, curveMult: 1.3 }
     ];
 
-    // --- FÍSICA E CONFIGURAÇÃO ---
+    // --- FÍSICA E ENGINE ---
     const CONF = {
         MAX_SPEED: 235,
         TURBO_MAX_SPEED: 420,
@@ -34,10 +34,7 @@
         CRASH_PENALTY: 0.55,
         DEADZONE: 0.05,
         INPUT_SMOOTHING: 0.22,
-        
-        // CORREÇÃO TURBO: Zona aumentada para 45% do topo da tela (mais fácil ativar)
-        TURBO_ZONE_Y: 0.45, 
-        
+        TURBO_ZONE_Y: 0.45, // Zona de ativação facilitada
         DRAW_DISTANCE: 60,
         FOV: 100
     };
@@ -54,7 +51,6 @@
     let segments = [];
     let trackLength = 0;
 
-    // Segmento de segurança para evitar crash de render
     const DUMMY_SEG = { curve: 0, y: 0, color: 'light', obs: [], theme: 'grass' };
     function getSegment(index) {
         if (!segments || segments.length === 0) return DUMMY_SEG;
@@ -72,29 +68,34 @@
     }
 
     const Logic = {
-        // --- ESTADO ---
-        state: 'LOBBY', // LOBBY, WAITING, RACE, FINISHED
+        // MÁQUINA DE ESTADOS: 'MODE_SELECT' -> 'LOBBY' -> 'WAITING' -> 'RACE' -> 'FINISHED'
+        state: 'MODE_SELECT',
         roomId: 'room_01',
+        
+        // Seleção
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
-        
-        // Multiplayer refs
+        isOnline: false,
+
+        // Multiplayer Lógica
         dbRef: null,
         lastSync: 0,
-        
-        // Física
+        startTimeRef: null, // Timestamp de inicio forçado
+        autoStartTimer: null, // Contador visual
+
+        // Física do Jogador
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
         nitro: 100, turboLock: false,
         driftState: 0, driftDir: 0, driftCharge: 0, mtStage: 0, boostTimer: 0,    
         finishTimer: 0, lap: 1, totalLaps: 3,
         time: 0, rank: 1, score: 0,
         
-        // Visual
+        // Visuais
         visualTilt: 0, bounce: 0, skyColor: 0, 
         stats: { drifts: 0, overtakes: 0, crashes: 0 },
         inputState: 0, gestureTimer: 0,
-        virtualWheel: { x:0, y:0, r:0, opacity:0 }, // O volante flutuante
+        virtualWheel: { x:0, y:0, r:0, opacity:0 },
         
         rivals: [],
 
@@ -117,7 +118,6 @@
             };
             const addProp = (index, type, offset) => { if (segments[index]) segments[index].obs.push({ type: type, x: offset }); };
 
-            // Pista Padrão
             addRoad(50, 0, 0); 
             let sHook = addRoad(20, 0.5, 0); addProp(sHook, 'sign', -1.5);
             addRoad(20, 1.5, 0);             
@@ -140,7 +140,6 @@
         },
 
         setupUI: function() {
-            // Remove botão antigo se existir para não duplicar
             const oldBtn = document.getElementById('nitro-btn-kart');
             if(oldBtn) oldBtn.remove();
             
@@ -156,10 +155,9 @@
                 userSelect: 'none', touchAction: 'manipulation'
             });
             
-            // Função segura para toggle
             const toggleTurbo = (e) => {
                 if(e) { e.preventDefault(); e.stopPropagation(); }
-                if(Logic.nitro > 5) { // Usa Logic explícito para garantir referência
+                if(Logic.nitro > 5) {
                     Logic.turboLock = !Logic.turboLock;
                     nitroBtn.style.transform = Logic.turboLock ? 'scale(0.95)' : 'scale(1)';
                     nitroBtn.style.filter = Logic.turboLock ? 'brightness(1.5)' : 'brightness(1)';
@@ -171,83 +169,42 @@
             nitroBtn.addEventListener('mousedown', toggleTurbo);
             document.getElementById('game-ui').appendChild(nitroBtn);
 
-            // INPUTS DE MOUSE PARA O LOBBY
+            // INPUT DO MENU
             window.System.canvas.onclick = (e) => {
-                if (this.state !== 'LOBBY') return;
                 const rect = window.System.canvas.getBoundingClientRect();
                 const y = e.clientY - rect.top;
                 const h = window.System.canvas.height;
 
-                if (y > h * 0.7) { // Start Button
-                    this.toggleReady();
-                } else if (y < h * 0.3) { // Char Select
-                    this.selectedChar = (this.selectedChar + 1) % CHARACTERS.length;
-                    window.Sfx.hover();
-                    this.syncLobby();
-                } else { // Track Select
-                    this.selectedTrack = (this.selectedTrack + 1) % TRACKS.length;
-                    window.Sfx.hover();
-                    this.syncLobby();
+                if (this.state === 'MODE_SELECT') {
+                    if (y < h * 0.5) this.selectMode('OFFLINE');
+                    else this.selectMode('ONLINE');
+                    window.Sfx.click();
+                    return;
+                }
+
+                if (this.state === 'LOBBY') {
+                    if (y > h * 0.7) this.toggleReady(); // Start/Ready
+                    else if (y < h * 0.3) {
+                        this.selectedChar = (this.selectedChar + 1) % CHARACTERS.length;
+                        window.Sfx.hover();
+                        if(this.isOnline) this.syncLobby();
+                    } else {
+                        this.selectedTrack = (this.selectedTrack + 1) % TRACKS.length;
+                        window.Sfx.hover();
+                        if(this.isOnline) this.syncLobby();
+                    }
                 }
             };
         },
 
         // -------------------------------------------------------------
-        // INICIALIZAÇÃO E REDE (COM LIMPEZA DE MEMÓRIA)
+        // INICIALIZAÇÃO E MODOS
         // -------------------------------------------------------------
         init: function() { 
-            // 1. Limpeza Preventiva (Evita travamentos)
-            this.cleanup();
-
-            this.state = 'LOBBY';
+            this.cleanup(); // Garante que não tem lixo anterior
+            this.state = 'MODE_SELECT';
             this.setupUI();
             this.resetPhysics();
-            this.isReady = false;
-
-            // 2. Conexão Multiplayer
-            if (window.DB) {
-                this.dbRef = window.DB.ref('rooms/' + this.roomId);
-                
-                // Entrar na sala
-                this.dbRef.child('players/' + window.System.playerId).set({
-                    name: 'Player',
-                    charId: 0,
-                    ready: false,
-                    pos: 0,
-                    x: 0,
-                    lap: 1,
-                    timestamp: firebase.database.ServerValue.TIMESTAMP
-                });
-
-                // Ouvir estado (com referência para poder limpar depois)
-                this.dbRef.child('players').on('value', (snap) => {
-                    const data = snap.val();
-                    if (!data) return;
-                    
-                    this.rivals = Object.keys(data)
-                        .filter(id => id !== window.System.playerId)
-                        .map(id => ({
-                            id: id,
-                            ...data[id],
-                            isRemote: true,
-                            speed: 0,
-                            color: CHARACTERS[data[id].charId || 0].color
-                        }));
-
-                    const allIds = Object.keys(data);
-                    const allReady = allIds.every(id => data[id].ready);
-                    if (this.state === 'WAITING' && allReady && allIds.length > 1) {
-                        const trackToLoad = data[allIds[0]].trackId || 0;
-                        this.startRace(trackToLoad);
-                    }
-                });
-            } else {
-                window.System.msg("MODO OFFLINE");
-                this.rivals = [
-                    { pos: 1000, lap: 1, x: -0.4, speed: 0, color: '#2ecc71', name: 'Luigi', aggro: 0.03 },
-                    { pos: 800,  lap: 1, x: 0.4,  speed: 0, color: '#3498db', name: 'Toad',  aggro: 0.025 }
-                ];
-            }
         },
 
         resetPhysics: function() {
@@ -256,10 +213,101 @@
             this.virtualWheel = { x:0, y:0, r:0, opacity:0 };
         },
 
+        selectMode: function(mode) {
+            if (mode === 'OFFLINE') {
+                this.isOnline = false;
+                window.System.msg("MODO SOLO");
+                // Bots Imediatos
+                this.rivals = [
+                    { pos: 1000, lap: 1, x: -0.4, speed: 0, color: '#2ecc71', name: 'Luigi', aggro: 0.03 },
+                    { pos: 800,  lap: 1, x: 0.4,  speed: 0, color: '#3498db', name: 'Toad',  aggro: 0.025 }
+                ];
+                this.state = 'LOBBY';
+            } else {
+                if (!window.DB) {
+                    window.System.msg("SEM CONEXÃO! INDO P/ SOLO");
+                    this.selectMode('OFFLINE');
+                    return;
+                }
+                this.isOnline = true;
+                window.System.msg("CONECTANDO...");
+                this.connectMultiplayer();
+                this.state = 'LOBBY';
+            }
+        },
+
+        connectMultiplayer: function() {
+            this.dbRef = window.DB.ref('rooms/' + this.roomId);
+            
+            // 1. REGISTRO COM LIMPEZA AUTOMÁTICA (SOLUÇÃO GHOST)
+            const myRef = this.dbRef.child('players/' + window.System.playerId);
+            myRef.set({
+                name: 'Player',
+                charId: 0,
+                ready: false,
+                lastSeen: firebase.database.ServerValue.TIMESTAMP // Heartbeat inicial
+            });
+            // Se desconectar (fechar aba), remove do banco
+            myRef.onDisconnect().remove();
+
+            // 2. OUVIR JOGADORES
+            this.dbRef.child('players').on('value', (snap) => {
+                const data = snap.val();
+                if (!data) return;
+                
+                const now = Date.now();
+                this.rivals = Object.keys(data)
+                    .filter(id => id !== window.System.playerId)
+                    .filter(id => {
+                        // FILTRO DE GHOSTS: Se não atualizou nos últimos 15s, ignora
+                        const p = data[id];
+                        return (now - (p.lastSeen || 0)) < 15000; 
+                    })
+                    .map(id => ({
+                        id: id,
+                        ...data[id],
+                        isRemote: true,
+                        speed: 0,
+                        color: CHARACTERS[data[id].charId || 0].color
+                    }));
+
+                // 3. LÓGICA DE AUTO-START (20 SEGUNDOS)
+                this.checkAutoStart(data);
+            });
+        },
+
+        checkAutoStart: function(allPlayers) {
+            if (this.state !== 'WAITING' && this.state !== 'LOBBY') return;
+
+            // Conta quantos estão prontos (Eu + Rivais)
+            let readyCount = (this.isReady ? 1 : 0);
+            this.rivals.forEach(r => { if(r.ready) readyCount++; });
+            
+            const totalPlayers = this.rivals.length + 1;
+
+            // Se tem pelo menos 2 players e pelo menos 2 deram Ready
+            if (totalPlayers >= 2 && readyCount >= 2) {
+                if (!this.autoStartTimer) {
+                    this.autoStartTimer = Date.now() + 20000; // 20 segundos no futuro
+                }
+                // Se já passou o tempo, inicia forçado
+                if (Date.now() > this.autoStartTimer) {
+                    this.startRace(this.selectedTrack); // Cada um inicia localmente
+                }
+            } else {
+                this.autoStartTimer = null; // Cancela timer se alguém sair
+            }
+
+            // Se TODOS derem ready, inicia imediatamente (bypass do timer)
+            if (totalPlayers > 1 && readyCount === totalPlayers) {
+                this.startRace(this.selectedTrack);
+            }
+        },
+
         cleanup: function() {
             if (this.dbRef) {
-                this.dbRef.child('players').off(); // Desliga ouvintes
-                this.dbRef.child('players/' + window.System.playerId).remove(); // Sai da sala
+                this.dbRef.child('players').off(); 
+                this.dbRef.child('players/' + window.System.playerId).remove();
             }
             if(nitroBtn) nitroBtn.remove();
             window.System.canvas.onclick = null;
@@ -267,18 +315,26 @@
 
         toggleReady: function() {
             if (this.state !== 'LOBBY') return;
+            
+            // Se for OFFLINE, inicia direto
+            if (!this.isOnline) {
+                window.Sfx.click();
+                this.startRace(this.selectedTrack);
+                return;
+            }
+
+            // Se for ONLINE, marca como pronto e espera
             this.isReady = !this.isReady;
             window.Sfx.click();
             
             if (this.isReady) {
                 this.state = 'WAITING';
-                window.System.msg("AGUARDANDO...");
+                window.System.msg("AGUARDANDO OPONENTES...");
             } else {
                 this.state = 'LOBBY';
+                this.autoStartTimer = null; // Cancela timer se eu desistir
             }
             this.syncLobby();
-
-            if (!window.DB) setTimeout(() => this.startRace(this.selectedTrack), 1000);
         },
 
         syncLobby: function() {
@@ -286,12 +342,14 @@
                 this.dbRef.child('players/' + window.System.playerId).update({
                     charId: this.selectedChar,
                     trackId: this.selectedTrack,
-                    ready: this.isReady
+                    ready: this.isReady,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP // Atualiza Heartbeat
                 });
             }
         },
 
         startRace: function(trackId) {
+            if (this.state === 'RACE') return; // Evita duplo start
             this.state = 'RACE';
             this.buildTrack(trackId); 
             nitroBtn.style.display = 'flex'; 
@@ -303,12 +361,16 @@
         // GAME LOOP
         // =============================================================
         update: function(ctx, w, h, pose) {
+            // Renderiza Telas de Menu
+            if (this.state === 'MODE_SELECT') {
+                this.renderModeSelect(ctx, w, h);
+                return;
+            }
             if (this.state === 'LOBBY' || this.state === 'WAITING') {
                 this.renderLobby(ctx, w, h);
                 return;
             }
 
-            // Garante que a pista existe antes de rodar física
             if (!segments || segments.length === 0) return 0;
             if (trackLength === 0) trackLength = 1;
             
@@ -316,7 +378,7 @@
                 this.updatePhysics(w, h, pose);
                 this.renderWorld(ctx, w, h);
                 this.renderUI(ctx, w, h);
-                this.syncMultiplayer();
+                if (this.isOnline) this.syncMultiplayer();
             } catch (err) {
                 console.error("Erro recuperado:", err);
             }
@@ -324,12 +386,13 @@
         },
 
         syncMultiplayer: function() {
-            if (window.DB && Date.now() - this.lastSync > 50) {
+            if (Date.now() - this.lastSync > 50) {
                 this.lastSync = Date.now();
                 this.dbRef.child('players/' + window.System.playerId).update({
                     pos: Math.floor(this.pos),
                     x: this.playerX,
-                    lap: this.lap
+                    lap: this.lap,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP // Mantém vivo
                 });
             }
         },
@@ -344,25 +407,22 @@
             let detected = 0;
             let pLeft = null, pRight = null;
 
-            // 1. INPUT MAIS TOLERANTE
+            // Input Tolerante
             if (d.state === 'RACE' && pose && pose.keypoints) {
                 const lw = pose.keypoints.find(k => k.name === 'left_wrist');
                 const rw = pose.keypoints.find(k => k.name === 'right_wrist');
                 
-                // CORREÇÃO: Score > 0.2 (era 0.3) para pegar mais fácil
                 if (lw && lw.score > 0.2) { pLeft = window.Gfx.map(lw, w, h); detected++; }
                 if (rw && rw.score > 0.2) { pRight = window.Gfx.map(rw, w, h); detected++; }
                 
-                // Lógica de Turbo por Gesto
                 if (detected >= 1) {
                     let avgY = h;
                     if (detected === 2) avgY = (pLeft.y + pRight.y) / 2;
                     else avgY = (pLeft ? pLeft.y : pRight.y);
                     
-                    // CORREÇÃO: CONF.TURBO_ZONE_Y agora é 0.45 (quase metade da tela)
                     if (avgY < h * CONF.TURBO_ZONE_Y) {
                         d.gestureTimer++;
-                        if (d.gestureTimer === 10 && d.nitro > 5) { // 10 frames = resposta mais rápida
+                        if (d.gestureTimer === 10 && d.nitro > 5) {
                             d.turboLock = !d.turboLock; 
                             window.System.msg(d.turboLock ? "TURBO ON" : "TURBO OFF");
                         }
@@ -370,28 +430,20 @@
                 }
             }
 
-            // CORREÇÃO: Se detectar 2 mãos, atualiza o volante e mantém visível
             if (detected === 2) {
                 d.inputState = 2;
                 const dx = pRight.x - pLeft.x; const dy = pRight.y - pLeft.y;
                 const rawAngle = Math.atan2(dy, dx);
                 d.targetSteer = (Math.abs(rawAngle) > CONF.DEADZONE) ? rawAngle * 2.3 : 0;
-                
-                d.virtualWheel.x = (pLeft.x + pRight.x) / 2; 
-                d.virtualWheel.y = (pLeft.y + pRight.y) / 2;
-                d.virtualWheel.r = Math.hypot(dx, dy) / 2; 
-                d.virtualWheel.opacity = 1; // Força visibilidade máxima
+                d.virtualWheel.x = (pLeft.x + pRight.x) / 2; d.virtualWheel.y = (pLeft.y + pRight.y) / 2;
+                d.virtualWheel.r = Math.hypot(dx, dy) / 2; d.virtualWheel.opacity = 1;
             } else {
-                // Perda de tracking: Zera volante suavemente
-                d.inputState = 0; 
-                d.targetSteer = 0; 
-                d.virtualWheel.opacity *= 0.9;
+                d.inputState = 0; d.targetSteer = 0; d.virtualWheel.opacity *= 0.9;
             }
             
             d.steer += (d.targetSteer - d.steer) * CONF.INPUT_SMOOTHING;
             d.steer = Math.max(-1.2, Math.min(1.2, d.steer));
 
-            // 2. FÍSICA VEÍCULO
             let currentMax = CONF.MAX_SPEED * charStats.speedInfo;
             if (d.turboLock && d.nitro > 0) {
                 currentMax = CONF.TURBO_MAX_SPEED; d.nitro -= 0.6;
@@ -426,7 +478,6 @@
             if(d.playerX < -4.5) { d.playerX = -4.5; d.speed *= 0.95; }
             if(d.playerX > 4.5)  { d.playerX = 4.5;  d.speed *= 0.95; }
 
-            // Drift
             if (d.driftState === 0) {
                 if (Math.abs(d.steer) > 0.9 && speedRatio > 0.6 && Math.abs(d.playerX) <= 2.2) {
                     d.driftState = 1; d.driftDir = Math.sign(d.steer); d.driftCharge = 0; d.bounce = -8; window.Sfx.skid();
@@ -438,7 +489,6 @@
                 } else { d.driftCharge++; if(d.driftCharge > 80) d.mtStage = 2; else if(d.driftCharge > 35) d.mtStage = 1; }
             }
 
-            // Colisões
             const checkSeg = getSegment(segIdx);
             checkSeg.obs.forEach(o => {
                 if(o.x < 10 && Math.abs(d.playerX - o.x) < 0.22 && Math.abs(d.playerX) < 4.5) {
@@ -455,12 +505,9 @@
             }
             while(d.pos < 0) d.pos += trackLength;
 
-            // Ranking
             let pAhead = 0;
             d.rivals.forEach(r => {
-                if (r.isRemote) {
-                    // Multiplayer: Interpolation happens visually
-                } else {
+                if (!r.isRemote) { // IA Simples
                     let dist = r.pos - d.pos;
                     if(dist > trackLength/2) dist -= trackLength; if(dist < -trackLength/2) dist += trackLength;
                     let targetS = CONF.MAX_SPEED * 0.45;
@@ -593,6 +640,22 @@
             ctx.restore(); ctx.restore(); 
         },
 
+        renderModeSelect: function(ctx, w, h) {
+            ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 40px 'Russo One'";
+            ctx.fillText("ESCOLHA O MODO DE JOGO", w/2, h * 0.2);
+
+            // Botão Offline
+            ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 200, h * 0.35, 400, 80);
+            ctx.fillStyle = "white"; ctx.font = "bold 30px sans-serif";
+            ctx.fillText("JOGAR SOZINHO (OFFLINE)", w/2, h * 0.35 + 50);
+
+            // Botão Online
+            ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 200, h * 0.55, 400, 80);
+            ctx.fillStyle = "white";
+            ctx.fillText("MULTIPLAYER (ONLINE)", w/2, h * 0.55 + 50);
+        },
+
         renderLobby: function(ctx, w, h) {
             ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 40px 'Russo One'";
@@ -610,13 +673,27 @@
             ctx.fillStyle = "#ecf0f1"; ctx.fillText("PISTA: " + t.name, w/2, h*0.55 + 40);
             ctx.font = "14px sans-serif"; ctx.fillText("TOQUE NO CENTRO P/ MUDAR", w/2, h*0.55 + 80);
 
-            const btnColor = this.state === 'WAITING' ? "#e67e22" : "#27ae60";
-            const btnText = this.state === 'WAITING' ? "AGUARDANDO..." : "PRONTO (TOQUE EM BAIXO)";
+            let btnText = "PRONTO (TOQUE EM BAIXO)";
+            let btnColor = "#e67e22";
+
+            if (this.state === 'WAITING') {
+                btnText = "AGUARDANDO...";
+                // Mostrar contagem regressiva se tiver timer ativo
+                if (this.autoStartTimer) {
+                    const timeLeft = Math.ceil((this.autoStartTimer - Date.now()) / 1000);
+                    btnText = `INICIANDO EM ${timeLeft}s...`;
+                    btnColor = "#c0392b";
+                }
+            } else if (this.state === 'LOBBY') {
+                btnColor = "#27ae60";
+            }
+
             ctx.fillStyle = btnColor; ctx.fillRect(w/2 - 200, h*0.8, 400, 70);
             ctx.fillStyle = "white"; ctx.font = "bold 25px 'Russo One'"; ctx.fillText(btnText, w/2, h*0.8 + 45);
 
             ctx.textAlign = "left"; ctx.font = "14px monospace"; ctx.fillStyle = "#bdc3c7";
-            ctx.fillText(`Jogadores online: ${this.rivals.length + 1}`, 20, h - 20);
+            const onlineStatus = this.isOnline ? `Online (${this.rivals.length + 1})` : "Offline (Local)";
+            ctx.fillText(`Jogadores: ${onlineStatus}`, 20, h - 20);
         },
 
         renderUI: function(ctx, w, h) {
@@ -651,7 +728,7 @@
             d.rivals.forEach(r => { const ri = Math.floor((r.pos / trackLength) * minimapPoints.length) % minimapPoints.length; ctx.fillStyle = r.color; ctx.beginPath(); ctx.arc(minimapPoints[ri].x, minimapPoints[ri].y, 4, 0, Math.PI * 2); ctx.fill(); });
             ctx.restore();
 
-            // VOLANTE 3D ENTRE AS MÃOS (CORRIGIDO PARA SEMPRE APARECER SE DETECTADO)
+            // VOLANTE
             if (d.virtualWheel.opacity > 0.01) {
                 const vw = d.virtualWheel; ctx.save(); ctx.globalAlpha = vw.opacity; ctx.translate(vw.x, vw.y);
                 ctx.lineWidth = 8; ctx.strokeStyle = '#222'; ctx.beginPath(); ctx.arc(0, 0, vw.r, 0, Math.PI * 2); ctx.stroke();
@@ -663,10 +740,9 @@
     };
 
     if(window.System) {
-        // Desativa volante fixo do DOM para usar apenas o 3D entre as mãos
         window.System.registerGame('drive', 'Otto Kart GP', '🏎️', Logic, {
-            camOpacity: 0.1, // Opacidade baixa como pedido
-            showWheel: false // Esconde volante DOM fixo
+            camOpacity: 0.1, 
+            showWheel: false
         });
     }
 })()
