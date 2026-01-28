@@ -1,8 +1,8 @@
 /* =================================================================
-   CORE DO SISTEMA (CÉREBRO) - REMASTERED + MULTIPLAYER ID
+   CORE DO SISTEMA (CÉREBRO) - VERSÃO MULTIPLAYER ESTÁVEL
    ================================================================= */
 
-// 1. AUDIO GLOBAL (Design Sonoro Wii)
+// 1. AUDIO GLOBAL
 window.Sfx = {
     ctx: null,
     init: () => { window.AudioContext = window.AudioContext || window.webkitAudioContext; window.Sfx.ctx = new AudioContext(); },
@@ -16,8 +16,8 @@ window.Sfx = {
         o.connect(g); g.connect(window.Sfx.ctx.destination); 
         o.start(); o.stop(window.Sfx.ctx.currentTime+d);
     },
-    hover: () => window.Sfx.play(800, 'sine', 0.05, 0.05), // Som agudo e curto estilo Wii
-    click: () => window.Sfx.play(1200, 'sine', 0.1, 0.1), // Som de confirmação
+    hover: () => window.Sfx.play(800, 'sine', 0.05, 0.05),
+    click: () => window.Sfx.play(1200, 'sine', 0.1, 0.1),
     crash: () => window.Sfx.play(100, 'sawtooth', 0.5, 0.2)
 };
 
@@ -33,53 +33,52 @@ window.Gfx = {
     },
     shakeScreen: (i) => { window.Gfx.shake = i; },
     map: (pt, w, h) => ({ x: (1 - pt.x) * w, y: pt.y * h }),
-    drawSkeleton: (ctx, pose, w, h) => {
-        if(!pose) return;
-        ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2;
-        const pts = pose.keypoints;
-        const bones = [[5,7],[7,9],[6,8],[8,10],[5,6],[5,11],[6,12],[11,12]];
-        bones.forEach(b => {
-            if(pts[b[0]].score > 0.3 && pts[b[1]].score > 0.3) {
-                const p1 = window.Gfx.map(pts[b[0]], w, h);
-                const p2 = window.Gfx.map(pts[b[1]], w, h);
-                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-            }
-        });
-    }
+    drawSkeleton: (ctx, pose, w, h) => { /* Opcional: Debug visual do esqueleto */ }
 };
 
 // 3. SISTEMA PRINCIPAL
 window.System = {
     video: null, canvas: null, detector: null,
     games: [], activeGame: null, loopId: null,
-    playerId: 'Player_' + Math.floor(Math.random() * 1000), // ID Único para Multiplayer
+    playerId: null, // Será definido no init
 
     init: async () => {
         console.log("Iniciando System Wii...");
         
+        // Gestão de Identidade do Jogador (Persistente)
+        let savedId = localStorage.getItem('wii_player_id');
+        if (!savedId) {
+            savedId = 'Player_' + Math.floor(Math.random() * 9999);
+            localStorage.setItem('wii_player_id', savedId);
+        }
+        window.System.playerId = savedId;
+        console.log("Identidade:", window.System.playerId);
+
         // Câmera
         window.System.video = document.getElementById('webcam');
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480, frameRate: { ideal: 30 } } 
+            });
             window.System.video.srcObject = stream;
             await new Promise(r => window.System.video.onloadedmetadata = r);
         } catch(e) {
-            alert("Erro na Câmera! Verifique permissões.");
+            alert("Erro na Câmera! O jogo precisa de câmera para funcionar.");
         }
 
-        // IA
+        // IA (MoveNet)
         const model = poseDetection.SupportedModels.MoveNet;
         window.System.detector = await poseDetection.createDetector(model, { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING });
 
-        // Audio Init no primeiro clique
+        // Inicialização de Audio
         document.body.addEventListener('click', () => window.Sfx.init(), {once:true});
 
-        // Canvas
+        // Canvas e Redimensionamento
         window.System.canvas = document.getElementById('game-canvas');
         window.System.resize();
         window.addEventListener('resize', window.System.resize);
 
-        // Pronto
+        // UI
         document.getElementById('loading').classList.add('hidden');
         window.System.menu();
     },
@@ -87,7 +86,6 @@ window.System = {
     registerGame: (id, title, icon, logic, opts) => {
         if(!window.System.games.find(g => g.id === id)) {
             window.System.games.push({ id, title, icon, logic, opts });
-            // Adiciona ao Grid
             const grid = document.getElementById('channel-grid');
             const div = document.createElement('div');
             div.className = 'channel';
@@ -99,13 +97,12 @@ window.System = {
     },
 
     menu: () => {
-        window.System.stopGame(); // Mata qualquer jogo rodando
+        window.System.stopGame();
         document.getElementById('menu-screen').classList.remove('hidden');
         document.getElementById('game-ui').classList.add('hidden');
         document.getElementById('screen-over').classList.add('hidden');
         document.getElementById('webcam').style.opacity = 0;
         
-        // Limpa a tela desenhada pelo jogo anterior
         const ctx = window.System.canvas.getContext('2d');
         ctx.fillStyle = "#ececec";
         ctx.fillRect(0, 0, window.System.canvas.width, window.System.canvas.height);
@@ -120,41 +117,40 @@ window.System = {
         document.getElementById('game-ui').classList.remove('hidden');
         document.getElementById('webcam').style.opacity = game.opts.camOpacity || 0.3;
 
-        game.logic.init(); // Inicia o jogo
+        if (game.logic.init) game.logic.init();
         window.Sfx.click();
-        window.System.loop(); // Inicia o loop
+        window.System.loop();
     },
 
     loop: async () => {
-        if(!window.System.activeGame) return; // Se não tem jogo, para.
+        if(!window.System.activeGame) return;
 
         const ctx = window.System.canvas.getContext('2d');
         const w = window.System.canvas.width;
         const h = window.System.canvas.height;
 
         let pose = null;
-        try {
-            const p = await window.System.detector.estimatePoses(window.System.video, {flipHorizontal: false});
-            if(p.length > 0) pose = p[0];
-        } catch(e) { 
-            // Ignora erro de detecção, pose fica null
+        if (window.System.detector && window.System.video.readyState === 4) {
+            try {
+                const p = await window.System.detector.estimatePoses(window.System.video, {flipHorizontal: false});
+                if(p.length > 0) pose = p[0];
+            } catch(e) { /* Ignora frames ruins */ }
         }
 
         ctx.save();
         window.Gfx.updateShake(ctx);
-        
-        // Roda o jogo. Se o jogo travar, o try-catch DENTRO do jogo deve segurar.
-        // Se o jogo retornar erro, o loop continua.
         const s = window.System.activeGame.logic.update(ctx, w, h, pose);
         ctx.restore();
 
         if(typeof s === 'number') document.getElementById('hud-score').innerText = s;
 
-        // Chama o próximo quadro
         window.System.loopId = requestAnimationFrame(window.System.loop);
     },
 
     stopGame: () => {
+        if (window.System.activeGame && window.System.activeGame.logic.cleanup) {
+            window.System.activeGame.logic.cleanup();
+        }
         window.System.activeGame = null;
         if(window.System.loopId) {
             cancelAnimationFrame(window.System.loopId);
