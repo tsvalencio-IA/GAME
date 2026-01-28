@@ -145,17 +145,17 @@
     <script>
         // *** IMPORTANTE: COLE SUAS CHAVES DO FIREBASE AQUI ***
         const firebaseConfig = {
-            apiKey: "SUA_API_KEY_AQUI",
-            authDomain: "seu-projeto.firebaseapp.com",
-            databaseURL: "https://seu-projeto-default-rtdb.firebaseio.com",
-            projectId: "seu-projeto",
-            storageBucket: "seu-projeto.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdef"
-        };
+  apiKey: "AIzaSyB0ThqhfK6xc8P1D4WCkavhdXbb7zIaQJk",
+  authDomain: "thiaguinhowii.firebaseapp.com",
+  databaseURL: "https://thiaguinhowii-default-rtdb.firebaseio.com",
+  projectId: "thiaguinhowii",
+  storageBucket: "thiaguinhowii.firebasestorage.app",
+  messagingSenderId: "63695043126",
+  appId: "1:63695043126:web:abd6a8ba7792313991b697"
+};
 
         // Inicializa se as chaves estiverem presentes (segurança)
-        if (firebaseConfig.apiKey !== "SUA_API_KEY_AQUI" && window.firebase) {
+        if (firebaseConfig.apiKey !== "AIzaSyB0ThqhfK6xc8P1D4WCkavhdXbb7zIaQJk" && window.firebase) {
             firebase.initializeApp(firebaseConfig);
             window.DB = firebase.database();
             console.log("🔥 Firebase Conectado!");
