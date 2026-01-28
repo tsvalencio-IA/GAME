@@ -7,9 +7,9 @@
 
     // --- CONFIGURAÇÕES DE DADOS (Lobby) ---
     const CHARACTERS = [
-        { id: 0, name: 'OTTO', color: '#e74c3c', speedInfo: 1.0, turnInfo: 1.0, desc: 'Equilibrado' },
-        { id: 1, name: 'SPEED', color: '#f1c40f', speedInfo: 1.08, turnInfo: 0.85, desc: 'Alta Velocidade' },
-        { id: 2, name: 'TANK', color: '#3498db', speedInfo: 0.92, turnInfo: 1.15, desc: 'Alta Aderência' }
+        { id: 0, name: 'OttO', color: '#e74c3c', speedInfo: 1.0, turnInfo: 1.0, desc: 'Equilibrado' },
+        { id: 1, name: 'thIAgo', color: '#f1c40f', speedInfo: 1.08, turnInfo: 0.85, desc: 'Alta Velocidade' },
+        { id: 2, name: 'Thamis', color: '#3498db', speedInfo: 0.92, turnInfo: 1.15, desc: 'Alta Aderência' }
     ];
 
     const TRACKS = [
@@ -194,6 +194,11 @@
             this.lap = 1; this.score = 0; this.driftState = 0; this.nitro = 100;
             this.isReady = false;
 
+            // PREVENÇÃO DE CRASH: Limpa ouvintes antigos antes de criar novos
+            if (this.dbRef) {
+                this.dbRef.off();
+            }
+
             // Inicializa Multiplayer
             if (window.DB) {
                 this.dbRef = window.DB.ref('rooms/' + this.roomId);
@@ -230,8 +235,6 @@
                     const allIds = Object.keys(data);
                     const allReady = allIds.every(id => data[id].ready);
                     if (this.state === 'WAITING' && allReady && allIds.length > 1) {
-                        // O Host (primeiro da lista) decide a pista, ou pegamos a pista mais votada
-                        // Simplificação: Pegamos a pista do primeiro player
                         const trackToLoad = data[allIds[0]].trackId || 0;
                         this.startRace(trackToLoad);
                     }
@@ -244,6 +247,16 @@
                     { pos: 800,  lap: 1, x: 0.4,  speed: 0, color: '#3498db', name: 'Toad',  aggro: 0.025 }
                 ];
             }
+        },
+
+        // Função de Limpeza (CRUCIAL PARA NÃO TRAVAR)
+        cleanup: function() {
+            if (this.dbRef) {
+                this.dbRef.off(); // Remove todos os ouvintes
+                this.dbRef.child('players/' + window.System.playerId).remove(); // Sai da sala
+            }
+            if(nitroBtn) nitroBtn.remove();
+            window.System.canvas.onclick = null;
         },
 
         toggleReady: function() {
@@ -292,7 +305,9 @@
                 return;
             }
 
+            // Proteção contra Renderização antes da pista existir
             if (!segments || segments.length === 0) return 0;
+            if (trackLength === 0) trackLength = 1;
             
             try {
                 this.updatePhysics(w, h, pose);
@@ -301,6 +316,9 @@
                 this.syncMultiplayer();      // Envia dados
             } catch (err) {
                 console.error("Auto-Recovery:", err);
+                // Reseta variáveis criticas em caso de NaN
+                this.speed = 0;
+                this.playerX = 0;
             }
             return Math.floor(this.score);
         },
@@ -420,7 +438,6 @@
             });
 
             d.pos += d.speed;
-            if (trackLength < 1) trackLength = 1;
             while (d.pos >= trackLength) {
                 d.pos -= trackLength; d.lap++;
                 if (d.lap <= d.totalLaps) { lapPopupText = `VOLTA ${d.lap}/${d.totalLaps}`; lapPopupTimer = 120; window.System.msg(lapPopupText); }
@@ -671,9 +688,10 @@
     };
 
     if(window.System) {
+        // ATENÇÃO: Habilitei o showWheel: true para aparecer o volante 3D do DOM
         window.System.registerGame('drive', 'Otto Kart GP', '🏎️', Logic, {
             camOpacity: 0.4, 
-            showWheel: false
+            showWheel: true
         });
     }
 })()
