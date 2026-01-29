@@ -1,171 +1,111 @@
 /* =================================================================
-   CORE DO SISTEMA (CÉREBRO) - VERSÃO MULTIPLAYER ESTÁVEL
+   CORE DO SISTEMA (KERNEL)
    ================================================================= */
 
-// 1. AUDIO GLOBAL
 window.Sfx = {
     ctx: null,
-    init: () => { window.AudioContext = window.AudioContext || window.webkitAudioContext; window.Sfx.ctx = new AudioContext(); },
-    play: (f, t, d, v=0.1) => {
+    init: () => { 
+        if(!window.Sfx.ctx) window.Sfx.ctx = new (window.AudioContext || window.webkitAudioContext)(); 
+    },
+    play: (freq, type, dur, vol=0.1) => {
         if(!window.Sfx.ctx) return;
         const o = window.Sfx.ctx.createOscillator(); 
         const g = window.Sfx.ctx.createGain();
-        o.type=t; o.frequency.value=f; 
-        g.gain.setValueAtTime(v, window.Sfx.ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, window.Sfx.ctx.currentTime+d);
+        o.type = type; o.frequency.value = freq; 
+        g.gain.setValueAtTime(vol, window.Sfx.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, window.Sfx.ctx.currentTime + dur);
         o.connect(g); g.connect(window.Sfx.ctx.destination); 
-        o.start(); o.stop(window.Sfx.ctx.currentTime+d);
+        o.start(); o.stop(window.Sfx.ctx.currentTime + dur);
     },
-    hover: () => window.Sfx.play(800, 'sine', 0.05, 0.05),
-    click: () => window.Sfx.play(1200, 'sine', 0.1, 0.1),
-    crash: () => window.Sfx.play(100, 'sawtooth', 0.5, 0.2)
+    hover: () => window.Sfx.play(400, 'sine', 0.1, 0.05),
+    click: () => window.Sfx.play(800, 'square', 0.1, 0.1),
+    engine: (rpm) => window.Sfx.play(50 + (rpm * 100), 'sawtooth', 0.1, 0.05)
 };
 
-// 2. SISTEMA GRÁFICO
-window.Gfx = {
-    shake: 0,
-    updateShake: (ctx) => {
-        if(window.Gfx.shake > 0) {
-            ctx.translate((Math.random()-0.5)*window.Gfx.shake, (Math.random()-0.5)*window.Gfx.shake);
-            window.Gfx.shake *= 0.9;
-            if(window.Gfx.shake < 0.5) window.Gfx.shake = 0;
-        }
-    },
-    shakeScreen: (i) => { window.Gfx.shake = i; },
-    map: (pt, w, h) => ({ x: (1 - pt.x) * w, y: pt.y * h }),
-    drawSkeleton: (ctx, pose, w, h) => { /* Opcional: Debug visual do esqueleto */ }
-};
-
-// 3. SISTEMA PRINCIPAL
 window.System = {
-    video: null, canvas: null, detector: null,
-    games: [], activeGame: null, loopId: null,
-    playerId: null, // Será definido no init
+    video: null, canvas: null, ctx: null, detector: null,
+    activeGame: null, loopId: null, lastTime: 0,
+    playerId: 'Player_' + Math.floor(Math.random() * 9999),
+    pose: null, // Armazena a última pose detectada globalmente
 
     init: async () => {
-        console.log("Iniciando System Wii...");
-        
-        // Gestão de Identidade do Jogador (Persistente)
-        let savedId = localStorage.getItem('wii_player_id');
-        if (!savedId) {
-            savedId = 'Player_' + Math.floor(Math.random() * 9999);
-            localStorage.setItem('wii_player_id', savedId);
-        }
-        window.System.playerId = savedId;
-        console.log("Identidade:", window.System.playerId);
-
-        // Câmera
+        console.log("🚀 System Booting...");
         window.System.video = document.getElementById('webcam');
+        window.System.canvas = document.getElementById('game-canvas');
+        window.System.ctx = window.System.canvas.getContext('2d', { alpha: false });
+        
+        // Setup Inputs
+        window.addEventListener('resize', window.System.resize);
+        window.System.resize();
+        document.body.addEventListener('click', () => window.Sfx.init(), {once:true});
+
+        // 1. Câmera
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { width: 640, height: 480, frameRate: { ideal: 30 } } 
             });
             window.System.video.srcObject = stream;
             await new Promise(r => window.System.video.onloadedmetadata = r);
+            window.System.video.play();
+            console.log("📷 Câmera OK");
         } catch(e) {
-            alert("Erro na Câmera! O jogo precisa de câmera para funcionar.");
+            console.warn("Sem câmera ou permissão negada. Usando teclado.");
         }
 
-        // IA (MoveNet)
-        const model = poseDetection.SupportedModels.MoveNet;
-        window.System.detector = await poseDetection.createDetector(model, { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING });
+        // 2. IA (MoveNet) - Carregamento em Background
+        try {
+            const model = poseDetection.SupportedModels.MoveNet;
+            window.System.detector = await poseDetection.createDetector(model, { 
+                modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING 
+            });
+            console.log("🧠 IA Carregada");
+            window.System.startPoseLoop();
+        } catch(e) {
+            console.error("Erro IA:", e);
+        }
 
-        // Inicialização de Audio
-        document.body.addEventListener('click', () => window.Sfx.init(), {once:true});
-
-        // Canvas e Redimensionamento
-        window.System.canvas = document.getElementById('game-canvas');
-        window.System.resize();
-        window.addEventListener('resize', window.System.resize);
-
-        // UI
         document.getElementById('loading').classList.add('hidden');
-        window.System.menu();
-    },
-
-    registerGame: (id, title, icon, logic, opts) => {
-        if(!window.System.games.find(g => g.id === id)) {
-            window.System.games.push({ id, title, icon, logic, opts });
-            const grid = document.getElementById('channel-grid');
-            const div = document.createElement('div');
-            div.className = 'channel';
-            div.innerHTML = `<div class="channel-icon">${icon}</div><div class="channel-title">${title}</div>`;
-            div.onclick = () => window.System.loadGame(id);
-            div.onmouseenter = window.Sfx.hover;
-            grid.appendChild(div);
-        }
-    },
-
-    menu: () => {
-        window.System.stopGame();
-        document.getElementById('menu-screen').classList.remove('hidden');
-        document.getElementById('game-ui').classList.add('hidden');
-        document.getElementById('screen-over').classList.add('hidden');
-        document.getElementById('webcam').style.opacity = 0;
         
-        const ctx = window.System.canvas.getContext('2d');
-        ctx.fillStyle = "#ececec";
-        ctx.fillRect(0, 0, window.System.canvas.width, window.System.canvas.height);
+        // Inicia o Jogo de Kart direto (ou menu se preferir)
+        if(window.KartGame) window.System.loadGame(window.KartGame);
     },
 
-    loadGame: (id) => {
-        const game = window.System.games.find(g => g.id === id);
-        if(!game) return;
+    // Loop Dedicado de IA (Desacoplado do Render)
+    startPoseLoop: async () => {
+        const detect = async () => {
+            if (window.System.detector && window.System.video.readyState === 4) {
+                try {
+                    const p = await window.System.detector.estimatePoses(window.System.video, {flipHorizontal: true});
+                    if(p.length > 0) window.System.pose = p[0];
+                } catch(e) { }
+            }
+            requestAnimationFrame(detect);
+        };
+        detect();
+    },
 
-        window.System.activeGame = game;
-        document.getElementById('menu-screen').classList.add('hidden');
-        document.getElementById('game-ui').classList.remove('hidden');
-        document.getElementById('webcam').style.opacity = game.opts.camOpacity || 0.3;
-
-        if (game.logic.init) game.logic.init();
-        window.Sfx.click();
+    loadGame: (gameObj) => {
+        if(window.System.activeGame && window.System.activeGame.cleanup) window.System.activeGame.cleanup();
+        window.System.activeGame = gameObj;
+        gameObj.init();
+        window.System.lastTime = performance.now();
         window.System.loop();
     },
 
-    loop: async () => {
+    loop: (timestamp) => {
         if(!window.System.activeGame) return;
 
-        const ctx = window.System.canvas.getContext('2d');
+        const dt = (timestamp - window.System.lastTime) / 1000 || 0.016; // Delta Time em segundos
+        window.System.lastTime = timestamp;
+
         const w = window.System.canvas.width;
         const h = window.System.canvas.height;
 
-        let pose = null;
-        if (window.System.detector && window.System.video.readyState === 4) {
-            try {
-                const p = await window.System.detector.estimatePoses(window.System.video, {flipHorizontal: false});
-                if(p.length > 0) pose = p[0];
-            } catch(e) { /* Ignora frames ruins */ }
-        }
-
-        ctx.save();
-        window.Gfx.updateShake(ctx);
-        const s = window.System.activeGame.logic.update(ctx, w, h, pose);
-        ctx.restore();
-
-        if(typeof s === 'number') document.getElementById('hud-score').innerText = s;
+        // Update & Render
+        window.System.activeGame.update(dt, window.System.pose);
+        window.System.activeGame.draw(window.System.ctx, w, h);
 
         window.System.loopId = requestAnimationFrame(window.System.loop);
-    },
-
-    stopGame: () => {
-        if (window.System.activeGame && window.System.activeGame.logic.cleanup) {
-            window.System.activeGame.logic.cleanup();
-        }
-        window.System.activeGame = null;
-        if(window.System.loopId) {
-            cancelAnimationFrame(window.System.loopId);
-            window.System.loopId = null;
-        }
-    },
-
-    home: () => { window.Sfx.click(); window.System.menu(); },
-    
-    gameOver: (s) => {
-        window.System.stopGame();
-        window.Sfx.crash();
-        document.getElementById('final-score').innerText = s;
-        document.getElementById('game-ui').classList.add('hidden');
-        document.getElementById('screen-over').classList.remove('hidden');
     },
 
     resize: () => {
@@ -173,12 +113,6 @@ window.System = {
             window.System.canvas.width = window.innerWidth;
             window.System.canvas.height = window.innerHeight;
         }
-    },
-
-    msg: (t) => {
-        const el = document.getElementById('game-msg');
-        el.innerText = t; el.style.opacity = 1;
-        setTimeout(() => el.style.opacity = 0, 2000);
     }
 };
 
