@@ -1,5 +1,5 @@
 // =============================================================================
-// KART DO OTTO – VERSÃO FINAL (CORREÇÃO DE GFX SHAKE)
+// KART DO OTTO – VERSÃO FINAL (CORREÇÃO DE GFX SHAKE + VOLANTE FANTASMA)
 // =============================================================================
 
 (function() {
@@ -405,7 +405,7 @@
                 }
             }
 
-            // VOLANTE VIRTUAL
+            // VOLANTE VIRTUAL (MODIFICADO: AGORA APARECE FANTASMA)
             if (detected === 2) {
                 d.inputState = 2;
                 const dx = pRight.x - pLeft.x; 
@@ -421,7 +421,15 @@
             } else {
                 d.inputState = 0; 
                 d.targetSteer = 0; 
-                d.virtualWheel.opacity *= 0.9; 
+                
+                // MODO FANTASMA: Se não detectar mãos, centraliza e fica transparente
+                // Em vez de opacity = 0, mantemos em 0.3 para você ver o volante
+                if (d.virtualWheel.x === 0) { d.virtualWheel.x = w/2; d.virtualWheel.y = h*0.75; }
+                
+                d.virtualWheel.x += ((w / 2) - d.virtualWheel.x) * 0.1;
+                d.virtualWheel.y += ((h * 0.75) - d.virtualWheel.y) * 0.1;
+                d.virtualWheel.r += (60 - d.virtualWheel.r) * 0.1;
+                d.virtualWheel.opacity += (0.3 - d.virtualWheel.opacity) * 0.1;
             }
             
             d.steer += (d.targetSteer - d.steer) * CONF.INPUT_SMOOTHING;
