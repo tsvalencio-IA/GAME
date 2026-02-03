@@ -155,7 +155,8 @@
 
     <div id="loading">
         <div class="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-        <p class="mt-4 text-gray-400 font-bold tracking-widest text-sm">A CARREGAR...</p>
+        <!-- FIX AQUI: Adicionado ID loading-text para evitar erro no core.js -->
+        <p id="loading-text" class="mt-4 text-gray-400 font-bold tracking-widest text-sm">A CARREGAR...</p>
     </div>
 
     <!-- MENU PRINCIPAL -->
@@ -216,8 +217,11 @@
             if (typeof firebase !== 'undefined') {
                 firebase.initializeApp(firebaseConfig);
                 window.DB = firebase.database();
-                document.getElementById('net-status').innerHTML = "ONLINE 🟢";
-                document.getElementById('net-status').style.color = "#4caf50";
+                const statusEl = document.getElementById('net-status');
+                if(statusEl) {
+                    statusEl.innerHTML = "ONLINE 🟢";
+                    statusEl.style.color = "#4caf50";
+                }
             }
         } catch (e) { console.error("Erro Firebase", e); }
     </script>
