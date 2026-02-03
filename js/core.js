@@ -1,5 +1,5 @@
 /* =================================================================
-   CORE DO SISTEMA (CÉREBRO) - VERSÃO SENIOR V3
+   CORE DO SISTEMA (CÉREBRO) - VERSÃO SENIOR V3 (PATCHED)
    ================================================================= */
 
 window.Sfx = {
@@ -38,7 +38,6 @@ window.Gfx = {
         }
     },
     shakeScreen: (i) => { window.Gfx.shake = i; },
-    // CORREÇÃO CRÍTICA: Mapeamento Mirror para evitar inversão
     map: (pt, w, h) => ({ x: (1 - pt.x/640) * w, y: (pt.y/480) * h })
 };
 
@@ -48,6 +47,7 @@ window.System = {
     playerId: 'Player_' + Math.floor(Math.random() * 9999),
 
     init: async () => {
+        // FIX: Verifica se o elemento existe antes de usar
         const loadingText = document.getElementById('loading-text');
         window.System.canvas = document.getElementById('game-canvas');
         window.System.resize();
@@ -61,7 +61,9 @@ window.System = {
             window.System.video.srcObject = stream;
             await new Promise(r => window.System.video.onloadedmetadata = r);
             window.System.video.play();
-        } catch(e) { loadingText.innerText = "SEM CÂMERA DETECTADA"; }
+        } catch(e) { 
+            if(loadingText) loadingText.innerText = "SEM CÂMERA DETECTADA"; 
+        }
 
         if (typeof poseDetection !== 'undefined') {
             window.System.detector = await poseDetection.createDetector(
@@ -70,7 +72,6 @@ window.System = {
             );
         }
 
-        // Firebase Init (Usando config existente)
         const fbConfig = {
             apiKey: "AIzaSyB0ThqhfK6xc8P1D4WCkavhdXbb7zIaQJk",
             databaseURL: "https://thiaguinhowii-default-rtdb.firebaseio.com"
@@ -78,11 +79,15 @@ window.System = {
         try {
             if(!firebase.apps.length) firebase.initializeApp(fbConfig);
             window.DB = firebase.database();
-            document.getElementById('net-status').innerText = "ONLINE 🟢";
-            document.getElementById('net-status').style.color = "#4CAF50";
+            const netStatus = document.getElementById('net-status');
+            if(netStatus) {
+                netStatus.innerText = "ONLINE 🟢";
+                netStatus.style.color = "#4CAF50";
+            }
         } catch(e) {}
 
-        document.getElementById('loading').classList.add('hidden');
+        const loadEl = document.getElementById('loading');
+        if(loadEl) loadEl.classList.add('hidden');
         window.System.menu();
         document.body.addEventListener('click', () => window.Sfx.init(), {once:true});
     },
@@ -91,12 +96,14 @@ window.System = {
         if(window.System.games.find(g => g.id === id)) return;
         window.System.games.push({ id, title, icon, logic, opts });
         const grid = document.getElementById('channel-grid');
-        const div = document.createElement('div');
-        div.className = 'channel';
-        div.innerHTML = `<div class="channel-icon">${icon}</div><div class="channel-title">${title}</div>`;
-        div.onclick = () => window.System.loadGame(id);
-        div.onmouseenter = window.Sfx.hover;
-        grid.appendChild(div);
+        if(grid) {
+            const div = document.createElement('div');
+            div.className = 'channel';
+            div.innerHTML = `<div class="channel-icon">${icon}</div><div class="channel-title">${title}</div>`;
+            div.onclick = () => window.System.loadGame(id);
+            div.onmouseenter = window.Sfx.hover;
+            grid.appendChild(div);
+        }
     },
 
     menu: () => {
@@ -136,7 +143,8 @@ window.System = {
         const score = window.System.activeGame.logic.update(ctx, w, h, pose);
         ctx.restore();
         
-        document.getElementById('hud-score').innerText = Math.floor(score || 0);
+        const hud = document.getElementById('hud-score');
+        if(hud) hud.innerText = Math.floor(score || 0);
         window.System.loopId = requestAnimationFrame(window.System.loop);
     },
 
@@ -156,14 +164,18 @@ window.System = {
     },
 
     resize: () => {
-        window.System.canvas.width = window.innerWidth;
-        window.System.canvas.height = window.innerHeight;
+        if(window.System.canvas) {
+            window.System.canvas.width = window.innerWidth;
+            window.System.canvas.height = window.innerHeight;
+        }
     },
 
     msg: (t) => {
         const el = document.getElementById('game-msg');
-        el.innerText = t; el.style.opacity = 1;
-        setTimeout(() => el.style.opacity = 0, 1500);
+        if(el) {
+            el.innerText = t; el.style.opacity = 1;
+            setTimeout(() => el.style.opacity = 0, 1500);
+        }
     }
 };
 
