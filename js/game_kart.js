@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: ULTIMATE AUDIO EDITION (PRO SYNTHESIS ENGINE)
+// KART LEGENDS: PLATINUM MASTER (FULL MERGE: AUDIO + GFX + PHYSICS + NET)
 // ARQUITETO: SENIOR DEV (CODE 177)
-// STATUS: 100% FUNCIONAL + SOM DE MOTOR DINÂMICO + PNEUS REALISTAS
+// STATUS: CORRIGIDO. ÁUDIO PRO + VOLANTE VISUAL + MINIMAPA + MULTIPLAYER
 // =============================================================================
 
 (function() {
@@ -55,18 +55,10 @@
     const KartAudio = {
         ctx: null,
         masterGain: null,
-        
         // Nós do Motor
-        osc1: null,
-        osc2: null,
-        engineGain: null,
-        
+        osc1: null, osc2: null, engineGain: null,
         // Nós de Ruído (Pneus/Terra)
-        noiseBuffer: null,
-        noiseSource: null,
-        noiseFilter: null,
-        noiseGain: null,
-
+        noiseBuffer: null, noiseSource: null, noiseFilter: null, noiseGain: null,
         // Estado
         initialized: false,
         isPlaying: false,
@@ -77,53 +69,39 @@
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 this.ctx = new AudioContext();
                 this.masterGain = this.ctx.createGain();
-                this.masterGain.gain.value = 0.3; // Volume geral seguro
+                this.masterGain.gain.value = 0.3; 
                 this.masterGain.connect(this.ctx.destination);
 
-                // Criar Buffer de Ruído Branco (1 segundo)
+                // Buffer de Ruído Branco
                 const bufferSize = this.ctx.sampleRate;
                 this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
                 const data = this.noiseBuffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
+                for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
 
                 this.initialized = true;
-            } catch (e) {
-                console.warn("WebAudio não suportado.");
-            }
+            } catch (e) { console.warn("WebAudio Error", e); }
         },
 
         start: function() {
             if (!this.initialized || this.isPlaying) return;
             this.ctx.resume();
-
             const t = this.ctx.currentTime;
 
-            // --- MOTOR ---
-            this.osc1 = this.ctx.createOscillator();
-            this.osc1.type = 'sawtooth'; // Ronco
-            this.osc2 = this.ctx.createOscillator();
-            this.osc2.type = 'triangle'; // Corpo
-            
-            this.engineGain = this.ctx.createGain();
-            this.engineGain.gain.value = 0;
+            // MOTOR
+            this.osc1 = this.ctx.createOscillator(); this.osc1.type = 'sawtooth'; 
+            this.osc2 = this.ctx.createOscillator(); this.osc2.type = 'triangle'; 
+            this.engineGain = this.ctx.createGain(); this.engineGain.gain.value = 0;
 
-            this.osc1.connect(this.engineGain);
-            this.osc2.connect(this.engineGain);
+            this.osc1.connect(this.engineGain); this.osc2.connect(this.engineGain);
             this.engineGain.connect(this.masterGain);
+            this.osc1.start(t); this.osc2.start(t);
 
-            this.osc1.start(t);
-            this.osc2.start(t);
-
-            // --- RUÍDO (PNEUS) ---
+            // RUÍDO
             this.noiseSource = this.ctx.createBufferSource();
             this.noiseSource.buffer = this.noiseBuffer;
             this.noiseSource.loop = true;
-
             this.noiseFilter = this.ctx.createBiquadFilter();
             this.noiseFilter.type = 'bandpass';
-            
             this.noiseGain = this.ctx.createGain();
             this.noiseGain.gain.value = 0;
 
@@ -139,18 +117,10 @@
             if (!this.isPlaying) return;
             try {
                 const t = this.ctx.currentTime + 0.1;
-                this.osc1.stop(t);
-                this.osc2.stop(t);
-                this.noiseSource.stop(t);
-                
-                // Desconectar para limpar memória
+                this.osc1.stop(t); this.osc2.stop(t); this.noiseSource.stop(t);
                 setTimeout(() => {
-                    this.osc1.disconnect();
-                    this.osc2.disconnect();
-                    this.engineGain.disconnect();
-                    this.noiseSource.disconnect();
-                    this.noiseFilter.disconnect();
-                    this.noiseGain.disconnect();
+                    this.osc1.disconnect(); this.osc2.disconnect(); this.engineGain.disconnect();
+                    this.noiseSource.disconnect(); this.noiseFilter.disconnect(); this.noiseGain.disconnect();
                 }, 200);
             } catch(e){}
             this.isPlaying = false;
@@ -158,45 +128,32 @@
 
         update: function(speed, maxSpeed, driftIntensity, isOffroad, isTurbo) {
             if (!this.isPlaying) return;
-
             const ratio = Math.abs(speed) / maxSpeed;
             const now = this.ctx.currentTime;
 
             // 1. MOTOR (Pitch e Volume)
-            // Base: 60Hz, Topo: 300Hz (Varia com RPM)
             const baseFreq = 60 + (ratio * 240); 
-            // Osciladores desafinados para som "gordo"
             this.osc1.frequency.setTargetAtTime(baseFreq, now, 0.1);
-            this.osc2.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.1); // Sub-oitava
-
-            // Tremolo no volume do motor se estiver parado (Idle)
+            this.osc2.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.1);
+            
             const idleWobble = (speed < 5) ? (Math.sin(now * 20) * 0.05) : 0;
             this.engineGain.gain.setTargetAtTime(0.1 + (ratio * 0.1) + idleWobble, now, 0.1);
 
-            // 2. TURBO (Som Agudo)
+            // 2. TURBO
             if (isTurbo) {
-                // Sobe a frequência drasticamente
                 this.osc1.frequency.setTargetAtTime(baseFreq * 1.5, now, 0.2);
                 this.engineGain.gain.setTargetAtTime(0.3, now, 0.1);
             }
 
-            // 3. PNEUS / DRIFT / OFFROAD (Ruído Filtrado)
-            let targetNoiseVol = 0;
-            let targetFilterFreq = 800;
-            let targetQ = 1;
-
+            // 3. PNEUS / DRIFT
+            let targetNoiseVol = 0; let targetFilterFreq = 800; let targetQ = 1;
             if (isOffroad) {
-                // Som grave e sujo
                 targetNoiseVol = Math.min(0.4, ratio * 0.5);
-                targetFilterFreq = 400; // Grave
-                targetQ = 0.5; // Banda larga
+                targetFilterFreq = 400; targetQ = 0.5;
             } else if (Math.abs(driftIntensity) > 0.15 && speed > 50) {
-                // Som agudo de pneu cantando
                 targetNoiseVol = Math.min(0.3, (Math.abs(driftIntensity) - 0.15) * 2.0);
-                targetFilterFreq = 1200 + (ratio * 500); // Agudo sobe com velocidade
-                targetQ = 5; // Banda estreita (assobio)
+                targetFilterFreq = 1200 + (ratio * 500); targetQ = 5;
             }
-
             this.noiseGain.gain.setTargetAtTime(targetNoiseVol, now, 0.1);
             this.noiseFilter.frequency.setTargetAtTime(targetFilterFreq, now, 0.1);
             this.noiseFilter.Q.setTargetAtTime(targetQ, now, 0.1);
@@ -204,22 +161,16 @@
 
         crash: function() {
             if(!this.initialized) return;
-            // Som de impacto sintetizado (Ruído explosivo)
             const t = this.ctx.currentTime;
             const osc = this.ctx.createOscillator();
             const g = this.ctx.createGain();
-            
             osc.frequency.setValueAtTime(100, t);
             osc.frequency.exponentialRampToValueAtTime(10, t + 0.3);
-            
             g.gain.setValueAtTime(0.5, t);
             g.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
-            
             osc.type = 'square';
-            osc.connect(g);
-            g.connect(this.masterGain);
-            osc.start(t);
-            osc.stop(t + 0.3);
+            osc.connect(g); g.connect(this.masterGain);
+            osc.start(t); osc.stop(t + 0.3);
         }
     };
 
@@ -249,7 +200,6 @@
             z -= Math.cos(angle) * 8;
             minimapPath.push({ x, z });
         });
-
         let minX=Infinity, maxX=-Infinity, minZ=Infinity, maxZ=-Infinity;
         minimapPath.forEach(p => {
             if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
@@ -264,7 +214,7 @@
     const Logic = {
         state: 'MODE_SELECT',
         raceState: 'LOBBY',
-        roomId: 'mario_arena_pro_audio', // Sala atualizada
+        roomId: 'mario_arena_platinum', // Sala Única
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
@@ -280,6 +230,7 @@
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
         nitro: 100, turboLock: false, gestureTimer: 0,
         spinAngle: 0, spinTimer: 0, lateralInertia: 0, vibration: 0,
+        engineTimer: 0,
         
         // Corrida
         lap: 1, maxLapPos: 0,
@@ -298,7 +249,6 @@
             this.state = 'MODE_SELECT';
             this.setupUI();
             this.resetPhysics();
-            // Inicializa AudioContext (necessário interação do usuário, que ocorre no init ou clique)
             KartAudio.init(); 
             window.System.msg("SELECIONE O MODO");
         },
@@ -307,7 +257,7 @@
             if (this.dbRef) try { this.dbRef.child('players').off(); } catch(e){}
             if (this.roomRef) try { this.roomRef.off(); } catch(e){}
             if(nitroBtn) nitroBtn.remove();
-            KartAudio.stop(); // Para o som ao sair
+            KartAudio.stop(); 
             window.System.canvas.onclick = null;
         },
 
@@ -320,6 +270,7 @@
             this.score = 0; this.nitro = 100;
             this.spinAngle = 0; this.spinTimer = 0;
             this.lateralInertia = 0; this.vibration = 0;
+            this.engineTimer = 0;
             this.inputActive = false;
             this.rivals = []; particles = []; hudMessages = [];
             this.remotePlayersData = {};
@@ -346,7 +297,6 @@
                 if(e && e.cancelable) e.preventDefault();
                 if((this.state === 'RACE') && this.nitro > 15) {
                     this.turboLock = !this.turboLock;
-                    // Som de clique do turbo via Sfx global (UI)
                     window.Sfx.play(600, 'square', 0.1, 0.1);
                     this.pushMsg(this.turboLock ? "TURBO ON" : "TURBO OFF", "#0ff");
                 }
@@ -358,9 +308,7 @@
             window.System.canvas.onclick = (e) => {
                 const rect = window.System.canvas.getBoundingClientRect();
                 const y = (e.clientY - rect.top) / rect.height;
-                const x = (e.clientX - rect.left) / rect.width;
-
-                // Garante que o AudioContext inicie com interação do usuário
+                
                 KartAudio.init(); 
                 if(KartAudio.ctx && KartAudio.ctx.state === 'suspended') KartAudio.ctx.resume();
 
@@ -372,16 +320,13 @@
                     if (y > 0.8) { 
                         if (this.isOnline) {
                             if (this.isHost) {
-                                // HOST MANUAL START
                                 const playerCount = Object.keys(this.remotePlayersData || {}).length;
                                 if (playerCount >= 2) {
                                     this.roomRef.update({ raceState: 'RACING', totalRacers: playerCount });
                                 } else {
                                     window.System.msg("AGUARDANDO JOGADORES...");
                                 }
-                            } else {
-                                this.toggleReady(); 
-                            }
+                            } else { this.toggleReady(); }
                         } else {
                             this.startRace(this.selectedTrack);
                         }
@@ -459,7 +404,6 @@
         connectMultiplayer: function() {
             this.roomRef = window.DB.ref('rooms/' + this.roomId);
             this.dbRef = this.roomRef;
-            
             const myRef = this.dbRef.child('players/' + window.System.playerId);
             myRef.set({ 
                 name: 'Player', charId: this.selectedChar, ready: false, 
@@ -476,12 +420,10 @@
                     });
                 }
                 if(globalState === 'GAMEOVER' && (this.state === 'RACE' || this.state === 'SPECTATE')) {
-                    this.state = 'GAMEOVER';
-                    window.Sfx.play(1000, 'sine', 1, 0.5);
+                    this.state = 'GAMEOVER'; window.Sfx.play(1000, 'sine', 1, 0.5);
                 }
                 if(globalState === 'LOBBY' && this.state === 'GAMEOVER') {
-                    this.state = 'LOBBY';
-                    this.resetPhysics();
+                    this.state = 'LOBBY'; this.resetPhysics();
                 }
             });
 
@@ -500,9 +442,7 @@
                     if (ids.length === 1 && this.state === 'LOBBY') {
                         this.roomRef.update({ raceState: 'LOBBY', trackId: this.selectedTrack });
                     }
-                } else {
-                    this.isHost = false;
-                }
+                } else { this.isHost = false; }
 
                 this.rivals = ids
                     .filter(id => id !== window.System.playerId && (now - data[id].lastSeen < 15000))
@@ -538,10 +478,7 @@
             nitroBtn.style.display = 'flex';
             this.pushMsg("LARGADA!", "#0f0", 60);
             window.Sfx.play(600, 'square', 0.5, 0.2);
-            
-            // Inicia a Engine de Som
             KartAudio.start();
-
             this.pos = 0; this.lap = 1; this.maxLapPos = 0;
             this.speed = 0; this.finishTime = 0;
             if (!this.isOnline) {
@@ -556,7 +493,7 @@
                 this.checkRaceStatus();
                 this.renderWorld(ctx, w, h); 
                 this.renderUI(ctx, w, h); 
-                KartAudio.stop(); // Garante silêncio no GameOver
+                KartAudio.stop(); 
                 return; 
             }
             
@@ -667,9 +604,7 @@
             else { d.speed *= 0.96; }
             d.speed *= currentDrag;
 
-            // -----------------------------------------------------------
-            // ATUALIZA A ENGINE DE SOM (Com base na física real)
-            // -----------------------------------------------------------
+            // ATUALIZA A ENGINE DE SOM
             KartAudio.update(d.speed, CONF.MAX_SPEED, d.lateralInertia, absX > 1.45, d.turboLock);
 
             const seg = getSegment(d.pos / CONF.SEGMENT_LENGTH);
@@ -707,7 +642,7 @@
             if (d.spinTimer > 0) { d.spinTimer--; d.spinAngle += 0.4; d.speed *= 0.95; }
             else if (absX > 1.5 && ratio > 0.82 && Math.abs(d.lateralInertia) > 0.15) {
                 d.spinTimer = 45; 
-                KartAudio.crash(); // Som de batida/derrapagem forte
+                KartAudio.crash(); 
                 d.pushMsg("DERRAPOU!");
             }
 
@@ -719,7 +654,7 @@
                     const rChar = CHARACTERS[r.charId] || char;
                     d.lateralInertia += (d.playerX > r.x ? 0.18 : -0.18) * (rChar.weight / char.weight);
                     d.speed *= 0.88; 
-                    KartAudio.crash(); // Som de colisão
+                    KartAudio.crash(); 
                 }
             });
 
@@ -734,7 +669,7 @@
                         d.lap = CONF.TOTAL_LAPS; d.status = 'FINISHED'; d.state = 'SPECTATE'; d.finishTime = Date.now(); d.speed = 0;
                         window.Sfx.play(1000, 'sine', 1, 0.5); this.pushMsg("FINALIZADO!", "#ff0", 80); nitroBtn.style.display = 'none';
                         if(this.isOnline) this.syncMultiplayer();
-                        KartAudio.stop(); // Para o motor no final
+                        KartAudio.stop(); 
                     } else { window.Sfx.play(700, 'square', 0.3, 0.1); this.pushMsg(`VOLTA ${d.lap}/${CONF.TOTAL_LAPS}`, "#fff", 60); }
                 } else { d.pos = trackLength - 1; d.speed = 0; this.pushMsg("SENTIDO ERRADO!", "#f00"); }
             }
@@ -785,18 +720,14 @@
                 const nsy = horizon + ((h - horizon) * nextScale);
                 const sx = cx - (camX * scale) - (dx * n * 20 * scale * 2);
                 const nsx = cx - (camX * nextScale) - ((dx + seg.curve*0.8) * (n+1) * 20 * nextScale * 2);
-                
                 segmentCoords.push({ x: sx, y: sy, scale });
-
                 ctx.fillStyle = (seg.color === 'dark') ? (isOffRoad?'#336622':theme[1]) : (isOffRoad?'#336622':theme[0]);
                 ctx.fillRect(0, nsy, w, sy - nsy);
-                
                 ctx.fillStyle = (seg.color === 'dark') ? '#f33' : '#fff'; 
                 ctx.beginPath(); 
                 ctx.moveTo(sx - (w*3*scale)*0.6, sy); ctx.lineTo(sx + (w*3*scale)*0.6, sy); 
                 ctx.lineTo(nsx + (w*3*nextScale)*0.6, nsy); ctx.lineTo(nsx - (w*3*nextScale)*0.6, nsy); 
                 ctx.fill();
-                
                 ctx.fillStyle = (seg.color === 'dark') ? '#444' : '#494949'; 
                 ctx.beginPath(); ctx.moveTo(sx - (w*3*scale)*0.5, sy); ctx.lineTo(sx + (w*3*scale)*0.5, sy); 
                 ctx.lineTo(nsx + (w*3*nextScale)*0.5, nsy); ctx.lineTo(nsx - (w*3*nextScale)*0.5, nsy); ctx.fill();
@@ -848,6 +779,127 @@
             ctx.fillStyle = '#000'; ctx.font='bold 8px Arial'; ctx.textAlign='center'; 
             ctx.fillText(stats.name[0], 0, -30);
             ctx.restore(); ctx.restore(); 
+        },
+
+        renderUI: function(ctx, w, h) {
+            const d = Logic;
+            
+            hudMessages = hudMessages.filter(m => m.life > 0);
+            hudMessages.forEach((m, i) => {
+                ctx.save(); ctx.translate(w/2, h/2 - i*45); if(m.scale < 1) m.scale += 0.1;
+                ctx.scale(m.scale, m.scale); ctx.fillStyle = m.color; 
+                ctx.font = `bold ${m.size}px 'Russo One'`; ctx.textAlign = 'center';
+                ctx.shadowColor = 'black'; ctx.shadowBlur = 10;
+                ctx.fillText(m.text, 0, 0); ctx.restore(); m.life--;
+            });
+
+            if (d.state === 'GAMEOVER') {
+                ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0,0,w,h);
+                ctx.fillStyle = '#fff'; ctx.font = "bold 50px 'Russo One'"; ctx.textAlign = 'center';
+                ctx.fillText("RESULTADO FINAL", w/2, 100);
+                const allRacers = [
+                    { name: CHARACTERS[d.selectedChar].name, time: d.finishTime, id: 'me', status: d.status, pos: d.pos, lap: d.lap },
+                    ...d.rivals.map(r => ({ name: r.name || 'CPU', time: r.finishTime || 0, id: r.id, status: r.status, pos: r.pos, lap: r.lap }))
+                ];
+                allRacers.sort((a, b) => {
+                    if (a.status === 'FINISHED' && b.status === 'FINISHED') return (a.time) - (b.time);
+                    if (a.status === 'FINISHED') return -1;
+                    if (b.status === 'FINISHED') return 1;
+                    const distA = (a.lap * 100000) + a.pos;
+                    const distB = (b.lap * 100000) + b.pos;
+                    return distB - distA;
+                });
+                allRacers.forEach((r, i) => {
+                    const y = 200 + (i * 50);
+                    ctx.fillStyle = r.id === 'me' ? '#ff0' : '#fff';
+                    ctx.font = "30px Arial"; ctx.textAlign = 'left';
+                    ctx.fillText(`${i+1}. ${r.name}`, w/2 - 150, y);
+                    ctx.textAlign = 'right';
+                    ctx.fillText(r.status === 'FINISHED' ? "🏁" : "DNF", w/2 + 150, y);
+                });
+                ctx.fillStyle = '#aaa'; ctx.font = "20px 'Russo One'"; ctx.textAlign = 'center';
+                ctx.fillText("Toque para voltar ao menu", w/2, h - 50);
+                return; 
+            }
+
+            if (d.state === 'SPECTATE') {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, h/2 - 50, w, 100);
+                ctx.fillStyle = '#0f0'; ctx.font = "bold 40px 'Russo One'"; ctx.textAlign = 'center';
+                ctx.fillText("CORRIDA FINALIZADA!", w/2, h/2 - 10);
+                ctx.font = "20px 'Russo One'"; ctx.fillStyle = '#fff'; 
+                ctx.fillText(`POSIÇÃO: ${d.finalRank}º | AGUARDANDO PILOTOS...`, w/2, h/2 + 30);
+                return;
+            }
+
+            const hudX = w - 80; const hudY = h - 60; 
+            ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.arc(hudX, hudY, 55, 0, Math.PI * 2); ctx.fill();
+            const rpm = Math.min(1, d.speed / CONF.TURBO_MAX_SPEED); 
+            ctx.beginPath(); ctx.arc(hudX, hudY, 50, Math.PI, Math.PI + Math.PI * rpm); 
+            ctx.lineWidth = 6; ctx.strokeStyle = d.turboLock ? '#0ff' : '#f33'; ctx.stroke();
+            ctx.fillStyle = '#fff'; ctx.font = "bold 36px 'Russo One'"; ctx.textAlign = 'center'; ctx.fillText(Math.floor(d.speed), hudX, hudY + 10);
+            ctx.font = "bold 24px 'Russo One'"; ctx.fillStyle = '#ff0'; ctx.fillText(`${d.finalRank}º`, hudX, hudY - 35);
+            ctx.fillStyle = '#fff'; ctx.font = "bold 14px 'Russo One'"; ctx.fillText(`VOLTA ${d.lap}/${CONF.TOTAL_LAPS}`, hudX, hudY - 20);
+
+            ctx.fillStyle = '#111'; ctx.fillRect(w/2 - 110, 20, 220, 20);
+            ctx.fillStyle = d.turboLock ? '#0ff' : (d.nitro > 25 ? '#f90' : '#f33');
+            ctx.fillRect(w/2 - 108, 22, (216) * (d.nitro/100), 16);
+
+            // ===========================================
+            // RESTAURAÇÃO COMPLETA DE VISUAIS UI
+            // ===========================================
+            
+            // 1. MINIMAPA
+            if (minimapPath.length > 0) {
+                const mapX = 25, mapY = 95, mapSize = 130;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; ctx.fillRect(mapX, mapY, mapSize, mapSize);
+                ctx.save(); ctx.translate(mapX + mapSize/2, mapY + mapSize/2);
+                const scale = Math.min((mapSize-20)/minimapBounds.w, (mapSize-20)/minimapBounds.h);
+                ctx.scale(scale, scale); ctx.translate(-(minimapBounds.minX+minimapBounds.maxX)/2, -(minimapBounds.minZ+minimapBounds.maxZ)/2);
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 10; ctx.beginPath();
+                minimapPath.forEach((p, i) => { if(i===0) ctx.moveTo(p.x, p.z); else ctx.lineTo(p.x, p.z); });
+                ctx.closePath(); ctx.stroke();
+                const drawDot = (pos, c, r) => {
+                    const idx = Math.floor((pos/trackLength) * minimapPath.length) % minimapPath.length;
+                    const pt = minimapPath[idx]; 
+                    if(pt){
+                        ctx.fillStyle=c; ctx.beginPath(); ctx.arc(pt.x, pt.z, r, 0, Math.PI*2); 
+                        ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
+                    }
+                };
+                d.rivals.forEach(r => drawDot(r.pos, r.status==='FINISHED' ? '#0f0' : '#ffee00', 18)); 
+                drawDot(d.pos, '#ff0000', 22);
+                ctx.restore();
+            }
+
+            // 2. VOLANTE VIRTUAL (GT STYLE)
+            if (d.virtualWheel.opacity > 0.01) {
+                ctx.save(); ctx.globalAlpha = d.virtualWheel.opacity; ctx.translate(d.virtualWheel.x, d.virtualWheel.y);
+                if (d.virtualWheel.isHigh) { ctx.shadowBlur = 25; ctx.shadowColor = '#0ff'; }
+                
+                ctx.rotate(d.steer * 0.6);
+                
+                ctx.beginPath(); ctx.arc(0, 0, d.virtualWheel.r, 0, Math.PI * 2);
+                ctx.lineWidth = 18; ctx.strokeStyle = '#2d3436'; ctx.stroke();
+
+                ctx.beginPath(); ctx.arc(0, 0, d.virtualWheel.r, -Math.PI * 0.25, -Math.PI * 0.75, true); 
+                ctx.lineWidth = 18; ctx.strokeStyle = '#d63031'; ctx.stroke();
+
+                ctx.beginPath(); ctx.arc(0, 0, d.virtualWheel.r, Math.PI * 0.25, Math.PI * 0.75, false); 
+                ctx.strokeStyle = '#d63031'; ctx.stroke();
+
+                ctx.beginPath(); ctx.moveTo(-d.virtualWheel.r + 10, 0); ctx.lineTo(d.virtualWheel.r - 10, 0);
+                ctx.moveTo(0, 0); ctx.lineTo(0, d.virtualWheel.r - 10);
+                ctx.lineWidth = 12; ctx.strokeStyle = '#bdc3c7'; ctx.lineCap = 'round'; ctx.stroke();
+
+                ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2);
+                ctx.fillStyle = '#2d3436'; ctx.fill();
+                ctx.lineWidth = 2; ctx.strokeStyle = '#bdc3c7'; ctx.stroke();
+
+                ctx.fillStyle = '#d63031'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText("GT", 0, 1);
+
+                ctx.restore();
+            }
         },
 
         renderModeSelect: function(ctx, w, h) {
