@@ -1,10 +1,10 @@
 // =============================================================================
-// KART LEGENDS: PLATINUM MASTER (IA MULTIPLAYER + RANKING FIX + AUDIO PRO)
+// KART LEGENDS: PLATINUM MASTER v2 (MULTIPLAYER FIX + AUDIO + GFX + AI)
 // ARQUITETO: SENIOR DEV (CODE 177)
 // PATCH NOTES:
-// 1. RANKING FIX: Cast forçado de tipos numéricos para evitar erro de sort.
-// 2. HYBRID AI: Host gerencia bots e transmite para clientes no Multiplayer.
-// 3. ENGINE: Audio Pro e Física mantidos 100%.
+// 1. CRITICAL FIX: "Stale State Protection" impede início solitário em sala suja.
+// 2. NETCODE: Host Authority reforçada para resetar salas bugadas.
+// 3. FEATURE SET: Audio Pro, Volante Visual, Minimapa, IA Híbrida - TUDO MANTIDO.
 // =============================================================================
 
 (function() {
@@ -208,7 +208,7 @@
     const Logic = {
         state: 'MODE_SELECT',
         raceState: 'LOBBY',
-        roomId: 'mario_arena_hybrid_v4', // Nova sala para limpar dados antigos
+        roomId: 'mario_arena_hybrid_v5', // NOVO ID PARA GARANTIR LIMPEZA
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
@@ -220,7 +220,7 @@
         totalRacers: 0,
         remotePlayersData: {},
         
-        // Bots Controlados pelo Host (NOVA FEATURE)
+        // Bots Controlados pelo Host
         localBots: [],
 
         // Física
@@ -318,6 +318,7 @@
                     if (y > 0.8) { 
                         if (this.isOnline) {
                             if (this.isHost) {
+                                // HOST MANUAL START - VERIFICADO
                                 const playerCount = Object.keys(this.remotePlayersData || {}).length;
                                 if (playerCount >= 2) {
                                     this.roomRef.update({ raceState: 'RACING', totalRacers: playerCount });
@@ -412,13 +413,26 @@
             });
             myRef.onDisconnect().remove();
 
+            // CRITICAL FIX: "STALE STATE PROTECTION"
+            // Impede iniciar se a sala estiver "RACING" mas vazia ou bugada
             this.roomRef.child('raceState').on('value', (snap) => {
                 const globalState = snap.val();
+                
                 if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING')) {
+                    // Segurança: Só inicia se realmente houver jogadores detectados
+                    // Se eu for o host e estiver sozinho (length < 2), é estado sujo -> Reseta
+                    const playerCount = Object.keys(this.remotePlayersData || {}).length;
+                    
+                    if (this.isHost && playerCount < 2) {
+                        this.roomRef.update({ raceState: 'LOBBY' });
+                        return; // ABORTA START
+                    }
+
                     this.roomRef.child('trackId').once('value').then(tSnap => {
                         this.startRace(tSnap.val() || 0);
                     });
                 }
+                
                 if(globalState === 'GAMEOVER' && (this.state === 'RACE' || this.state === 'SPECTATE')) {
                     this.state = 'GAMEOVER'; window.Sfx.play(1000, 'sine', 1, 0.5);
                 }
@@ -437,14 +451,15 @@
                 const now = Date.now();
                 const ids = Object.keys(data).sort();
                 
+                // HOST AUTHORITY CHECK
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
+                    // Se estou sozinho no lobby, GARANTO que a sala está limpa
                     if (ids.length === 1 && this.state === 'LOBBY') {
                         this.roomRef.update({ raceState: 'LOBBY', trackId: this.selectedTrack });
                     }
                 } else { this.isHost = false; }
 
-                // Filtra e mescla dados (Jogadores Reais + Bots vindos do servidor)
                 this.rivals = ids
                     .filter(id => id !== window.System.playerId && (now - data[id].lastSeen < 15000))
                     .map(id => ({ 
@@ -496,7 +511,6 @@
                     { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
                     { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 }
                 ];
-                // Se offline, eles já vão pro rivals. Se online, eles serão sincronizados.
                 if(!this.isOnline) this.rivals = this.localBots;
             }
         },
@@ -524,14 +538,13 @@
         syncMultiplayer: function() {
             if (Date.now() - this.lastSync > 100) {
                 this.lastSync = Date.now();
-                // 1. Sincroniza o Player Local
                 this.dbRef.child('players/' + window.System.playerId).update({
                     pos: Math.floor(this.pos), x: this.playerX, speed: this.speed,
                     steer: this.steer, lap: this.lap, status: this.status, finishTime: this.finishTime,
                     charId: this.selectedChar, lastSeen: firebase.database.ServerValue.TIMESTAMP
                 });
 
-                // 2. Se for Host, sincroniza os BOTS para que todos vejam
+                // Host sincroniza bots para clientes
                 if (this.isHost && this.localBots.length > 0) {
                     this.localBots.forEach((b, i) => {
                         this.dbRef.child('players/bot_' + i).update({
@@ -549,23 +562,20 @@
                 { id: window.System.playerId, lap: this.lap, pos: this.pos, status: this.status, finishTime: this.finishTime, name: CHARACTERS[this.selectedChar].name },
                 ...this.rivals.map(r => ({ 
                     id: r.id, 
-                    lap: Number(r.lap) || 1, // CAST FORÇADO P/ NUMBER
-                    pos: Number(r.pos) || 0, // CAST FORÇADO P/ NUMBER
+                    lap: Number(r.lap) || 1, 
+                    pos: Number(r.pos) || 0, 
                     status: r.status || 'RACING', 
                     finishTime: Number(r.finishTime) || 0, 
                     name: r.name || 'Rival' 
                 }))
             ];
 
-            // Ordenação Blindada (Numérica)
             allRacers.sort((a, b) => {
                 const aFin = a.status === 'FINISHED';
                 const bFin = b.status === 'FINISHED';
                 if (aFin && bFin) return (a.finishTime || 0) - (b.finishTime || 0);
                 if (aFin) return -1;
                 if (bFin) return 1;
-                
-                // Distância total segura
                 const distA = (Number(a.lap) * 1000000) + Number(a.pos);
                 const distB = (Number(b.lap) * 1000000) + Number(b.pos);
                 return distB - distA;
@@ -576,9 +586,8 @@
             if (this.isOnline && this.isHost && this.state === 'RACE') {
                 const finishedCount = allRacers.filter(r => r.status === 'FINISHED').length;
                 const expectedTotal = this.totalRacers || allRacers.length;
-                const activeCount = allRacers.filter(r => !r.id.includes('bot')).length; // Conta humanos ativos
+                const activeCount = allRacers.filter(r => !r.id.includes('bot')).length; 
                 
-                // Se todos (humanos + bots suficientes) acabaram
                 if (finishedCount >= allRacers.length) {
                     setTimeout(() => { this.roomRef.update({ raceState: 'GAMEOVER' }); }, 1000);
                 }
