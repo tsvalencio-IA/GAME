@@ -1,10 +1,7 @@
 // =============================================================================
-// KART LEGENDS: PLATINUM MASTER v2 (MULTIPLAYER FIX + AUDIO + GFX + AI)
+// KART LEGENDS: DIAMOND MASTER v3 (AI FIX + RANKING FIX + TURBO SMOOTH)
 // ARQUITETO: SENIOR DEV (CODE 177)
-// PATCH NOTES:
-// 1. CRITICAL FIX: "Stale State Protection" impede início solitário em sala suja.
-// 2. NETCODE: Host Authority reforçada para resetar salas bugadas.
-// 3. FEATURE SET: Audio Pro, Volante Visual, Minimapa, IA Híbrida - TUDO MANTIDO.
+// STATUS: CORREÇÃO TOTAL DE LÓGICA DE JOGO, IA, ÁUDIO E REDE.
 // =============================================================================
 
 (function() {
@@ -56,12 +53,10 @@
     // 1.5 AUDIO ENGINE AVANÇADA (Sintetizador Procedural)
     // -----------------------------------------------------------------
     const KartAudio = {
-        ctx: null,
-        masterGain: null,
+        ctx: null, masterGain: null,
         osc1: null, osc2: null, engineGain: null,
         noiseBuffer: null, noiseSource: null, noiseFilter: null, noiseGain: null,
-        initialized: false,
-        isPlaying: false,
+        initialized: false, isPlaying: false,
 
         init: function() {
             if (this.initialized) return;
@@ -83,8 +78,7 @@
 
         start: function() {
             if (!this.initialized || this.isPlaying) return;
-            this.ctx.resume();
-            const t = this.ctx.currentTime;
+            this.ctx.resume(); const t = this.ctx.currentTime;
 
             this.osc1 = this.ctx.createOscillator(); this.osc1.type = 'sawtooth'; 
             this.osc2 = this.ctx.createOscillator(); this.osc2.type = 'triangle'; 
@@ -208,7 +202,7 @@
     const Logic = {
         state: 'MODE_SELECT',
         raceState: 'LOBBY',
-        roomId: 'mario_arena_hybrid_v5', // NOVO ID PARA GARANTIR LIMPEZA
+        roomId: 'mario_arena_diamond_v6', // ID NOVO (v6) PARA LIMPEZA GERAL
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
@@ -318,7 +312,7 @@
                     if (y > 0.8) { 
                         if (this.isOnline) {
                             if (this.isHost) {
-                                // HOST MANUAL START - VERIFICADO
+                                // HOST MANUAL START - VERIFICAÇÃO RIGOROSA
                                 const playerCount = Object.keys(this.remotePlayersData || {}).length;
                                 if (playerCount >= 2) {
                                     this.roomRef.update({ raceState: 'RACING', totalRacers: playerCount });
@@ -413,8 +407,7 @@
             });
             myRef.onDisconnect().remove();
 
-            // CRITICAL FIX: "STALE STATE PROTECTION"
-            // Impede iniciar se a sala estiver "RACING" mas vazia ou bugada
+            // CRITICAL FIX: PROTEÇÃO CONTRA STALE STATE (V6)
             this.roomRef.child('raceState').on('value', (snap) => {
                 const globalState = snap.val();
                 
@@ -460,14 +453,25 @@
                     }
                 } else { this.isHost = false; }
 
-                this.rivals = ids
-                    .filter(id => id !== window.System.playerId && (now - data[id].lastSeen < 15000))
-                    .map(id => ({ 
-                        id, 
-                        ...data[id], 
-                        isRemote: true, 
-                        color: CHARACTERS[data[id].charId || 0].color || '#fff' 
-                    }));
+                // --- AGREGADOR DE RIVAIS HÍBRIDO (HUMANOS + BOTS) ---
+                // Para o HOST: Usa remote players (exceto eu) + local bots
+                // Para o CLIENT: Usa remote players (incluindo bots sincronizados pelo host)
+                
+                // 1. Pega Humanos Remotos
+                const humanRivals = ids
+                    .filter(id => id !== window.System.playerId && !id.includes('bot_') && (now - data[id].lastSeen < 15000))
+                    .map(id => ({ id, ...data[id], isRemote: true, color: CHARACTERS[data[id].charId || 0].color || '#fff' }));
+
+                // 2. Se eu sou HOST, adiciono meus Bots LOCAIS à visualização imediata
+                if (this.isHost) {
+                    this.rivals = [...humanRivals, ...this.localBots];
+                } else {
+                    // Se sou CLIENT, pego os bots do Firebase (começam com bot_)
+                    const serverBots = Object.keys(data)
+                        .filter(k => k.startsWith('bot_'))
+                        .map(k => ({ id: k, ...data[k], isRemote: true, color: CHARACTERS[data[k].charId || 0].color || '#fff' }));
+                    this.rivals = [...humanRivals, ...serverBots];
+                }
             });
 
             this.roomRef.child('totalRacers').on('value', (snap) => {
@@ -506,11 +510,12 @@
             // --- INICIA BOTS (OFFLINE OU SE FOR HOST ONLINE) ---
             if (!this.isOnline || (this.isOnline && this.isHost)) {
                 this.localBots = [
-                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 }
+                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[3].color, name:'Bowser' },
+                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[4].color, name:'Toad' },
+                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[6].color, name:'DK' },
+                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[7].color, name:'Wario' }
                 ];
+                // Se offline, eles já vão pro rivals. Se online, eles serão fundidos no loop de update.
                 if(!this.isOnline) this.rivals = this.localBots;
             }
         },
@@ -550,7 +555,7 @@
                         this.dbRef.child('players/bot_' + i).update({
                             pos: Math.floor(b.pos), x: b.x, speed: b.speed,
                             lap: b.lap, status: b.status, finishTime: b.finishTime,
-                            charId: b.charId, name: 'CPU '+(i+1), lastSeen: firebase.database.ServerValue.TIMESTAMP
+                            charId: b.charId, name: b.name, lastSeen: firebase.database.ServerValue.TIMESTAMP
                         });
                     });
                 }
@@ -586,8 +591,8 @@
             if (this.isOnline && this.isHost && this.state === 'RACE') {
                 const finishedCount = allRacers.filter(r => r.status === 'FINISHED').length;
                 const expectedTotal = this.totalRacers || allRacers.length;
-                const activeCount = allRacers.filter(r => !r.id.includes('bot')).length; 
                 
+                // Se todos (humanos + bots) acabaram
                 if (finishedCount >= allRacers.length) {
                     setTimeout(() => { this.roomRef.update({ raceState: 'GAMEOVER' }); }, 1000);
                 }
@@ -642,11 +647,20 @@
                 if(d.speed > 10) this.spawnParticle(w/2 + (Math.random()-0.5)*60, h*0.9, 'dust');
             } else if (absX > 1.0) { currentGrip = PHYSICS.gripZebra; d.vibration = 2; }
 
+            // -----------------------------------------------------------
+            // LOGICA TURBO CORRIGIDA (SEM FLICKER)
+            // -----------------------------------------------------------
             let max = CONF.MAX_SPEED * char.speedInfo;
             if (d.turboLock && d.nitro > 0) { 
-                max = CONF.TURBO_MAX_SPEED; d.nitro -= 0.6;
+                max = CONF.TURBO_MAX_SPEED; 
+                d.nitro -= 0.6;
                 this.spawnParticle(w/2 - 25, h*0.95, 'turbo'); this.spawnParticle(w/2 + 25, h*0.95, 'turbo');
-            } else { d.nitro = Math.min(100, d.nitro + 0.15); if(d.nitro < 5) d.turboLock = false; }
+                // Corte limpo para evitar gagueira do som
+                if (d.nitro <= 0) { d.nitro = 0; d.turboLock = false; } 
+            } else { 
+                d.nitro = Math.min(100, d.nitro + 0.15); 
+                // Removemos o check de desligamento aqui para evitar conflito
+            }
 
             const isAccelerating = (d.inputActive || d.turboLock);
             if(d.status === 'RACING' && d.spinTimer <= 0 && isAccelerating) { d.speed += (max - d.speed) * char.accel; } 
@@ -670,23 +684,34 @@
             // -------------------------------------------------------
             // IA DOS BOTS (Controlada pelo HOST ou Offline)
             // -------------------------------------------------------
+            // CORREÇÃO: A lógica de física dos bots deve rodar AQUI para o Host
             if (this.localBots.length > 0 && d.state !== 'GAMEOVER') {
                 this.localBots.forEach(r => {
                     if (r.status === 'FINISHED') return;
-                    const rChar = CHARACTERS[r.charId];
+                    const rChar = CHARACTERS[r.charId || 0] || CHARACTERS[0];
                     const rSeg = getSegment((r.pos + 300) / CONF.SEGMENT_LENGTH); 
+                    
                     if (Math.random() < 0.01) r.errorTimer = 20;
-                    if (r.errorTimer > 0) { r.errorTimer--; r.x += (Math.random() - 0.5) * 0.15; } 
-                    else {
+                    if (r.errorTimer > 0) { 
+                        r.errorTimer--; r.x += (Math.random() - 0.5) * 0.15; 
+                    } else {
                         const targetSpeed = (CONF.MAX_SPEED * rChar.speedInfo) - (Math.abs(rSeg.curve) * 8); 
                         if (r.speed < 50 && r.pos < 6000) r.speed += rChar.accel * 3; 
                         else if (r.speed < targetSpeed) r.speed += rChar.accel * 0.85;
                         const idealX = -(rSeg.curve * 0.35); r.x += (idealX - r.x) * 0.07;
                     }
-                    r.speed *= 0.995; r.x = Math.max(-1.8, Math.min(1.8, r.x)); r.pos += r.speed;
+                    r.speed *= 0.995; 
+                    r.x = Math.max(-1.8, Math.min(1.8, r.x)); 
+                    r.pos += r.speed; // MOVIMENTO EFETIVO
+                    
                     if (r.pos >= trackLength) { 
                         r.pos -= trackLength; r.lap++; 
-                        if (r.lap > CONF.TOTAL_LAPS) { r.status = 'FINISHED'; r.finishTime = Date.now(); r.speed = 0; r.lap = CONF.TOTAL_LAPS; }
+                        if (r.lap > CONF.TOTAL_LAPS) { 
+                            r.status = 'FINISHED'; 
+                            r.finishTime = Date.now(); 
+                            r.speed = 0; 
+                            r.lap = CONF.TOTAL_LAPS; 
+                        }
                     }
                 });
             }
