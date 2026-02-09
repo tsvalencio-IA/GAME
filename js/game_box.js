@@ -1,134 +1,120 @@
 // =============================================================================
-// SUPER BOXING: ENTERPRISE EDITION (ROBUST & CRASH-PROOF)
-// ARQUITETO: SENIOR DEV (CODE 177)
-// STATUS: GOLD MASTER (REFACTORED v2.1 - MULTIPLAYER FIX)
+// SUPER BOXING: PLATINUM EDITION (FINAL)
+// ARQUITETO: SENIOR DEV
+// FUSÃO: Lógica de Simulação + Visuais Nintendo Style + Netcode Robusto
 // =============================================================================
 
 (function() {
-    "use strict"; 
+    "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONSTANTES E CONFIGURAÇÃO
+    // 1. CONFIGURAÇÕES & "GAME FEEL"
     // -----------------------------------------------------------------
     const CONF = {
-        DEBUG: false,
         ROUNDS: 3,
-        ROUND_TIME: 90,      // Segundos
-        BLOCK_DIST: 100,     // Distância para defesa
-        PUNCH_THRESH: 400,   // Velocidade pixel/s para ativar soco
-        PUNCH_SPEED: 400,    // Velocidade do soco (Z-axis) unit/s
-        RETRACT_SPEED: 200,  // Velocidade de retorno unit/s
-        PLAYER_SCALE: 1.4,
-        ENEMY_SCALE: 1.0,
-        SMOOTHING: 15.0      // Fator de lerp ajustado para DeltaTime
+        ROUND_TIME: 90,
+        
+        // Física
+        REACH_MIN: 0.15,     // Extensão mínima (0-1)
+        VEL_THRESH: 0.01,    // Velocidade mínima do soco
+        BLOCK_DIST: 0.15,    // Distância da mão para o rosto
+        
+        // Impacto Visual (Juice)
+        SHAKE_POWER: 15,     // Intensidade do tremor
+        HIT_STOP: 4,         // Frames congelados no impacto (peso)
+        
+        // Escala
+        PLAYER_SCALE: 1.4,   // Você (frente)
+        ENEMY_SCALE: 1.0     // Rival (fundo)
     };
 
-    const CHARACTERS = [
-        { id: 0, name: 'MARIO',   c: { hat: '#d32f2f', shirt: '#e74c3c', overall: '#3498db', skin: '#ffccaa' }, pwr: 1.0, speed: 1.0 },
-        { id: 1, name: 'LUIGI',   c: { hat: '#27ae60', shirt: '#2ecc71', overall: '#2b3a8f', skin: '#ffccaa' }, pwr: 0.9, speed: 1.2 },
-        { id: 2, name: 'WARIO',   c: { hat: '#f1c40f', shirt: '#f39c12', overall: '#8e44ad', skin: '#e67e22' }, pwr: 1.3, speed: 0.8 },
-        { id: 3, name: 'WALUIGI', c: { hat: '#5e2d85', shirt: '#8e44ad', overall: '#2c3e50', skin: '#ffccaa' }, pwr: 1.0, speed: 1.1 }
+    const CHARS = [
+        { id: 0, name: 'MARIO',   c: { skin:'#ffccaa', hat:'#d32f2f', shirt:'#e74c3c', over:'#3498db', glove:'#eee' }, stats: { pwr:1.0, spd:1.0 } },
+        { id: 1, name: 'LUIGI',   c: { skin:'#ffccaa', hat:'#27ae60', shirt:'#2ecc71', over:'#2b3a8f', glove:'#eee' }, stats: { pwr:0.9, spd:1.2 } },
+        { id: 2, name: 'WARIO',   c: { skin:'#e67e22', hat:'#f1c40f', shirt:'#f39c12', over:'#8e44ad', glove:'#fff' }, stats: { pwr:1.4, spd:0.7 } },
+        { id: 3, name: 'WALUIGI', c: { skin:'#ffccaa', hat:'#5e2d85', shirt:'#8e44ad', over:'#2c3e50', glove:'#fff' }, stats: { pwr:1.1, spd:0.9 } }
     ];
 
     const ARENAS = [
-        { name: 'CHAMPIONSHIP', bg: '#2c3e50', floor: '#95a5a6', rope: '#c0392b' },
-        { name: 'UNDERGROUND',  bg: '#1a1a1a', floor: '#3e2723', rope: '#f1c40f' }
+        { name: 'WORLD CIRCUIT', sky:'#2c3e50', floor:'#95a5a6', rope:'#e74c3c' },
+        { name: 'UNDERGROUND',   sky:'#1a1a1a', floor:'#3e2723', rope:'#f1c40f' }
     ];
 
     // -----------------------------------------------------------------
-    // 2. UTILITÁRIOS SEGUROS (CRASH-PROOF & PHYSICS)
+    // 2. UTILITÁRIOS
     // -----------------------------------------------------------------
-    const SafeUtils = {
-        // Lerp independente de frame: a = start, b = end, decay = speed, dt = delta time
-        lerpDt: (a, b, decay, dt) => {
-            if (typeof a !== 'number') return b;
-            return b + (a - b) * Math.exp(-decay * dt);
-        },
-        
-        lerpPoint: (curr, target, decay, dt) => {
-            if (!curr) return target || {x:0, y:0};
-            if (!target) return curr;
-            const f = Math.exp(-decay * dt);
-            return {
-                x: target.x + (curr.x - target.x) * f,
-                y: target.y + (curr.y - target.y) * f
-            };
-        },
-
-        dist: (p1, p2) => {
-            if (!p1 || !p2) return 9999;
-            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
-        },
-
-        toScreen: (kp, w, h) => {
-            if (!kp || typeof kp.x !== 'number') return {x: w/2, y: h/2};
-            return { x: (1 - kp.x / 640) * w, y: (kp.y / 480) * h };
-        },
-
-        createPose: () => ({
-            head: {x:0, y:0},
-            shoulders: {l:{x:0,y:0}, r:{x:0,y:0}},
-            elbows: {l:{x:0,y:0}, r:{x:0,y:0}},
-            wrists: {l:{x:0,y:0, z:0, state:'IDLE', hasHit: false}, r:{x:0,y:0, z:0, state:'IDLE', hasHit: false}}
-        })
+    const Utils = {
+        dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
+        lerp: (a, b, t) => a + (b - a) * t,
+        toScreen: (norm, w, h) => ({ x: (1 - norm.x) * w, y: norm.y * h })
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO
+    // 3. ENGINE
     // -----------------------------------------------------------------
     const Game = {
         state: 'INIT',
-        roomId: 'box_pro_v1',
+        roomId: 'box_plat_v1',
         isOnline: false,
         dbRef: null,
-        
-        lastTime: 0, // Para cálculo de DeltaTime
-        
-        selChar: 0,
-        selArena: 0,
-        timer: 0,
-        round: 1,
 
+        // Seleção
+        selChar: 0,
+        
+        // Loop
+        timer: 99,
+        round: 1,
+        frameCount: 0,
+        
+        // Efeitos
+        shake: 0,
+        hitStop: 0,
+        
+        // Entidades
         p1: null,
         p2: null,
-        msgs: [], 
+        effects: [],
 
         init: function() {
-            try {
-                this.state = 'MODE_SELECT';
-                this.cleanup();
-                if(window.System && window.System.msg) window.System.msg("BOXING PRO");
-                
-                this.lastTime = performance.now();
-                this.p1 = this.createPlayer('p1', 0);
-                this.p2 = this.createPlayer('p2', 1);
-                
-                this.setupInput();
-            } catch(e) {
-                console.error("Critical Init Error:", e);
-            }
+            this.state = 'MODE_SELECT';
+            this.cleanup();
+            if(window.System && window.System.msg) window.System.msg("SUPER BOXING");
+            
+            this.p1 = this.createFighter('p1', 0, false);
+            this.p2 = this.createFighter('p2', 1, true);
+            this.setupInput();
         },
 
-        createPlayer: function(id, charId) {
+        createFighter: function(id, charIdx, isAI) {
+            const stats = CHARS[charIdx].stats;
             return {
                 id: id,
-                charId: charId,
+                charId: charIdx,
+                isAI: isAI,
                 hp: 100, maxHp: 100,
-                stamina: 100,
                 guard: false,
+                stamina: 100,
                 score: 0,
-                pose: SafeUtils.createPose(),
-                aiState: { timer: 0, action: 'IDLE', targetX: 0, targetY: 0 }, // Estado determinístico da AI
-                isRemote: false
+                combo: 0,
+                // Pose Normalizada (0-1) para Lógica
+                pose: {
+                    head:{x:0.5,y:0.3}, 
+                    shL:{x:0.6,y:0.4}, shR:{x:0.4,y:0.4}, 
+                    elL:{x:0.65,y:0.5}, elR:{x:0.35,y:0.5},
+                    wrL:{x:0.6,y:0.45}, wrR:{x:0.4,y:0.45}
+                },
+                // Estado das Mãos
+                hands: {
+                    l: { state:'IDLE', z:0, vel:0, hit:false, cd:0 },
+                    r: { state:'IDLE', z:0, vel:0, hit:false, cd:0 }
+                },
+                ai: { timer: 0, state: 'IDLE' }
             };
         },
 
         cleanup: function() {
-            if (this.dbRef && window.System.playerId) {
-                try { 
-                    this.dbRef.child('players/' + window.System.playerId).remove(); 
-                    this.dbRef.off(); 
-                } catch(e){ console.warn("Firebase cleanup error", e); }
+            if(this.dbRef && window.System.playerId) {
+                try { this.dbRef.child('players/'+window.System.playerId).remove(); this.dbRef.off(); } catch(e){}
             }
             if(window.System.canvas) window.System.canvas.onclick = null;
         },
@@ -136,539 +122,522 @@
         setupInput: function() {
             window.System.canvas.onclick = (e) => {
                 const r = window.System.canvas.getBoundingClientRect();
-                const x = (e.clientX - r.left);
-                const y = (e.clientY - r.top);
-                const w = r.width;
-                const h = r.height;
+                const x = (e.clientX - r.left) / r.width;
+                const y = (e.clientY - r.top) / r.height;
 
                 if (this.state === 'MODE_SELECT') {
-                    this.setMode(y < h/2 ? 'OFFLINE' : 'ONLINE');
-                    this.playSound('sine', 600);
+                    this.isOnline = (y > 0.5);
+                    if(this.isOnline && !window.DB) {
+                        window.System.msg("OFFLINE ONLY");
+                        return;
+                    }
+                    this.state = 'CHAR_SELECT';
+                    this.playSfx('click');
                 } 
                 else if (this.state === 'CHAR_SELECT') {
-                    const colW = w / CHARACTERS.length;
-                    const clickedIndex = Math.floor(x / colW);
-                    
-                    if (clickedIndex >= 0 && clickedIndex < CHARACTERS.length) {
-                        this.selChar = clickedIndex;
-                        this.playSound('sine', 600);
-                        
-                        if (y > h * 0.75) {
-                            this.startGame();
-                            this.playSound('square', 400);
+                    // Seleção Determinística por colunas
+                    if (y < 0.7) {
+                        const idx = Math.floor(x * 4);
+                        if(idx >= 0 && idx < CHARS.length) {
+                            this.selChar = idx;
+                            this.playSfx('hover');
                         }
+                    } else {
+                        this.startGame();
+                        this.playSfx('start');
                     }
-                } 
+                }
                 else if (this.state === 'GAMEOVER') {
                     this.init();
                 }
             };
         },
 
-        setMode: function(mode) {
-            this.state = 'CHAR_SELECT';
-            this.isOnline = (mode === 'ONLINE' && !!window.DB);
-            if(mode === 'ONLINE' && !window.DB) window.System.msg("OFFLINE MODE");
+        playSfx: function(type) {
+            if(!window.Sfx) return;
+            if(type==='hit_heavy') window.Sfx.play(150, 'sawtooth', 0.1);
+            if(type==='hit_light') window.Sfx.play(200, 'square', 0.1);
+            if(type==='block') window.Sfx.play(100, 'sine', 0.1);
+            if(type==='swish') window.Sfx.play(400, 'noise', 0.05);
+            if(type==='click') window.Sfx.play(600, 'sine', 0.1);
+            if(type==='start') window.Sfx.play(400, 'square', 0.2);
         },
 
         startGame: function() {
-            this.p1 = this.createPlayer('p1', this.selChar);
-            
+            this.p1 = this.createFighter('p1', this.selChar, false);
             if (this.isOnline) {
                 this.connectLobby();
             } else {
-                const cpuId = (this.selChar + 1) % CHARACTERS.length;
-                this.p2 = this.createPlayer('p2', cpuId);
-                this.state = 'FIGHT';
-                this.timer = CONF.ROUND_TIME; 
-                this.lastTime = performance.now();
-                window.System.msg("FIGHT!");
+                let cpuId = (this.selChar + 1) % CHARS.length;
+                this.p2 = this.createFighter('p2', cpuId, true);
+                this.startMatch();
             }
+        },
+
+        startMatch: function() {
+            this.state = 'FIGHT';
+            this.timer = CONF.ROUND_TIME;
+            window.System.msg("ROUND 1");
         },
 
         connectLobby: function() {
             this.state = 'LOBBY';
             try {
                 this.dbRef = window.DB.ref('rooms/' + this.roomId);
-                const myData = { charId: this.selChar, hp: 100, pose: this.p1.pose };
-                this.dbRef.child('players/' + window.System.playerId).set(myData);
-                this.dbRef.child('players/' + window.System.playerId).onDisconnect().remove();
+                const myRef = this.dbRef.child('players/' + window.System.playerId);
+                
+                // Envia pacote inicial
+                const initData = this.serialize(this.p1);
+                initData.charId = this.selChar; // Garante char correto
+                
+                myRef.set(initData);
+                myRef.onDisconnect().remove();
 
                 this.dbRef.child('players').on('value', snap => {
                     const players = snap.val();
-                    if (!players) return;
+                    if(!players) return;
                     const opId = Object.keys(players).find(id => id !== window.System.playerId);
                     
-                    if (opId) {
+                    if(opId) {
                         const opData = players[opId];
-                        if (this.state === 'LOBBY') {
-                            this.p2 = this.createPlayer('p2', opData.charId || 0);
+                        if(this.state === 'LOBBY') {
+                            this.p2 = this.createFighter('p2', opData.charId || 0, false);
                             this.p2.isRemote = true;
                             this.p2.id = opId;
-                            this.state = 'FIGHT';
-                            this.timer = CONF.ROUND_TIME;
-                            this.lastTime = performance.now();
+                            this.startMatch();
                             window.System.msg("VS ONLINE");
-                        } 
-                        else if (this.state === 'FIGHT') {
+                        } else if (this.state === 'FIGHT') {
                             this.p2.hp = opData.hp;
-                            if (opData.pose) this.syncPose(this.p2.pose, opData.pose);
+                            if(opData.pose) this.syncPose(this.p2, opData);
                         }
                     } else if (this.state === 'FIGHT') {
-                        window.System.msg("OPONENTE DESCONECTOU");
                         this.state = 'GAMEOVER';
+                        window.System.msg("OPONENTE SAIU");
                     }
                 });
-            } catch(e) {
-                this.state = 'MODE_SELECT';
-            }
+            } catch(e) { console.error(e); this.state = 'MODE_SELECT'; }
         },
 
-        syncPose: function(local, remote) {
-            // Interpolação para rede (suave)
-            const f = 0.5; // Fator fixo para rede
-            
-            // Helper que atualiza propriedades em vez de substituir objeto
-            // e GARANTE que Z seja preservado
-            const syncPart = (l, r) => {
-                if(!r) return;
-                const next = SafeUtils.lerpPoint(l, r, f, 1);
-                l.x = next.x;
-                l.y = next.y;
-            };
+        // --- UPDATE LOOP ---
+        update: function(ctx, w, h, input) {
+            this.frameCount++;
 
-            const syncLimb = (l, r) => {
-                if(!r) return;
-                syncPart(l, r);
-                // CRUCIAL: Atualiza Z e State explicitamente
-                l.z = (r.z !== undefined) ? r.z : 0;
-                l.state = r.state || 'IDLE';
-            };
-
-            syncPart(local.head, remote.head);
-            syncPart(local.shoulders.l, remote.shoulders.l);
-            syncPart(local.shoulders.r, remote.shoulders.r);
-            syncPart(local.elbows.l, remote.elbows.l);
-            syncPart(local.elbows.r, remote.elbows.r);
-            
-            // Sincroniza punhos com Z e Estado
-            syncLimb(local.wrists.l, remote.wrists.l);
-            syncLimb(local.wrists.r, remote.wrists.r);
-        },
-
-        // -----------------------------------------------------------------
-        // LOOP PRINCIPAL (UPDATE)
-        // -----------------------------------------------------------------
-        update: function(ctx, w, h, inputPose) {
-            try {
-                const now = performance.now();
-                const dt = Math.min((now - this.lastTime) / 1000, 0.1); 
-                this.lastTime = now;
-
-                if (this.state !== 'FIGHT') {
-                    ctx.fillStyle = '#2c3e50'; ctx.fillRect(0,0,w,h);
-                }
-
-                if (this.state === 'MODE_SELECT') { this.uiMode(ctx, w, h); return; }
-                if (this.state === 'CHAR_SELECT') { this.uiChar(ctx, w, h); return; }
-                if (this.state === 'LOBBY') { this.uiLobby(ctx, w, h); return; }
-                if (this.state === 'GAMEOVER') { this.uiGameOver(ctx, w, h); return; }
-
-                if (this.state === 'FIGHT') {
-                    // 1. INPUT PLAYER
-                    this.processInput(inputPose, w, h, dt);
-
-                    // 2. LÓGICA (AI ou Rede)
-                    if (this.isOnline) this.sendUpdate();
-                    else this.updateAI(w, h, dt);
-
-                    // 3. RENDER
-                    this.drawArena(ctx, w, h);
-                    
-                    // Inimigo (Fundo)
-                    this.drawCharacter(ctx, this.p2, w, h, false);
-                    
-                    // Player (Frente - POV)
-                    ctx.globalAlpha = 0.7;
-                    this.drawCharacter(ctx, this.p1, w, h, true);
-                    ctx.globalAlpha = 1.0;
-
-                    // 4. UI
-                    this.drawHUD(ctx, w, h);
-                    this.renderMsgs(ctx, dt);
-
-                    // Timer
-                    if (this.timer > 0) this.timer -= dt;
-                    else this.endRound();
-
-                    if (this.p1.hp <= 0 || this.p2.hp <= 0) this.state = 'GAMEOVER';
-                }
-
+            // Hit Stop (Congelamento de impacto)
+            if (this.hitStop > 0) {
+                this.hitStop--;
+                this.render(ctx, w, h);
                 return this.p1.score;
+            }
 
-            } catch (err) {
-                console.error("Game Loop Error:", err);
+            if (this.state !== 'FIGHT') {
+                // Desenha menus
+                if (this.state === 'MODE_SELECT') this.uiMode(ctx, w, h);
+                else if (this.state === 'CHAR_SELECT') this.uiChar(ctx, w, h);
+                else if (this.state === 'LOBBY') this.uiLobby(ctx, w, h);
+                else if (this.state === 'GAMEOVER') this.uiGameOver(ctx, w, h);
                 return 0;
             }
+
+            // === LUTA ===
+            
+            // 1. Física Player
+            if(input && input.keypoints) this.updatePhysics(this.p1, input.keypoints);
+
+            // 2. AI ou Rede
+            if(this.isOnline) this.netTick();
+            else this.updateAI();
+
+            // 3. Render
+            this.render(ctx, w, h);
+
+            // 4. Regras
+            if(this.frameCount % 60 === 0 && this.timer > 0) this.timer--;
+            if(this.p1.hp <= 0 || this.p2.hp <= 0) this.state = 'GAMEOVER';
+
+            return this.p1.score;
         },
 
-        processInput: function(input, w, h, dt) {
-            if (!input || !input.keypoints) return;
-
-            const kp = input.keypoints;
-            const p = this.p1.pose;
-            const smooth = CONF.SMOOTHING;
-
-            const get = (name, currentPos) => {
-                const point = kp.find(k => k.name === name);
-                if (point && point.score > 0.3) {
-                    const target = SafeUtils.toScreen(point, w, h);
-                    // Lerp independente de frame
-                    return SafeUtils.lerpPoint(currentPos, target, smooth, dt);
-                }
-                return currentPos;
+        updatePhysics: function(f, kps) {
+            const p = f.pose;
+            const get = (idx) => {
+                const k = kps[idx];
+                return (k && k.score > 0.3) ? {x: k.x, y: k.y} : null; // Retorna raw normalizado (0-1) se o core mandar assim, ou ajusta
             };
 
-            // Atualiza posições preservando objetos
-            const updatePart = (curr, name) => {
-                const next = get(name, curr);
-                curr.x = next.x;
-                curr.y = next.y;
+            // O Core manda normalizado? Assumindo que sim baseado no prompt anterior
+            // Se não, o utils.toScreen cuida na renderização. Aqui processamos lógica 0-1
+            
+            // Mapeamento (Indices MoveNet: 0:Nose, 5:LSh, 6:RSh, 9:LWr, 10:RWr)
+            // Usamos lerp para suavizar
+            const map = (curr, raw) => {
+                if(!raw) return;
+                curr.x = Utils.lerp(curr.x, raw.x, 0.5);
+                curr.y = Utils.lerp(curr.y, raw.y, 0.5);
             };
 
-            updatePart(p.head, 'nose');
-            updatePart(p.shoulders.l, 'left_shoulder');
-            updatePart(p.shoulders.r, 'right_shoulder');
-            updatePart(p.elbows.l, 'left_elbow');
-            updatePart(p.elbows.r, 'right_elbow');
+            map(p.head, get(0));
+            map(p.shL, get(5)); map(p.shR, get(6));
+            map(p.elL, get(7)); map(p.elR, get(8));
             
-            // Mãos precisam de get para lógica de velocidade
-            const nextWrL = get('left_wrist', p.wrists.l);
-            const nextWrR = get('right_wrist', p.wrists.r);
-            
-            this.updateHandLogic(p.wrists.l, nextWrL, this.p1, this.p2, dt);
-            this.updateHandLogic(p.wrists.r, nextWrR, this.p1, this.p2, dt);
+            // Mãos e Socos
+            this.processHand(f, f.hands.l, p.wrL, get(9), p.shL);
+            this.processHand(f, f.hands.r, p.wrR, get(10), p.shR);
 
             // Guarda
-            const distL = SafeUtils.dist(p.wrists.l, p.head);
-            const distR = SafeUtils.dist(p.wrists.r, p.head);
-            this.p1.guard = (distL < CONF.BLOCK_DIST && distR < CONF.BLOCK_DIST);
+            const dL = Utils.dist(p.wrL, p.head);
+            const dR = Utils.dist(p.wrR, p.head);
+            f.guard = (dL < CONF.BLOCK_DIST && dR < CONF.BLOCK_DIST);
             
-            // Stamina regen
-            if(this.p1.stamina < 100) this.p1.stamina += (10 * dt);
+            // Stamina
+            f.stamina = Math.min(100, f.stamina + 0.3);
         },
 
-        updateHandLogic: function(hand, targetPos, owner, opponent, dt) {
-            const dist = SafeUtils.dist(hand, targetPos);
-            const velocity = dist / (dt || 0.016);
+        processHand: function(f, h, pos, raw, sh) {
+            if(!raw) return;
             
-            hand.x = targetPos.x;
-            hand.y = targetPos.y;
+            // Velocidade e Extensão
+            const vel = Utils.dist(raw, pos); // Delta frame
+            const ext = Utils.dist(raw, sh);  // Distância do ombro
+            
+            // Atualiza posição
+            pos.x = Utils.lerp(pos.x, raw.x, 0.5);
+            pos.y = Utils.lerp(pos.y, raw.y, 0.5);
 
-            // Gatilho de Soco
-            if (velocity > CONF.PUNCH_THRESH && hand.state === 'IDLE' && owner.stamina > 15) {
-                hand.state = 'PUNCH';
-                hand.z = 0;
-                hand.hasHit = false; 
-                owner.stamina -= 20;
-                this.playSound('noise', 200, 0.05);
-            }
+            // Cooldown
+            if(h.cd > 0) h.cd--;
 
-            // Física do Soco
-            if (hand.state === 'PUNCH') {
-                const fatigue = Math.max(0.4, owner.stamina / 100);
-                const spd = CONF.PUNCH_SPEED * CHARACTERS[owner.charId].speed * fatigue;
-                
-                hand.z += spd * dt;
-                
-                if (hand.z > 50 && hand.z < 90) {
-                    this.checkHit(hand, owner, opponent);
+            // Máquina de Estados
+            if(h.state === 'IDLE') {
+                if(vel > CONF.VEL_THRESH && ext > CONF.REACH_MIN && h.cd <= 0 && f.stamina > 10) {
+                    h.state = 'PUNCH';
+                    h.z = 0;
+                    h.hit = false;
+                    f.stamina -= 10;
+                    this.playSfx('swish');
                 }
-
-                if (hand.z > 100) hand.state = 'RETRACT';
             } 
-            else if (hand.state === 'RETRACT') {
-                hand.z -= CONF.RETRACT_SPEED * dt;
-                if (hand.z <= 0) {
-                    hand.z = 0;
-                    hand.state = 'IDLE';
-                    hand.hasHit = false; 
+            else if(h.state === 'PUNCH') {
+                h.z += 0.15; // Z virtual (0 a 1)
+                
+                // Colisão (Entre 0.5 e 0.8 do soco)
+                if(h.z > 0.5 && h.z < 0.8 && !h.hit) {
+                    this.checkHit(f, h, pos);
                 }
+                
+                if(h.z >= 1.0) h.state = 'RETRACT';
+            } 
+            else if(h.state === 'RETRACT') {
+                h.z -= 0.1;
+                if(h.z <= 0) { h.z = 0; h.state = 'IDLE'; h.cd = 10; }
             }
         },
 
-        checkHit: function(hand, attacker, defender) {
-            if (hand.hasHit) return;
-
-            const enemyPose = defender.pose;
-            const headBox = { x: enemyPose.head.x, y: enemyPose.head.y, r: 70 };
-            const cx = (enemyPose.shoulders.l.x + enemyPose.shoulders.r.x) / 2;
-            const cy = (enemyPose.shoulders.l.y + enemyPose.shoulders.r.y) / 2;
-            const bodyBox = { x: cx, y: cy + 60, r: 90 };
-
-            const hitHead = SafeUtils.dist(hand, headBox) < headBox.r;
-            const hitBody = SafeUtils.dist(hand, bodyBox) < bodyBox.r;
-
-            if (hitHead || hitBody) {
-                hand.hasHit = true; 
+        checkHit: function(atk, hand, pos) {
+            const def = (atk === this.p1) ? this.p2 : this.p1;
+            const targetHead = def.pose.head; // Normalizado
+            
+            // Distância do golpe
+            const d = Utils.dist(pos, targetHead);
+            
+            if(d < 0.15) { // Hit!
+                hand.hit = true;
                 
-                const basePwr = CHARACTERS[attacker.charId].pwr;
-                const fatigue = Math.max(0.3, attacker.stamina / 100);
-                let damage = basePwr * 5 * fatigue; 
-
-                if (defender.guard) {
-                    damage *= 0.25; 
-                    this.spawnMsg(headBox.x, headBox.y - 40, "BLOCK", "#aaa");
-                    this.playSound('square', 100, 0.1);
+                if(def.guard) {
+                    this.spawnPopup("BLOCK", '#aaa');
+                    this.playSfx('block');
+                    def.hp -= 1;
                 } else {
-                    if (hitHead) {
-                        damage *= 2.5;
-                        this.spawnMsg(headBox.x, headBox.y - 50, "CRITICAL!", "#f00");
-                        if(window.Gfx) window.Gfx.shakeScreen(10);
-                        this.playSound('sawtooth', 150, 0.1);
-                    } else {
-                        this.spawnMsg(bodyBox.x, bodyBox.y, "HIT", "#ff0");
-                        if(window.Gfx) window.Gfx.shakeScreen(3);
-                        this.playSound('sine', 100, 0.1);
-                    }
-                    attacker.score += Math.floor(damage * 10);
+                    const dmg = 8 * CHARS[atk.charId].stats.pwr;
+                    const crit = Math.random() > 0.8;
+                    
+                    def.hp -= (crit ? dmg * 1.5 : dmg);
+                    atk.score += (crit ? 100 : 50);
+                    atk.combo++;
+                    
+                    // JUICE: Impacto
+                    this.hitStop = CONF.HIT_STOP;
+                    this.shake = CONF.SHAKE_POWER;
+                    this.spawnParticles(10, crit ? '#ff0' : '#fff');
+                    this.spawnPopup(crit ? "CRITICAL!" : "HIT!", crit ? '#f00' : '#ff0');
+                    this.playSfx(crit ? 'hit_heavy' : 'hit_light');
+                    
+                    if(window.Gfx) window.Gfx.shakeScreen(5);
                 }
                 
-                defender.hp = Math.max(0, defender.hp - damage);
-                
-                if(this.isOnline && this.dbRef && attacker === this.p1) {
-                     this.dbRef.child('players/' + defender.id).update({ hp: defender.hp });
+                if(this.isOnline && this.dbRef) {
+                    this.dbRef.child('players/'+def.id).update({hp: def.hp});
                 }
-
-                hand.state = 'RETRACT';
             }
         },
 
-        updateAI: function(w, h, dt) {
-            const ai = this.p2;
-            const p = ai.pose;
-            const t = this.timer; 
+        updateAI: function() {
+            if(this.p2.hp <= 0) return;
             
-            const cx = w/2;
-            const cy = h * 0.35;
-            p.head = { x: cx + Math.sin(t*2)*30, y: cy + Math.cos(t*3)*10 };
-            p.shoulders.l = { x: p.head.x - 50, y: p.head.y + 60 };
-            p.shoulders.r = { x: p.head.x + 50, y: p.head.y + 60 };
-            p.elbows.l = { x: p.shoulders.l.x - 20, y: p.shoulders.l.y + 60 };
-            p.elbows.r = { x: p.shoulders.r.x + 20, y: p.shoulders.r.y + 60 };
-
-            if (this.p1.stamina < 90) ai.guard = true;
-            else if (ai.stamina > 90) ai.guard = false;
-
-            const attackPattern = Math.sin(t * 5); 
+            const ai = this.p2.pose;
+            const t = Date.now() * 0.002;
             
-            ['l', 'r'].forEach(s => {
-                const hnd = p.wrists[s];
-                let tx = p.head.x + (s==='l'?-40:40);
-                let ty = p.head.y + (ai.guard ? 0 : 80);
-
-                if (attackPattern > 0.9 && hnd.state === 'IDLE' && ai.stamina > 30) {
-                     ai.aiState.targetX = w/2 + (Math.sin(t)*50);
-                     ai.aiState.targetY = h/2 + 50;
-                     tx = ai.aiState.targetX;
-                     ty = ai.aiState.targetY;
+            // Movimento Vivo
+            ai.head.x = 0.5 + Math.sin(t)*0.05;
+            ai.head.y = 0.3 + Math.cos(t*2)*0.02;
+            ai.shL = {x: ai.head.x+0.1, y: ai.head.y+0.15};
+            ai.shR = {x: ai.head.x-0.1, y: ai.head.y+0.15};
+            
+            // Decisão
+            this.p2.ai.timer--;
+            if(this.p2.ai.timer <= 0) {
+                const rand = Math.random();
+                if(rand < 0.05) { // Soco
+                    const h = (Math.random()>0.5) ? this.p2.hands.l : this.p2.hands.r;
+                    h.state = 'PUNCH';
+                    this.p2.ai.timer = 60;
+                } else if(rand < 0.05) { // Guarda
+                    this.p2.guard = !this.p2.guard;
+                    this.p2.ai.timer = 40;
                 }
-
-                const speed = 5.0; 
-                const nextPos = SafeUtils.lerpPoint(hnd, {x: tx, y: ty}, speed, dt);
-                
-                this.updateHandLogic(hnd, nextPos, ai, this.p1, dt);
-            });
+            }
             
-            if(ai.stamina < 100) ai.stamina += (10 * dt);
-        },
-
-        sendUpdate: function() {
-            if (Math.floor(this.timer * 10) % 3 === 0 && this.dbRef) {
-                const r = (v) => ({x: Math.round(v.x), y: Math.round(v.y), z: Math.round(v.z||0)});
-                const p = this.p1.pose;
-                this.dbRef.child('players/' + window.System.playerId).update({
-                    hp: this.p1.hp,
-                    pose: {
-                        head: r(p.head),
-                        shoulders: {l: r(p.shoulders.l), r: r(p.shoulders.r)},
-                        elbows: {l: r(p.elbows.l), r: r(p.elbows.r)},
-                        wrists: {
-                            l: {...r(p.wrists.l), state: p.wrists.l.state},
-                            r: {...r(p.wrists.r), state: p.wrists.r.state}
+            // Animação Mãos AI
+            ['l','r'].forEach(s => {
+                const h = this.p2.hands[s];
+                const w = (s==='l') ? ai.wrL : ai.wrR;
+                const rest = {x: ai.head.x + (s==='l'?0.1:-0.1), y: ai.head.y + 0.2};
+                
+                if(h.state === 'IDLE') {
+                    if(this.p2.guard) rest.y -= 0.1;
+                    w.x = Utils.lerp(w.x, rest.x, 0.1);
+                    w.y = Utils.lerp(w.y, rest.y, 0.1);
+                } else if (h.state === 'PUNCH') {
+                    h.z += 0.1;
+                    w.x = Utils.lerp(w.x, 0.5, 0.2); // Mira no centro (você)
+                    w.y = Utils.lerp(w.y, 0.4, 0.2);
+                    
+                    if(h.z > 0.6 && !h.hit) { // Hit check simples vs player
+                        if(!this.p1.guard) {
+                            this.p1.hp -= 2;
+                            this.spawnPopup("OUCH", '#f00');
+                            this.shake = 10;
                         }
+                        h.hit = true;
                     }
-                });
+                    if(h.z >= 1) h.state = 'RETRACT';
+                } else {
+                    h.z -= 0.1; if(h.z<=0) { h.z=0; h.state='IDLE'; h.hit=false; }
+                }
+            });
+        },
+
+        // --- NETCODE ---
+        netTick: function() {
+            if(this.frameCount % 4 === 0 && this.dbRef) {
+                this.dbRef.child('players/'+window.System.playerId).update(this.serialize(this.p1));
+            }
+        },
+        
+        serialize: function(p) {
+            const f = n => Math.floor(n*100)/100;
+            return {
+                hp: p.hp,
+                pose: {
+                    head: {x:f(p.pose.head.x), y:f(p.pose.head.y)},
+                    wrL: {x:f(p.pose.wrL.x), y:f(p.pose.wrL.y), z:f(p.hands.l.z)},
+                    wrR: {x:f(p.pose.wrR.x), y:f(p.pose.wrR.y), z:f(p.hands.r.z)}
+                }
+            };
+        },
+        
+        syncPose: function(p, data) {
+            const pose = data.pose;
+            const f = 0.3;
+            if(pose.head) {
+                p.pose.head.x = Utils.lerp(p.pose.head.x, pose.head.x, f);
+                p.pose.head.y = Utils.lerp(p.pose.head.y, pose.head.y, f);
+                // Inferir ombros
+                p.pose.shL = {x: p.pose.head.x+0.1, y: p.pose.head.y+0.15};
+                p.pose.shR = {x: p.pose.head.x-0.1, y: p.pose.head.y+0.15};
+            }
+            if(pose.wrL) {
+                p.pose.wrL.x = Utils.lerp(p.pose.wrL.x, pose.wrL.x, f);
+                p.pose.wrL.y = Utils.lerp(p.pose.wrL.y, pose.wrL.y, f);
+                p.hands.l.z = pose.wrL.z;
+            }
+            if(pose.wrR) {
+                p.pose.wrR.x = Utils.lerp(p.pose.wrR.x, pose.wrR.x, f);
+                p.pose.wrR.y = Utils.lerp(p.pose.wrR.y, pose.wrR.y, f);
+                p.hands.r.z = pose.wrR.z;
             }
         },
 
-        // -----------------------------------------------------------------
-        // RENDERIZAÇÃO
-        // -----------------------------------------------------------------
+        // --- RENDER (A MÁGICA VISUAL) ---
+        render: function(ctx, w, h) {
+            // Apply Shake
+            ctx.save();
+            if(this.shake > 0) {
+                ctx.translate((Math.random()-0.5)*this.shake, (Math.random()-0.5)*this.shake);
+                this.shake *= 0.9;
+                if(this.shake < 1) this.shake = 0;
+            }
+
+            this.drawArena(ctx, w, h);
+            this.drawChar(ctx, this.p2, w, h, false); // Inimigo (Fundo)
+            
+            ctx.globalAlpha = 0.8; // Transparência "Ghost" para o Player
+            this.drawChar(ctx, this.p1, w, h, true);  // Player (Frente)
+            ctx.globalAlpha = 1.0;
+
+            this.drawEffects(ctx, w, h);
+            this.drawHUD(ctx, w, h);
+            ctx.restore();
+        },
+
+        drawChar: function(ctx, f, w, h, isSelf) {
+            const p = f.pose;
+            const c = CHARS[f.charId].c;
+            const S = (n) => Utils.toScreen(n, w, h);
+            
+            // Escala Visual
+            const scale = isSelf ? CONF.PLAYER_SCALE : CONF.ENEMY_SCALE;
+            
+            // Pontos Tela
+            const head = S(p.head);
+            const shL = S(p.shL); const shR = S(p.shR);
+            const wrL = S(p.wrL); const wrR = S(p.wrR);
+            
+            // Cotovelos IK (Visual apenas)
+            const elL = { x: (shL.x + wrL.x)/2 - 20*scale, y: (shL.y + wrL.y)/2 + 20*scale };
+            const elR = { x: (shR.x + wrR.x)/2 + 20*scale, y: (shR.y + wrR.y)/2 + 20*scale };
+
+            // FUNÇÕES DE DESENHO (Estilo Luigi Training)
+            const limb = (a, b, wid) => {
+                ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+                ctx.lineWidth = wid * scale; ctx.lineCap='round'; ctx.strokeStyle = c.shirt; ctx.stroke();
+            };
+            const circle = (pos, r, col) => {
+                ctx.beginPath(); ctx.arc(pos.x, pos.y, r*scale, 0, Math.PI*2); ctx.fillStyle=col; ctx.fill();
+            };
+
+            // 1. Corpo
+            const chestX = (shL.x + shR.x)/2;
+            const chestY = (shL.y + shR.y)/2;
+            
+            ctx.fillStyle = c.shirt;
+            ctx.beginPath(); ctx.ellipse(chestX, chestY+40*scale, 50*scale, 70*scale, 0, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = c.over;
+            ctx.fillRect(chestX-35*scale, chestY+50*scale, 70*scale, 80*scale); // Macacão
+
+            // 2. Braços
+            limb(shL, elL, 25); limb(elL, wrL, 20);
+            limb(shR, elR, 25); limb(elR, wrR, 20);
+
+            // 3. Cabeça
+            circle(head, 45, c.skin);
+            // Boné
+            ctx.fillStyle = c.hat;
+            ctx.beginPath(); ctx.arc(head.x, head.y-10*scale, 46*scale, Math.PI, 0); ctx.fill(); // Domo
+            ctx.beginPath(); ctx.ellipse(head.x, head.y-12*scale, 50*scale, 15*scale, 0, 0, Math.PI*2); ctx.fill(); // Aba
+            // Letra
+            circle({x:head.x, y:head.y-35*scale}, 12, '#fff');
+            ctx.fillStyle = c.hat; ctx.font = `bold ${20*scale}px Arial`; ctx.textAlign='center';
+            ctx.fillText(CHARS[f.charId].name[0], head.x, head.y-28*scale);
+
+            // 4. Luvas (Com efeito 3D de Z)
+            const drawGlove = (pos, hData) => {
+                const zScale = 1 + (hData.z * 0.5); // Aumenta quando soco sai
+                const size = 30 * scale * zScale;
+                
+                // Sombra
+                ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(pos.x+10, pos.y+10, size, 0, Math.PI*2); ctx.fill();
+                
+                // Luva
+                const g = ctx.createRadialGradient(pos.x-10, pos.y-10, 5, pos.x, pos.y, size);
+                g.addColorStop(0, '#fff'); g.addColorStop(1, c.glove);
+                ctx.fillStyle = g;
+                ctx.beginPath(); ctx.arc(pos.x, pos.y, size, 0, Math.PI*2); ctx.fill();
+                
+                // Faixa
+                ctx.fillStyle = '#d00'; ctx.fillRect(pos.x-size/2, pos.y+size*0.3, size, size*0.4);
+            };
+            drawGlove(wrL, f.hands.l);
+            drawGlove(wrR, f.hands.r);
+        },
+
         drawArena: function(ctx, w, h) {
-            const ar = ARENAS[this.selArena];
-            const mid = h * 0.6;
+            const ar = ARENAS[this.selArena]; // Só tem 1 arena na seleção simples, mas preparado para mais
+            const mid = h * 0.5;
             const g = ctx.createLinearGradient(0,0,0,mid);
-            g.addColorStop(0, ar.bg); g.addColorStop(1, '#000');
+            g.addColorStop(0, ar.sky); g.addColorStop(1, '#000');
             ctx.fillStyle = g; ctx.fillRect(0,0,w,mid);
             ctx.fillStyle = ar.floor; ctx.fillRect(0,mid,w,h-mid);
-            ctx.strokeStyle = ar.rope; ctx.lineWidth = 4;
+            // Cordas
+            ctx.strokeStyle = ar.rope; ctx.lineWidth = 5;
             ctx.beginPath(); ctx.moveTo(0, mid-50); ctx.lineTo(w, mid-50); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(0, mid-120); ctx.lineTo(w, mid-120); ctx.stroke();
         },
 
-        drawCharacter: function(ctx, player, w, h, isSelf) {
-            const p = player.pose;
-            if (p.shoulders.l.x === 0) return;
-
-            const c = CHARACTERS[player.charId].c;
-            let size = SafeUtils.dist(p.shoulders.l, p.shoulders.r) / 100;
-            if (!isSelf) size = 1.0; 
-            const s = size * (isSelf ? CONF.PLAYER_SCALE : CONF.ENEMY_SCALE);
-            const cx = (p.shoulders.l.x + p.shoulders.r.x) / 2;
-            const cy = (p.shoulders.l.y + p.shoulders.r.y) / 2;
-
-            const limb = (p1, p2, width) => {
-                if(p1.x===0 || p2.x===0) return;
-                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
-                ctx.lineWidth = width * s; ctx.lineCap='round'; ctx.strokeStyle = c.shirt; ctx.stroke();
-            };
-
-            ctx.fillStyle = c.shirt; 
-            ctx.beginPath(); ctx.ellipse(cx, cy + (40*s), 50*s, 70*s, 0, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = c.overall; 
-            ctx.fillRect(cx - 35*s, cy + 50*s, 70*s, 80*s);
-            
-            limb(p.shoulders.l, p.elbows.l, 25);
-            limb(p.elbows.l, p.wrists.l, 25);
-            limb(p.shoulders.r, p.elbows.r, 25);
-            limb(p.elbows.r, p.wrists.r, 25);
-
-            ctx.fillStyle = c.skin; ctx.beginPath(); ctx.arc(p.head.x, p.head.y, 45*s, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = c.hat; 
-            ctx.beginPath(); ctx.arc(p.head.x, p.head.y - 10*s, 48*s, Math.PI, 0); ctx.fill();
-            ctx.beginPath(); ctx.ellipse(p.head.x, p.head.y - 10*s, 50*s, 15*s, 0, Math.PI, 0); ctx.fill();
-            ctx.fillStyle = "#fff"; ctx.font = `bold ${30*s}px Arial`; ctx.textAlign = 'center';
-            ctx.fillText(CHARACTERS[player.charId].name[0], p.head.x, p.head.y - 35*s);
-
-            this.drawGlove(ctx, p.wrists.l, s);
-            this.drawGlove(ctx, p.wrists.r, s);
+        // --- SISTEMA DE EFEITOS (POP UPS) ---
+        spawnPopup: function(t, c) { this.effects.push({type:'txt', t:t, c:c, x:window.innerWidth/2, y:window.innerHeight/2, l:40}); },
+        spawnParticles: function(n, c) { 
+            for(let i=0;i<n;i++) this.effects.push({type:'part', x:window.innerWidth/2, y:window.innerHeight/2, vx:(Math.random()-0.5)*20, vy:(Math.random()-0.5)*20, c:c, l:30});
         },
-
-        drawGlove: function(ctx, hand, s) {
-            if (hand.x === 0) return;
-            // Proteção contra NaN se Z não for sincronizado
-            const zVal = hand.z || 0;
-            const zScale = Math.max(0.5, 1.0 - (zVal * 0.003)); 
-            const size = s * zScale * 35;
-            
-            ctx.save();
-            ctx.translate(hand.x, hand.y);
-            ctx.shadowBlur = hand.state === 'PUNCH' ? 20 : 0;
-            ctx.shadowColor = '#000';
-            const g = ctx.createRadialGradient(-5, -5, 2, 0, 0, size);
-            g.addColorStop(0, '#fff'); g.addColorStop(1, '#ddd');
-            ctx.fillStyle = g;
-            ctx.beginPath(); ctx.arc(0, 0, size, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#d00'; ctx.fillRect(-size/2, size*0.3, size, size*0.3);
-            ctx.restore();
-        },
-
-        uiMode: function(ctx, w, h) {
-            ctx.fillStyle = "#fff"; ctx.font="bold 50px 'Russo One'"; ctx.textAlign="center";
-            ctx.fillText("BOXING PRO", w/2, 100);
-            this.drawBtn(ctx, w/2, h/2 - 60, "OFFLINE (VS CPU)", this.state);
-            this.drawBtn(ctx, w/2, h/2 + 60, "ONLINE (VS PLAYER)", this.state);
-        },
-
-        uiChar: function(ctx, w, h) {
-            ctx.fillStyle = "#222"; ctx.fillRect(0,0,w,h);
-            const colW = w / CHARACTERS.length;
-            CHARACTERS.forEach((c, i) => {
-                const x = i * colW;
-                const center = x + colW/2;
-                if (i === this.selChar) {
-                    ctx.fillStyle = c.c.overall;
-                    ctx.fillRect(x, 0, colW, h);
+        drawEffects: function(ctx, w, h) {
+            this.effects.forEach(e => {
+                e.l--;
+                if(e.type === 'txt') {
+                    e.y -= 2;
+                    ctx.globalAlpha = e.l/40;
+                    ctx.font = "bold 60px 'Russo One'"; ctx.fillStyle = e.c; ctx.strokeStyle='#000'; ctx.lineWidth=3;
+                    ctx.textAlign='center'; ctx.strokeText(e.t, e.x, e.y); ctx.fillText(e.t, e.x, e.y);
+                } else {
+                    e.x += e.vx; e.y += e.vy;
+                    ctx.globalAlpha = e.l/30;
+                    ctx.fillStyle = e.c; ctx.beginPath(); ctx.arc(e.x, e.y, 5, 0, Math.PI*2); ctx.fill();
                 }
-                ctx.fillStyle = "#fff"; ctx.textAlign="center";
-                ctx.font = i === this.selChar ? "bold 30px Arial" : "20px Arial";
-                ctx.fillText(c.name, center, 100);
-                ctx.fillStyle = c.c.hat;
-                ctx.beginPath(); ctx.arc(center, 200, 40, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = "#fff"; ctx.font="30px Arial"; 
-                ctx.fillText(c.name[0], center, 210);
             });
-            ctx.fillStyle = "#2ecc71"; ctx.fillRect(0, h-80, w, 80);
-            ctx.fillStyle = "#fff"; ctx.font="bold 40px Arial";
-            ctx.fillText("INICIAR LUTA", w/2, h-25);
+            ctx.globalAlpha = 1.0;
+            this.effects = this.effects.filter(e => e.l > 0);
         },
 
+        // --- UI ---
+        uiMode: function(ctx, w, h) {
+            ctx.fillStyle = '#2c3e50'; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = '#fff'; ctx.textAlign='center'; ctx.font="bold 60px 'Russo One'"; 
+            ctx.fillText("SUPER BOXING", w/2, 100);
+            this.btn(ctx, w/2, h/2-60, "OFFLINE", !this.isOnline);
+            this.btn(ctx, w/2, h/2+60, "ONLINE", this.isOnline);
+        },
+        uiChar: function(ctx, w, h) {
+            ctx.fillStyle = '#222'; ctx.fillRect(0,0,w,h);
+            const cw = w / 4;
+            CHARS.forEach((c, i) => {
+                if(i === this.selChar) { ctx.fillStyle = c.c.over; ctx.fillRect(i*cw, 0, cw, h); }
+                ctx.fillStyle = c.c.hat; ctx.beginPath(); ctx.arc(i*cw + cw/2, h/2, 60, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#fff'; ctx.font="30px Arial"; ctx.textAlign='center';
+                ctx.fillText(c.name, i*cw + cw/2, h/2 + 100);
+            });
+            ctx.fillStyle='#fff'; ctx.font="40px 'Russo One'"; ctx.fillText("CONFIRMAR ->", w/2, h-50);
+        },
         uiLobby: function(ctx, w, h) {
-            ctx.fillStyle = "#111"; ctx.fillRect(0,0,w,h);
-            ctx.fillStyle = "#fff"; ctx.textAlign="center"; ctx.font="30px sans-serif";
-            ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2);
+            ctx.fillStyle = '#000'; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = '#fff'; ctx.textAlign='center'; ctx.font="30px sans-serif"; ctx.fillText("AGUARDANDO...", w/2, h/2);
         },
-
         uiGameOver: function(ctx, w, h) {
-            ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,w,h);
-            const win = this.p1.hp > 0;
-            ctx.fillStyle = win ? "#f1c40f" : "#e74c3c";
-            ctx.textAlign="center"; ctx.font="bold 60px 'Russo One'";
-            ctx.fillText(win ? "VITÓRIA!" : "DERROTA", w/2, h/2);
-            ctx.fillStyle = "#fff"; ctx.font="20px sans-serif"; ctx.fillText("CLIQUE PARA REINICIAR", w/2, h-50);
+            ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = this.p1.hp>0?'#f1c40f':'#e74c3c'; ctx.textAlign='center'; ctx.font="bold 80px 'Russo One'";
+            ctx.fillText(this.p1.hp>0?"YOU WIN":"KO!", w/2, h/2);
+            ctx.fillStyle='#fff'; ctx.font="30px Arial"; ctx.fillText("CLIQUE PARA VOLTAR", w/2, h/2+80);
         },
-
         drawHUD: function(ctx, w, h) {
-            const barW = w * 0.4;
-            ctx.fillStyle = "#444"; ctx.fillRect(10, 10, barW, 25);
-            ctx.fillStyle = "#e74c3c"; ctx.fillRect(10, 10, barW * (this.p1.hp/100), 25);
-            ctx.fillStyle = "#444"; ctx.fillRect(w-10-barW, 10, barW, 25);
-            ctx.fillStyle = "#3498db"; ctx.fillRect(w-10-barW, 10, barW * (this.p2.hp/100), 25);
-            ctx.fillStyle = "#f1c40f"; ctx.fillRect(10, 40, barW * (this.p1.stamina/100), 5);
-            ctx.fillStyle = "#fff"; ctx.font="bold 30px Arial"; ctx.textAlign="center";
-            ctx.fillText(Math.ceil(this.timer), w/2, 35);
+            const bw = w*0.4;
+            ctx.fillStyle='#333'; ctx.fillRect(20,20,bw,30); ctx.fillRect(w-20-bw,20,bw,30);
+            ctx.fillStyle='#2ecc71'; ctx.fillRect(20,20,bw*(this.p1.hp/100),30);
+            ctx.fillStyle='#e74c3c'; ctx.fillRect(w-20-bw*(this.p2.hp/100),20,bw*(this.p2.hp/100),30);
+            ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.font="bold 40px 'Russo One'"; ctx.fillText(Math.ceil(this.timer), w/2, 50);
         },
-
-        drawBtn: function(ctx, x, y, txt) {
-            ctx.fillStyle = "#34495e"; ctx.fillRect(x-150, y-30, 300, 60);
-            ctx.strokeStyle = "#fff"; ctx.strokeRect(x-150, y-30, 300, 60);
-            ctx.fillStyle = "#fff"; ctx.font="20px sans-serif"; ctx.fillText(txt, x, y+8);
-        },
-
-        spawnMsg: function(x, y, txt, col) {
-            this.msgs.push({x, y, t:txt, c:col, life: 1.0}); 
-        },
-        
-        renderMsgs: function(ctx, dt) {
-            this.msgs.forEach(m => {
-                m.y -= (30 * dt); m.life -= dt;
-                ctx.fillStyle = m.c; ctx.font = "bold 30px 'Russo One'"; 
-                ctx.strokeText(m.t, m.x, m.y); ctx.fillText(m.t, m.x, m.y);
-            });
-            this.msgs = this.msgs.filter(m => m.life > 0);
-        },
-
-        playSound: function(type, freq, vol=0.1) {
-            if(window.Sfx) window.Sfx.play(freq, type, 0.1, vol);
-        },
-
-        endRound: function() {
-            if(this.round < CONF.ROUNDS) {
-                this.round++;
-                this.timer = CONF.ROUND_TIME;
-                window.System.msg("ROUND " + this.round);
-            } else this.state = 'GAMEOVER';
+        btn: function(ctx, x, y, t, s) {
+            ctx.fillStyle = s?'#e67e22':'#34495e'; ctx.fillRect(x-150, y-30, 300, 60);
+            ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.strokeRect(x-150, y-30, 300, 60);
+            ctx.fillStyle='#fff'; ctx.font="bold 30px sans-serif"; ctx.fillText(t, x, y+10);
         }
     };
 
-    const register = () => {
-        if(window.System && window.System.registerGame) {
-            window.System.registerGame('box_pro', 'Boxing Pro', '🥊', Game, { camOpacity: 0.1 });
-        } else {
-            setTimeout(register, 500);
-        }
-    };
-    register();
-
+    if(window.System) window.System.registerGame('box_plat', 'Super Boxing', '🥊', Game, { camOpacity: 0.1 });
 })();
