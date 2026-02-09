@@ -1,7 +1,10 @@
 // =============================================================================
-// KART LEGENDS: PLATINUM MASTER (FULL MERGE: AUDIO + GFX + PHYSICS + NET)
+// KART LEGENDS: PLATINUM MASTER (IA MULTIPLAYER + RANKING FIX + AUDIO PRO)
 // ARQUITETO: SENIOR DEV (CODE 177)
-// STATUS: CORRIGIDO. ÁUDIO PRO + VOLANTE VISUAL + MINIMAPA + MULTIPLAYER
+// PATCH NOTES:
+// 1. RANKING FIX: Cast forçado de tipos numéricos para evitar erro de sort.
+// 2. HYBRID AI: Host gerencia bots e transmite para clientes no Multiplayer.
+// 3. ENGINE: Audio Pro e Física mantidos 100%.
 // =============================================================================
 
 (function() {
@@ -55,11 +58,8 @@
     const KartAudio = {
         ctx: null,
         masterGain: null,
-        // Nós do Motor
         osc1: null, osc2: null, engineGain: null,
-        // Nós de Ruído (Pneus/Terra)
         noiseBuffer: null, noiseSource: null, noiseFilter: null, noiseGain: null,
-        // Estado
         initialized: false,
         isPlaying: false,
 
@@ -72,7 +72,6 @@
                 this.masterGain.gain.value = 0.3; 
                 this.masterGain.connect(this.ctx.destination);
 
-                // Buffer de Ruído Branco
                 const bufferSize = this.ctx.sampleRate;
                 this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
                 const data = this.noiseBuffer.getChannelData(0);
@@ -87,7 +86,6 @@
             this.ctx.resume();
             const t = this.ctx.currentTime;
 
-            // MOTOR
             this.osc1 = this.ctx.createOscillator(); this.osc1.type = 'sawtooth'; 
             this.osc2 = this.ctx.createOscillator(); this.osc2.type = 'triangle'; 
             this.engineGain = this.ctx.createGain(); this.engineGain.gain.value = 0;
@@ -96,7 +94,6 @@
             this.engineGain.connect(this.masterGain);
             this.osc1.start(t); this.osc2.start(t);
 
-            // RUÍDO
             this.noiseSource = this.ctx.createBufferSource();
             this.noiseSource.buffer = this.noiseBuffer;
             this.noiseSource.loop = true;
@@ -131,7 +128,6 @@
             const ratio = Math.abs(speed) / maxSpeed;
             const now = this.ctx.currentTime;
 
-            // 1. MOTOR (Pitch e Volume)
             const baseFreq = 60 + (ratio * 240); 
             this.osc1.frequency.setTargetAtTime(baseFreq, now, 0.1);
             this.osc2.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.1);
@@ -139,13 +135,11 @@
             const idleWobble = (speed < 5) ? (Math.sin(now * 20) * 0.05) : 0;
             this.engineGain.gain.setTargetAtTime(0.1 + (ratio * 0.1) + idleWobble, now, 0.1);
 
-            // 2. TURBO
             if (isTurbo) {
                 this.osc1.frequency.setTargetAtTime(baseFreq * 1.5, now, 0.2);
                 this.engineGain.gain.setTargetAtTime(0.3, now, 0.1);
             }
 
-            // 3. PNEUS / DRIFT
             let targetNoiseVol = 0; let targetFilterFreq = 800; let targetQ = 1;
             if (isOffroad) {
                 targetNoiseVol = Math.min(0.4, ratio * 0.5);
@@ -214,7 +208,7 @@
     const Logic = {
         state: 'MODE_SELECT',
         raceState: 'LOBBY',
-        roomId: 'mario_arena_platinum', // Sala Única
+        roomId: 'mario_arena_hybrid_v4', // Nova sala para limpar dados antigos
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
@@ -225,6 +219,9 @@
         lastSync: 0,
         totalRacers: 0,
         remotePlayersData: {},
+        
+        // Bots Controlados pelo Host (NOVA FEATURE)
+        localBots: [],
 
         // Física
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
@@ -272,7 +269,8 @@
             this.lateralInertia = 0; this.vibration = 0;
             this.engineTimer = 0;
             this.inputActive = false;
-            this.rivals = []; particles = []; hudMessages = [];
+            this.rivals = []; this.localBots = [];
+            particles = []; hudMessages = [];
             this.remotePlayersData = {};
         },
 
@@ -389,12 +387,14 @@
             this.resetPhysics();
             this.isOnline = (mode === 'ONLINE' && !!window.DB);
             if (!this.isOnline) {
-                this.rivals = [
-                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, color: CHARACTERS[3].color, name:'Bowser', lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, color: CHARACTERS[4].color, name:'Toad', lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, color: CHARACTERS[6].color, name:'DK', lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, color: CHARACTERS[7].color, name:'Wario', lap: 1, status:'RACING', finishTime:0, errorTimer: 0 }
+                // Bots Offline
+                this.localBots = [
+                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
+                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
+                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
+                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 }
                 ];
+                this.rivals = this.localBots;
             } else {
                 this.connectMultiplayer();
             }
@@ -444,9 +444,15 @@
                     }
                 } else { this.isHost = false; }
 
+                // Filtra e mescla dados (Jogadores Reais + Bots vindos do servidor)
                 this.rivals = ids
                     .filter(id => id !== window.System.playerId && (now - data[id].lastSeen < 15000))
-                    .map(id => ({ id, ...data[id], isRemote: true, color: CHARACTERS[data[id].charId]?.color || '#fff' }));
+                    .map(id => ({ 
+                        id, 
+                        ...data[id], 
+                        isRemote: true, 
+                        color: CHARACTERS[data[id].charId || 0].color || '#fff' 
+                    }));
             });
 
             this.roomRef.child('totalRacers').on('value', (snap) => {
@@ -481,8 +487,17 @@
             KartAudio.start();
             this.pos = 0; this.lap = 1; this.maxLapPos = 0;
             this.speed = 0; this.finishTime = 0;
-            if (!this.isOnline) {
-                 this.rivals.forEach(r => { r.pos = 0; r.speed = 0; r.lap = 1; r.status = 'RACING'; r.finishTime = 0; });
+            
+            // --- INICIA BOTS (OFFLINE OU SE FOR HOST ONLINE) ---
+            if (!this.isOnline || (this.isOnline && this.isHost)) {
+                this.localBots = [
+                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
+                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
+                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
+                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 }
+                ];
+                // Se offline, eles já vão pro rivals. Se online, eles serão sincronizados.
+                if(!this.isOnline) this.rivals = this.localBots;
             }
         },
 
@@ -509,37 +524,62 @@
         syncMultiplayer: function() {
             if (Date.now() - this.lastSync > 100) {
                 this.lastSync = Date.now();
+                // 1. Sincroniza o Player Local
                 this.dbRef.child('players/' + window.System.playerId).update({
                     pos: Math.floor(this.pos), x: this.playerX, speed: this.speed,
                     steer: this.steer, lap: this.lap, status: this.status, finishTime: this.finishTime,
                     charId: this.selectedChar, lastSeen: firebase.database.ServerValue.TIMESTAMP
                 });
+
+                // 2. Se for Host, sincroniza os BOTS para que todos vejam
+                if (this.isHost && this.localBots.length > 0) {
+                    this.localBots.forEach((b, i) => {
+                        this.dbRef.child('players/bot_' + i).update({
+                            pos: Math.floor(b.pos), x: b.x, speed: b.speed,
+                            lap: b.lap, status: b.status, finishTime: b.finishTime,
+                            charId: b.charId, name: 'CPU '+(i+1), lastSeen: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    });
+                }
             }
         },
 
         checkRaceStatus: function() {
             const allRacers = [
                 { id: window.System.playerId, lap: this.lap, pos: this.pos, status: this.status, finishTime: this.finishTime, name: CHARACTERS[this.selectedChar].name },
-                ...this.rivals.map(r => ({ id: r.id, lap: r.lap || 1, pos: r.pos || 0, status: r.status || 'RACING', finishTime: r.finishTime || 0, name: r.name || 'P' + r.id }))
+                ...this.rivals.map(r => ({ 
+                    id: r.id, 
+                    lap: Number(r.lap) || 1, // CAST FORÇADO P/ NUMBER
+                    pos: Number(r.pos) || 0, // CAST FORÇADO P/ NUMBER
+                    status: r.status || 'RACING', 
+                    finishTime: Number(r.finishTime) || 0, 
+                    name: r.name || 'Rival' 
+                }))
             ];
+
+            // Ordenação Blindada (Numérica)
             allRacers.sort((a, b) => {
                 const aFin = a.status === 'FINISHED';
                 const bFin = b.status === 'FINISHED';
                 if (aFin && bFin) return (a.finishTime || 0) - (b.finishTime || 0);
                 if (aFin) return -1;
                 if (bFin) return 1;
-                const distA = (a.lap * 1000000) + a.pos;
-                const distB = (b.lap * 1000000) + b.pos;
+                
+                // Distância total segura
+                const distA = (Number(a.lap) * 1000000) + Number(a.pos);
+                const distB = (Number(b.lap) * 1000000) + Number(b.pos);
                 return distB - distA;
             });
+
             this.finalRank = allRacers.findIndex(r => r.id === window.System.playerId) + 1;
 
             if (this.isOnline && this.isHost && this.state === 'RACE') {
                 const finishedCount = allRacers.filter(r => r.status === 'FINISHED').length;
                 const expectedTotal = this.totalRacers || allRacers.length;
-                const activeCount = allRacers.length;
-                const disconnectedCount = Math.max(0, expectedTotal - activeCount);
-                if ((finishedCount + disconnectedCount) >= expectedTotal && expectedTotal > 0) {
+                const activeCount = allRacers.filter(r => !r.id.includes('bot')).length; // Conta humanos ativos
+                
+                // Se todos (humanos + bots suficientes) acabaram
+                if (finishedCount >= allRacers.length) {
                     setTimeout(() => { this.roomRef.update({ raceState: 'GAMEOVER' }); }, 1000);
                 }
             } else if (!this.isOnline && this.state === 'RACE') {
@@ -618,8 +658,11 @@
                 this.spawnParticle(w/2 - 45, h*0.92, 'smoke'); this.spawnParticle(w/2 + 45, h*0.92, 'smoke');
             }
 
-            if (!d.isOnline && d.state !== 'GAMEOVER') {
-                d.rivals.forEach(r => {
+            // -------------------------------------------------------
+            // IA DOS BOTS (Controlada pelo HOST ou Offline)
+            // -------------------------------------------------------
+            if (this.localBots.length > 0 && d.state !== 'GAMEOVER') {
+                this.localBots.forEach(r => {
                     if (r.status === 'FINISHED') return;
                     const rChar = CHARACTERS[r.charId];
                     const rSeg = getSegment((r.pos + 300) / CONF.SEGMENT_LENGTH); 
@@ -805,8 +848,8 @@
                     if (a.status === 'FINISHED' && b.status === 'FINISHED') return (a.time) - (b.time);
                     if (a.status === 'FINISHED') return -1;
                     if (b.status === 'FINISHED') return 1;
-                    const distA = (a.lap * 100000) + a.pos;
-                    const distB = (b.lap * 100000) + b.pos;
+                    const distA = (Number(a.lap) * 100000) + Number(a.pos);
+                    const distB = (Number(b.lap) * 100000) + Number(b.pos);
                     return distB - distA;
                 });
                 allRacers.forEach((r, i) => {
