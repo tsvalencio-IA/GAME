@@ -946,8 +946,8 @@
                         ctx.fill(); ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
                     }
                 };
-                d.rivals.forEach(r => drawDot(r.pos, r.status==='FINISHED' ? '#0f0' : '#ffee00', 18)); 
-                drawDot(d.pos, '#ff0000', 22);
+                d.rivals.forEach(r => drawDot(r.pos, r.status==='FINISHED' ? '#0f0' : '#ffee00', 22)); 
+                drawDot(d.pos, '#ff0000', 26);
                 ctx.restore();
             }
 
