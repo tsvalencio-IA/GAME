@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: DIAMOND MASTER v3 (AI FIX + RANKING FIX + TURBO SMOOTH)
+// KART LEGENDS: TITANIUM MASTER (PRO AI + HARDCORE PHYSICS + TURBO LOGIC)
 // ARQUITETO: SENIOR DEV (CODE 177)
-// STATUS: CORREÇÃO TOTAL DE LÓGICA DE JOGO, IA, ÁUDIO E REDE.
+// STATUS: IA COMPETITIVA, FÍSICA DE COLISÃO REALISTA, TURBO CYCLE CORRIGIDO
 // =============================================================================
 
 (function() {
@@ -11,14 +11,14 @@
     // -----------------------------------------------------------------
     
     const CHARACTERS = [
-        { id: 0, name: 'MARIO',  color: '#e74c3c', hat: '#d32f2f', speedInfo: 1.00, turnInfo: 1.00, weight: 1.0, accel: 0.040 },
-        { id: 1, name: 'LUIGI',  color: '#2ecc71', hat: '#27ae60', speedInfo: 1.05, turnInfo: 0.90, weight: 1.0, accel: 0.038 },
-        { id: 2, name: 'PEACH',  color: '#ff9ff3', hat: '#fd79a8', speedInfo: 0.95, turnInfo: 1.15, weight: 0.8, accel: 0.055 },
-        { id: 3, name: 'BOWSER', color: '#f1c40f', hat: '#e67e22', speedInfo: 1.10, turnInfo: 0.70, weight: 1.4, accel: 0.025 },
-        { id: 4, name: 'TOAD',   color: '#3498db', hat: '#ecf0f1', speedInfo: 0.90, turnInfo: 1.25, weight: 0.6, accel: 0.070 },
-        { id: 5, name: 'YOSHI',  color: '#76ff03', hat: '#64dd17', speedInfo: 1.02, turnInfo: 1.10, weight: 0.9, accel: 0.045 },
-        { id: 6, name: 'DK',     color: '#795548', hat: '#5d4037', speedInfo: 1.08, turnInfo: 0.80, weight: 1.6, accel: 0.030 },
-        { id: 7, name: 'WARIO',  color: '#ffeb3b', hat: '#fbc02d', speedInfo: 1.06, turnInfo: 0.85, weight: 1.5, accel: 0.032 }
+        { id: 0, name: 'MARIO',  color: '#e74c3c', hat: '#d32f2f', speedInfo: 1.00, turnInfo: 1.00, weight: 1.0, accel: 0.040, aggression: 0.5 },
+        { id: 1, name: 'LUIGI',  color: '#2ecc71', hat: '#27ae60', speedInfo: 1.05, turnInfo: 0.90, weight: 1.0, accel: 0.038, aggression: 0.4 },
+        { id: 2, name: 'PEACH',  color: '#ff9ff3', hat: '#fd79a8', speedInfo: 0.98, turnInfo: 1.15, weight: 0.8, accel: 0.055, aggression: 0.2 },
+        { id: 3, name: 'BOWSER', color: '#f1c40f', hat: '#e67e22', speedInfo: 1.15, turnInfo: 0.70, weight: 1.6, accel: 0.025, aggression: 0.9 },
+        { id: 4, name: 'TOAD',   color: '#3498db', hat: '#ecf0f1', speedInfo: 0.92, turnInfo: 1.25, weight: 0.6, accel: 0.070, aggression: 0.3 },
+        { id: 5, name: 'YOSHI',  color: '#76ff03', hat: '#64dd17', speedInfo: 1.02, turnInfo: 1.10, weight: 0.9, accel: 0.045, aggression: 0.4 },
+        { id: 6, name: 'DK',     color: '#795548', hat: '#5d4037', speedInfo: 1.12, turnInfo: 0.80, weight: 1.5, accel: 0.030, aggression: 0.8 },
+        { id: 7, name: 'WARIO',  color: '#ffeb3b', hat: '#fbc02d', speedInfo: 1.08, turnInfo: 0.85, weight: 1.5, accel: 0.032, aggression: 0.85 }
     ];
 
     const TRACKS = [
@@ -28,8 +28,8 @@
     ];
 
     const CONF = {
-        MAX_SPEED: 220,
-        TURBO_MAX_SPEED: 330,
+        MAX_SPEED: 235, // Aumentado levemente para mais emoção
+        TURBO_MAX_SPEED: 350,
         FRICTION: 0.98,
         OFFROAD_DECEL: 0.92,
         ROAD_WIDTH: 2000,
@@ -202,7 +202,7 @@
     const Logic = {
         state: 'MODE_SELECT',
         raceState: 'LOBBY',
-        roomId: 'mario_arena_diamond_v6', // ID NOVO (v6) PARA LIMPEZA GERAL
+        roomId: 'mario_arena_titanium_v7', // ID NOVO (v7) PARA FORÇAR LIMPEZA
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
@@ -214,7 +214,7 @@
         totalRacers: 0,
         remotePlayersData: {},
         
-        // Bots Controlados pelo Host
+        // Bots Controlados pelo Host (PRO AI)
         localBots: [],
 
         // Física
@@ -287,10 +287,13 @@
 
             const handleNitro = (e) => {
                 if(e && e.cancelable) e.preventDefault();
-                if((this.state === 'RACE') && this.nitro > 15) {
-                    this.turboLock = !this.turboLock;
+                // SÓ ATIVA SE TIVER > 20%
+                if((this.state === 'RACE') && this.nitro >= 20 && !this.turboLock) {
+                    this.turboLock = true;
                     window.Sfx.play(600, 'square', 0.1, 0.1);
-                    this.pushMsg(this.turboLock ? "TURBO ON" : "TURBO OFF", "#0ff");
+                    this.pushMsg("TURBO MAX!", "#0ff");
+                } else if (this.nitro < 20) {
+                    this.pushMsg("CARREGANDO...", "#f00", 30);
                 }
             };
             nitroBtn.addEventListener('mousedown', handleNitro);
@@ -382,14 +385,8 @@
             this.resetPhysics();
             this.isOnline = (mode === 'ONLINE' && !!window.DB);
             if (!this.isOnline) {
-                // Bots Offline
-                this.localBots = [
-                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 },
-                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0 }
-                ];
-                this.rivals = this.localBots;
+                // Config inicial para offline - será populada no startRace
+                this.rivals = [];
             } else {
                 this.connectMultiplayer();
             }
@@ -407,25 +404,19 @@
             });
             myRef.onDisconnect().remove();
 
-            // CRITICAL FIX: PROTEÇÃO CONTRA STALE STATE (V6)
+            // PROTECTION: Stale State
             this.roomRef.child('raceState').on('value', (snap) => {
                 const globalState = snap.val();
-                
                 if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING')) {
-                    // Segurança: Só inicia se realmente houver jogadores detectados
-                    // Se eu for o host e estiver sozinho (length < 2), é estado sujo -> Reseta
                     const playerCount = Object.keys(this.remotePlayersData || {}).length;
-                    
                     if (this.isHost && playerCount < 2) {
                         this.roomRef.update({ raceState: 'LOBBY' });
-                        return; // ABORTA START
+                        return; 
                     }
-
                     this.roomRef.child('trackId').once('value').then(tSnap => {
                         this.startRace(tSnap.val() || 0);
                     });
                 }
-                
                 if(globalState === 'GAMEOVER' && (this.state === 'RACE' || this.state === 'SPECTATE')) {
                     this.state = 'GAMEOVER'; window.Sfx.play(1000, 'sine', 1, 0.5);
                 }
@@ -444,29 +435,22 @@
                 const now = Date.now();
                 const ids = Object.keys(data).sort();
                 
-                // HOST AUTHORITY CHECK
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
-                    // Se estou sozinho no lobby, GARANTO que a sala está limpa
                     if (ids.length === 1 && this.state === 'LOBBY') {
                         this.roomRef.update({ raceState: 'LOBBY', trackId: this.selectedTrack });
                     }
                 } else { this.isHost = false; }
 
-                // --- AGREGADOR DE RIVAIS HÍBRIDO (HUMANOS + BOTS) ---
-                // Para o HOST: Usa remote players (exceto eu) + local bots
-                // Para o CLIENT: Usa remote players (incluindo bots sincronizados pelo host)
-                
-                // 1. Pega Humanos Remotos
+                // LISTA DE JOGADORES (Visual)
                 const humanRivals = ids
                     .filter(id => id !== window.System.playerId && !id.includes('bot_') && (now - data[id].lastSeen < 15000))
                     .map(id => ({ id, ...data[id], isRemote: true, color: CHARACTERS[data[id].charId || 0].color || '#fff' }));
 
-                // 2. Se eu sou HOST, adiciono meus Bots LOCAIS à visualização imediata
+                // LISTA DE RIVAIS (Física + Colisão)
                 if (this.isHost) {
                     this.rivals = [...humanRivals, ...this.localBots];
                 } else {
-                    // Se sou CLIENT, pego os bots do Firebase (começam com bot_)
                     const serverBots = Object.keys(data)
                         .filter(k => k.startsWith('bot_'))
                         .map(k => ({ id: k, ...data[k], isRemote: true, color: CHARACTERS[data[k].charId || 0].color || '#fff' }));
@@ -506,16 +490,35 @@
             KartAudio.start();
             this.pos = 0; this.lap = 1; this.maxLapPos = 0;
             this.speed = 0; this.finishTime = 0;
+            this.localBots = [];
             
-            // --- INICIA BOTS (OFFLINE OU SE FOR HOST ONLINE) ---
+            // --- INICIA BOTS COM IA COMPETITIVA ---
             if (!this.isOnline || (this.isOnline && this.isHost)) {
-                this.localBots = [
-                    { id:'cpu1', charId:3, pos: 0, x:-0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[3].color, name:'Bowser' },
-                    { id:'cpu2', charId:4, pos: 0, x:0.6, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[4].color, name:'Toad' },
-                    { id:'cpu3', charId:6, pos: 0, x:-0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[6].color, name:'DK' },
-                    { id:'cpu4', charId:7, pos: 0, x:0.3, speed:0, lap: 1, status:'RACING', finishTime:0, errorTimer: 0, color: CHARACTERS[7].color, name:'Wario' }
+                // Cria 3 bots competitivos
+                const botConfigs = [
+                    { char: 3, name: 'Bowser' }, { char: 4, name: 'Toad' }, 
+                    { char: 6, name: 'DK' }, { char: 7, name: 'Wario' }
                 ];
-                // Se offline, eles já vão pro rivals. Se online, eles serão fundidos no loop de update.
+                
+                botConfigs.forEach((cfg, i) => {
+                    this.localBots.push({
+                        id: 'cpu' + i, 
+                        charId: cfg.char, 
+                        pos: 0, 
+                        x: (i % 2 === 0 ? -0.5 : 0.5) * (1 + i*0.2), // Espalha na largada
+                        speed: 0, 
+                        lap: 1, 
+                        status: 'RACING', 
+                        finishTime: 0, 
+                        name: cfg.name,
+                        color: CHARACTERS[cfg.char].color,
+                        // AI State
+                        ai_targetX: 0,
+                        ai_aggression: CHARACTERS[cfg.char].aggression || 0.5,
+                        ai_mistakeTimer: 0
+                    });
+                });
+
                 if(!this.isOnline) this.rivals = this.localBots;
             }
         },
@@ -549,7 +552,7 @@
                     charId: this.selectedChar, lastSeen: firebase.database.ServerValue.TIMESTAMP
                 });
 
-                // Host sincroniza bots para clientes
+                // HOST SINCRONIZA BOTS
                 if (this.isHost && this.localBots.length > 0) {
                     this.localBots.forEach((b, i) => {
                         this.dbRef.child('players/bot_' + i).update({
@@ -563,6 +566,7 @@
         },
 
         checkRaceStatus: function() {
+            // LISTA UNIFICADA PARA RANKING (PLAYER + RIVAIS + BOTS)
             const allRacers = [
                 { id: window.System.playerId, lap: this.lap, pos: this.pos, status: this.status, finishTime: this.finishTime, name: CHARACTERS[this.selectedChar].name },
                 ...this.rivals.map(r => ({ 
@@ -575,7 +579,14 @@
                 }))
             ];
 
-            allRacers.sort((a, b) => {
+            // REMOVE DUPLICATAS (Bots locais vs Bots remotos)
+            const uniqueRacers = [];
+            const seenIds = new Set();
+            allRacers.forEach(r => {
+                if(!seenIds.has(r.id)){ seenIds.add(r.id); uniqueRacers.push(r); }
+            });
+
+            uniqueRacers.sort((a, b) => {
                 const aFin = a.status === 'FINISHED';
                 const bFin = b.status === 'FINISHED';
                 if (aFin && bFin) return (a.finishTime || 0) - (b.finishTime || 0);
@@ -586,19 +597,19 @@
                 return distB - distA;
             });
 
-            this.finalRank = allRacers.findIndex(r => r.id === window.System.playerId) + 1;
+            this.finalRank = uniqueRacers.findIndex(r => r.id === window.System.playerId) + 1;
 
             if (this.isOnline && this.isHost && this.state === 'RACE') {
-                const finishedCount = allRacers.filter(r => r.status === 'FINISHED').length;
-                const expectedTotal = this.totalRacers || allRacers.length;
+                const finishedCount = uniqueRacers.filter(r => r.status === 'FINISHED').length;
+                const activeHumanCount = Object.keys(this.remotePlayersData).length;
                 
-                // Se todos (humanos + bots) acabaram
-                if (finishedCount >= allRacers.length) {
+                // Encerra se todos os humanos acabaram ou se >80% da corrida acabou
+                if (finishedCount >= uniqueRacers.length) {
                     setTimeout(() => { this.roomRef.update({ raceState: 'GAMEOVER' }); }, 1000);
                 }
             } else if (!this.isOnline && this.state === 'RACE') {
-                const finishedCount = allRacers.filter(r => r.status === 'FINISHED').length;
-                if (finishedCount === allRacers.length) {
+                const finishedCount = uniqueRacers.filter(r => r.status === 'FINISHED').length;
+                if (finishedCount === uniqueRacers.length) {
                     setTimeout(() => { this.state = 'GAMEOVER'; window.Sfx.play(1000, 'sine', 1, 0.5); }, 1500);
                 }
             }
@@ -610,9 +621,7 @@
             const canControl = (d.status === 'RACING');
 
             let detected = false;
-            // -----------------------------------------------------------
-            // INPUT DE VOLANTE & GESTO DE TURBO
-            // -----------------------------------------------------------
+            // INPUT
             if(canControl && pose && pose.keypoints) {
                 const map = (pt) => ({ x: (1 - pt.x/640)*w, y: (pt.y/480)*h });
                 const lw = pose.keypoints.find(k => k.name === 'left_wrist');
@@ -624,16 +633,18 @@
                     d.targetSteer = Math.atan2(pr.y - pl.y, pr.x - pl.x) * 3.0;
                     d.virtualWheel = { x: (pl.x+pr.x)/2, y: (pl.y+pr.y)/2, r: Math.hypot(pr.x-pl.x, pr.y-pl.y)/2, opacity: 1 };
                     detected = true;
+                    // LÓGICA TURBO GESTUAL (Mãos para cima)
+                    // Só ativa se tiver > 20 e não estiver travado
                     if (nose && lw.y < nose.y && rw.y < nose.y) {
                         d.gestureTimer++; d.virtualWheel.isHigh = true;
-                        if (d.gestureTimer > 25 && d.nitro > 20 && !d.turboLock) {
+                        if (d.gestureTimer > 25 && d.nitro >= 20 && !d.turboLock) {
                             d.turboLock = true; d.pushMsg("TURBO ON!", "#0ff"); window.Sfx.play(800, 'square', 0.1, 0.1);
                         }
                     } else { d.gestureTimer = 0; d.virtualWheel.isHigh = false; }
                 }
             }
             d.inputActive = detected; 
-            if (!detected) { d.targetSteer = 0; d.virtualWheel.opacity *= 0.9; d.turboLock = false; }
+            if (!detected) { d.targetSteer = 0; d.virtualWheel.opacity *= 0.9; } // Não destrava turbo aqui
             d.steer += (d.targetSteer - d.steer) * (PHYSICS.steerSensitivity / Math.sqrt(char.weight));
 
             const absX = Math.abs(d.playerX);
@@ -647,19 +658,21 @@
                 if(d.speed > 10) this.spawnParticle(w/2 + (Math.random()-0.5)*60, h*0.9, 'dust');
             } else if (absX > 1.0) { currentGrip = PHYSICS.gripZebra; d.vibration = 2; }
 
-            // -----------------------------------------------------------
-            // LOGICA TURBO CORRIGIDA (SEM FLICKER)
-            // -----------------------------------------------------------
+            // --- LÓGICA DE TURBO (BURN-OUT) ---
             let max = CONF.MAX_SPEED * char.speedInfo;
-            if (d.turboLock && d.nitro > 0) { 
+            if (d.turboLock) {
                 max = CONF.TURBO_MAX_SPEED; 
-                d.nitro -= 0.6;
-                this.spawnParticle(w/2 - 25, h*0.95, 'turbo'); this.spawnParticle(w/2 + 25, h*0.95, 'turbo');
-                // Corte limpo para evitar gagueira do som
-                if (d.nitro <= 0) { d.nitro = 0; d.turboLock = false; } 
+                d.nitro -= 0.5; // Drena rápido
+                this.spawnParticle(w/2 - 25, h*0.95, 'turbo'); 
+                this.spawnParticle(w/2 + 25, h*0.95, 'turbo');
+                // Se acabar, desliga e força cooldown
+                if (d.nitro <= 0) { 
+                    d.nitro = 0; 
+                    d.turboLock = false; 
+                    window.Sfx.play(200, 'sawtooth', 0.5, 0.2); // Som de esgotado
+                } 
             } else { 
-                d.nitro = Math.min(100, d.nitro + 0.15); 
-                // Removemos o check de desligamento aqui para evitar conflito
+                d.nitro = Math.min(100, d.nitro + 0.15); // Recarga lenta
             }
 
             const isAccelerating = (d.inputActive || d.turboLock);
@@ -667,7 +680,6 @@
             else { d.speed *= 0.96; }
             d.speed *= currentDrag;
 
-            // ATUALIZA A ENGINE DE SOM
             KartAudio.update(d.speed, CONF.MAX_SPEED, d.lateralInertia, absX > 1.45, d.turboLock);
 
             const seg = getSegment(d.pos / CONF.SEGMENT_LENGTH);
@@ -681,59 +693,95 @@
                 this.spawnParticle(w/2 - 45, h*0.92, 'smoke'); this.spawnParticle(w/2 + 45, h*0.92, 'smoke');
             }
 
-            // -------------------------------------------------------
-            // IA DOS BOTS (Controlada pelo HOST ou Offline)
-            // -------------------------------------------------------
-            // CORREÇÃO: A lógica de física dos bots deve rodar AQUI para o Host
+            // ---------------------------------------------------------------------
+            // IA INTELIGENTE (COMPETITIVA & HUMANA)
+            // ---------------------------------------------------------------------
             if (this.localBots.length > 0 && d.state !== 'GAMEOVER') {
                 this.localBots.forEach(r => {
                     if (r.status === 'FINISHED') return;
-                    const rChar = CHARACTERS[r.charId || 0] || CHARACTERS[0];
-                    const rSeg = getSegment((r.pos + 300) / CONF.SEGMENT_LENGTH); 
+                    const rChar = CHARACTERS[r.charId || 0];
+                    const lookAheadSeg = getSegment((r.pos + 600) / CONF.SEGMENT_LENGTH); // Olha lá na frente
                     
-                    if (Math.random() < 0.01) r.errorTimer = 20;
-                    if (r.errorTimer > 0) { 
-                        r.errorTimer--; r.x += (Math.random() - 0.5) * 0.15; 
-                    } else {
-                        const targetSpeed = (CONF.MAX_SPEED * rChar.speedInfo) - (Math.abs(rSeg.curve) * 8); 
-                        if (r.speed < 50 && r.pos < 6000) r.speed += rChar.accel * 3; 
-                        else if (r.speed < targetSpeed) r.speed += rChar.accel * 0.85;
-                        const idealX = -(rSeg.curve * 0.35); r.x += (idealX - r.x) * 0.07;
+                    // 1. Rubber-Banding (Elasticidade)
+                    // Se o bot está muito longe do player (d.pos), ele ganha/perde speed
+                    let catchUp = 0;
+                    const distToPlayer = (d.lap * trackLength + d.pos) - (r.lap * trackLength + r.pos);
+                    if (distToPlayer > 2000) catchUp = 5; // Bot acelera se player sumiu
+                    if (distToPlayer < -1000) catchUp = -3; // Bot alivia se player ficou pra trás
+
+                    // 2. Velocidade Alvo Baseada na Curva
+                    // Curva forte = menos velocidade
+                    const curveSeverity = Math.abs(lookAheadSeg.curve);
+                    let targetSpeed = (CONF.MAX_SPEED * rChar.speedInfo) + catchUp;
+                    if (curveSeverity > 2) targetSpeed *= 0.6; // Freia na curva forte
+                    else if (curveSeverity > 1) targetSpeed *= 0.85;
+
+                    // 3. Direção Alvo (Racing Line)
+                    // Tenta ficar no interior da curva (ou centro se reta)
+                    let targetX = -(lookAheadSeg.curve * 0.6); 
+                    
+                    // 4. Erro Humano (Probabilidade baseada na agressividade)
+                    if (Math.random() < 0.02) r.errorTimer = 30; // Entra em modo "erro"
+                    if (r.errorTimer > 0) {
+                        r.errorTimer--;
+                        targetX = r.x + (Math.random() > 0.5 ? 0.5 : -0.5); // Perde controle
+                        targetSpeed *= 0.9; // Perde velocidade
                     }
-                    r.speed *= 0.995; 
-                    r.x = Math.max(-1.8, Math.min(1.8, r.x)); 
-                    r.pos += r.speed; // MOVIMENTO EFETIVO
+
+                    // 5. Aplica Física
+                    if (r.speed < targetSpeed) r.speed += rChar.accel;
+                    else r.speed *= 0.98; // Drag natural
+
+                    // Lerp para suavizar a direção (Volante da IA)
+                    r.x += (targetX - r.x) * (0.05 * rChar.turnInfo); 
                     
+                    // Limites de pista
+                    if (r.x > 1.8) { r.x = 1.8; r.speed *= 0.9; }
+                    if (r.x < -1.8) { r.x = -1.8; r.speed *= 0.9; }
+
+                    r.pos += r.speed;
+
+                    // Lap Logic
                     if (r.pos >= trackLength) { 
                         r.pos -= trackLength; r.lap++; 
                         if (r.lap > CONF.TOTAL_LAPS) { 
-                            r.status = 'FINISHED'; 
-                            r.finishTime = Date.now(); 
-                            r.speed = 0; 
-                            r.lap = CONF.TOTAL_LAPS; 
+                            r.status = 'FINISHED'; r.finishTime = Date.now(); r.speed = 0; r.lap = CONF.TOTAL_LAPS; 
                         }
                     }
                 });
             }
 
-            if (d.spinTimer > 0) { d.spinTimer--; d.spinAngle += 0.4; d.speed *= 0.95; }
-            else if (absX > 1.5 && ratio > 0.82 && Math.abs(d.lateralInertia) > 0.15) {
-                d.spinTimer = 45; 
-                KartAudio.crash(); 
-                d.pushMsg("DERRAPOU!");
-            }
-
+            // COLISÕES
             d.rivals.forEach(r => {
-                let dZ = Math.abs(r.pos - d.pos); let dX = Math.abs(r.x - d.playerX);
-                if (Math.abs((r.pos - trackLength) - d.pos) < 160) dZ = Math.abs((r.pos - trackLength) - d.pos);
-                if (Math.abs(r.pos - (d.pos - trackLength)) < 160) dZ = Math.abs(r.pos - (d.pos - trackLength));
-                if (dZ < 160 && dX < 0.7 && r.status === 'RACING' && d.status === 'RACING') {
+                // Cálculo de distância corrigido para voltas
+                const totalDistPlayer = (d.lap * trackLength) + d.pos;
+                const totalDistRival = (Number(r.lap) * trackLength) + Number(r.pos);
+                const distZ = Math.abs(totalDistPlayer - totalDistRival);
+                const distX = Math.abs(r.x - d.playerX);
+
+                if (distZ < 250 && distX < 0.8 && r.status === 'RACING' && d.status === 'RACING') {
+                    // Colisão!
                     const rChar = CHARACTERS[r.charId] || char;
-                    d.lateralInertia += (d.playerX > r.x ? 0.18 : -0.18) * (rChar.weight / char.weight);
-                    d.speed *= 0.88; 
-                    KartAudio.crash(); 
+                    const pushForce = 0.2 * (rChar.weight / char.weight);
+                    
+                    // Empurra o player para longe do bot
+                    d.lateralInertia += (d.playerX > r.x ? pushForce : -pushForce);
+                    d.speed *= 0.95; // Perda de velocidade no impacto
+                    
+                    // Se for bot local, empurra ele também (Host Only)
+                    if (!r.isRemote && this.localBots.includes(r)) {
+                        r.x += (d.playerX > r.x ? -0.1 : 0.1);
+                    }
+                    
+                    KartAudio.crash();
                 }
             });
+
+            // SPIN
+            if (d.spinTimer > 0) { d.spinTimer--; d.spinAngle += 0.4; d.speed *= 0.95; }
+            else if (absX > 1.5 && ratio > 0.82 && Math.abs(d.lateralInertia) > 0.15) {
+                d.spinTimer = 45; KartAudio.crash(); d.pushMsg("DERRAPOU!");
+            }
 
             d.playerX = Math.max(-3.5, Math.min(3.5, d.playerX));
             d.pos += d.speed;
@@ -878,7 +926,12 @@
                     { name: CHARACTERS[d.selectedChar].name, time: d.finishTime, id: 'me', status: d.status, pos: d.pos, lap: d.lap },
                     ...d.rivals.map(r => ({ name: r.name || 'CPU', time: r.finishTime || 0, id: r.id, status: r.status, pos: r.pos, lap: r.lap }))
                 ];
-                allRacers.sort((a, b) => {
+                
+                // Filtro para não mostrar duplicatas no ranking final
+                const unique = []; const map = new Map();
+                allRacers.forEach(r => { if(!map.has(r.id)){ map.set(r.id, true); unique.push(r); }});
+
+                unique.sort((a, b) => {
                     if (a.status === 'FINISHED' && b.status === 'FINISHED') return (a.time) - (b.time);
                     if (a.status === 'FINISHED') return -1;
                     if (b.status === 'FINISHED') return 1;
@@ -886,7 +939,7 @@
                     const distB = (Number(b.lap) * 100000) + Number(b.pos);
                     return distB - distA;
                 });
-                allRacers.forEach((r, i) => {
+                unique.forEach((r, i) => {
                     const y = 200 + (i * 50);
                     ctx.fillStyle = r.id === 'me' ? '#ff0' : '#fff';
                     ctx.font = "30px Arial"; ctx.textAlign = 'left';
@@ -976,68 +1029,6 @@
                 ctx.fillText("GT", 0, 1);
 
                 ctx.restore();
-            }
-        },
-
-        renderModeSelect: function(ctx, w, h) {
-            ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
-            ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 40px 'Russo One'";
-            ctx.fillText("KART LEGENDS", w/2, h * 0.3);
-            ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.45, 320, 65);
-            ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.6, 320, 65);
-            ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
-            ctx.fillText("ARCADE (SOLO)", w/2, h * 0.45 + 40);
-            ctx.fillText("ONLINE (P2P)", w/2, h * 0.6 + 40);
-        },
-
-        renderLobby: function(ctx, w, h) {
-            ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
-            const char = CHARACTERS[this.selectedChar];
-            ctx.fillStyle = char.color; ctx.beginPath(); ctx.arc(w/2, h*0.3, 60, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 32px 'Russo One'";
-            ctx.fillText(char.name, w/2, h*0.3 + 100);
-            ctx.font = "20px 'Russo One'"; ctx.fillText("PISTA: " + TRACKS[this.selectedTrack].name, w/2, h*0.55);
-            
-            if (this.isOnline) {
-                const pids = Object.keys(this.remotePlayersData || {});
-                const count = pids.length;
-                let startY = h * 0.62;
-                
-                ctx.font = "14px Arial"; ctx.fillStyle = "#ccc";
-                ctx.fillText("JOGADORES NA SALA:", w/2, startY - 20);
-                
-                pids.forEach((pid, i) => {
-                    const p = this.remotePlayersData[pid];
-                    const isMe = pid === window.System.playerId;
-                    const color = CHARACTERS[p.charId || 0].color;
-                    
-                    ctx.fillStyle = color;
-                    ctx.beginPath(); ctx.arc(w/2 - 100, startY + (i*25), 8, 0, Math.PI*2); ctx.fill();
-                    
-                    ctx.fillStyle = isMe ? "#fff" : "#aaa"; ctx.textAlign = "left";
-                    ctx.fillText(`${CHARACTERS[p.charId||0].name} ${isMe ? '(VOCÊ)' : ''}`, w/2 - 80, startY + (i*25) + 5);
-                    
-                    if (i === 0) {
-                        ctx.fillStyle = "#f1c40f"; ctx.fillText("👑 HOST", w/2 + 50, startY + (i*25) + 5);
-                    } else if (p.ready) {
-                         ctx.fillStyle = "#2ecc71"; ctx.fillText("✔ PRONTO", w/2 + 50, startY + (i*25) + 5);
-                    }
-                });
-                ctx.textAlign = "center";
-            }
-
-            if (this.isOnline && this.isHost) {
-                const pCount = Object.keys(this.remotePlayersData || {}).length;
-                const canStart = pCount >= 2;
-                ctx.fillStyle = canStart ? "#c0392b" : "#7f8c8d"; 
-                ctx.fillRect(w/2 - 160, h*0.8, 320, 70);
-                ctx.fillStyle = "white"; ctx.font = "bold 24px 'Russo One'";
-                ctx.fillText(canStart ? "INICIAR CORRIDA" : "AGUARDANDO PLAYERS...", w/2, h*0.8 + 45);
-            } else {
-                ctx.fillStyle = this.isReady ? "#e67e22" : "#27ae60"; 
-                ctx.fillRect(w/2 - 160, h*0.8, 320, 70);
-                ctx.fillStyle = "white"; ctx.font = "bold 24px 'Russo One'";
-                ctx.fillText(this.isReady ? "AGUARDANDO HOST..." : "PRONTO!", w/2, h*0.8 + 45);
             }
         }
     };
