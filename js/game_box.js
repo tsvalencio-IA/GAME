@@ -1,655 +1,726 @@
 // =============================================================================
-// SUPER PUNCH-OUT: LEGENDARY EDITION (FINAL GOLD MASTER)
-// ARQUITETO: SENIOR DEV (CODE 177)
-// ENGINE: "N-SPORTS" PHYSICS & RENDER PIPELINE
+// SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL)
+// ARQUITETO: SENIOR DEV (CODE 177) & PARCEIRO DE PROGRAMACAO
+// STATUS: PLATINUM MASTER (REFACTORED v3.0 - TRUE MOTION PHYSICS)
 // =============================================================================
 
 (function() {
-    "use strict";
+    "use strict"; 
 
     // -----------------------------------------------------------------
-    // 1. GAME DESIGN DATA (NINTENDO POLISH)
+    // 1. CONSTANTES E CONFIGURAÇÃO (AJUSTADAS PARA SENSAÇÃO WII)
     // -----------------------------------------------------------------
     const CONF = {
-        // Gameplay
+        DEBUG: false,
         ROUNDS: 3,
-        ROUND_TIME: 60,
-        KNOCKDOWN_HP: 0,
-        
-        // Physics (Wii Feel)
-        PUNCH_TRIGGER_SPEED: 18, // Sensibilidade do soco (menor = mais fácil)
-        PUNCH_EXTEND_SPEED: 0.15,// Velocidade visual do braço indo
-        PUNCH_RETRACT_SPEED: 0.1,// Velocidade visual do braço voltando
-        REACH_DEPTH: 0.8,        // Profundidade necessária para acertar (0.0 a 1.0)
-        
-        // Visuals
-        PLAYER_SCALE: 1.6,       // Jogador (Fantasma/Frente)
-        ENEMY_SCALE: 0.9,        // Oponente (Fundo)
-        FOV: 400,                // Campo de visão simulado
-        
-        // Juice
-        HIT_STOP: 8,             // Frames congelados no impacto
-        SHAKE_PWR: 20            // Força do tremor de tela
+        ROUND_TIME: 90,      // Segundos
+        BLOCK_DIST: 120,     // Aumentado ligeiramente para facilitar a defesa
+        PUNCH_THRESH: 350,   // Velocidade pixel/s para ativar soco (Sensibilidade)
+        MIN_EXTENSION: 40,   // Distância mínima do ombro para validar soco
+        PUNCH_SPEED_BASE: 500, // Velocidade base do soco (Z-axis)
+        RETRACT_SPEED: 400,  // Retorno mais rápido (Snappy feel)
+        PLAYER_SCALE: 1.4,
+        ENEMY_SCALE: 1.0,
+        SMOOTHING: 20.0      // Aumentado para resposta mais rápida (menos lag visual)
     };
 
     const CHARACTERS = [
-        { id: 0, name: 'LITTLE MAC', color: '#2ecc71', skin: '#ffccaa', gloves: '#27ae60', power: 1.0, speed: 1.2 },
-        { id: 1, name: 'GLASS JOE',  color: '#ffffff', skin: '#ffccaa', gloves: '#e74c3c', power: 0.8, speed: 1.0 },
-        { id: 2, name: 'BALD BULL',  color: '#f1c40f', skin: '#e67e22', gloves: '#f39c12', power: 1.5, speed: 0.7 },
-        { id: 3, name: 'MR. SAND',   color: '#e74c3c', skin: '#8d6e63', gloves: '#c0392b', power: 1.3, speed: 1.1 }
+        { id: 0, name: 'MARIO',   c: { hat: '#d32f2f', shirt: '#e74c3c', overall: '#3498db', skin: '#ffccaa' }, pwr: 1.0, speed: 1.0 },
+        { id: 1, name: 'LUIGI',   c: { hat: '#27ae60', shirt: '#2ecc71', overall: '#2b3a8f', skin: '#ffccaa' }, pwr: 0.9, speed: 1.2 },
+        { id: 2, name: 'WARIO',   c: { hat: '#f1c40f', shirt: '#f39c12', overall: '#8e44ad', skin: '#e67e22' }, pwr: 1.3, speed: 0.8 },
+        { id: 3, name: 'WALUIGI', c: { hat: '#5e2d85', shirt: '#8e44ad', overall: '#2c3e50', skin: '#ffccaa' }, pwr: 1.0, speed: 1.1 }
+    ];
+
+    const ARENAS = [
+        { name: 'CHAMPIONSHIP', bg: '#2c3e50', floor: '#95a5a6', rope: '#c0392b' },
+        { name: 'UNDERGROUND',  bg: '#1a1a1a', floor: '#3e2723', rope: '#f1c40f' }
     ];
 
     // -----------------------------------------------------------------
-    // 2. AUDIO SYNTHESIZER (NO ASSETS REQUIRED)
+    // 2. UTILITÁRIOS SEGUROS (CRASH-PROOF & PHYSICS)
     // -----------------------------------------------------------------
-    const AudioSys = {
-        ctx: null,
-        master: null,
-        init: function() {
-            if (this.ctx) return;
-            const AC = window.AudioContext || window.webkitAudioContext;
-            this.ctx = new AC();
-            this.master = this.ctx.createGain();
-            this.master.gain.value = 0.3;
-            this.master.connect(this.ctx.destination);
+    const SafeUtils = {
+        // Lerp independente de frame: a = start, b = end, decay = speed, dt = delta time
+        lerpDt: (a, b, decay, dt) => {
+            if (typeof a !== 'number') return b;
+            return b + (a - b) * Math.exp(-decay * dt);
         },
-        resume: function() {
-            if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+        
+        lerpPoint: (curr, target, decay, dt) => {
+            if (!curr) return target || {x:0, y:0};
+            if (!target) return curr;
+            const f = Math.exp(-decay * dt);
+            return {
+                x: target.x + (curr.x - target.x) * f,
+                y: target.y + (curr.y - target.y) * f
+            };
         },
-        play: function(id) {
-            if (!this.ctx) this.init();
-            const t = this.ctx.currentTime;
-            const osc = this.ctx.createOscillator();
-            const g = this.ctx.createGain();
-            osc.connect(g); g.connect(this.master);
 
-            switch (id) {
-                case 'swish': // Ar cortando
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(400, t);
-                    osc.frequency.exponentialRampToValueAtTime(100, t + 0.15);
-                    g.gain.setValueAtTime(0.1, t);
-                    g.gain.linearRampToValueAtTime(0, t + 0.15);
-                    osc.start(t); osc.stop(t + 0.15);
-                    break;
-                case 'hit_light': // Soco rápido
-                    osc.type = 'square';
-                    osc.frequency.setValueAtTime(200, t);
-                    osc.frequency.exponentialRampToValueAtTime(50, t + 0.1);
-                    g.gain.setValueAtTime(0.2, t);
-                    g.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
-                    osc.start(t); osc.stop(t + 0.1);
-                    break;
-                case 'hit_heavy': // Soco forte
-                    osc.type = 'sawtooth';
-                    osc.frequency.setValueAtTime(120, t);
-                    osc.frequency.exponentialRampToValueAtTime(20, t + 0.3);
-                    g.gain.setValueAtTime(0.4, t);
-                    g.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
-                    osc.start(t); osc.stop(t + 0.3);
-                    break;
-                case 'block': // Bloqueio
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(800, t);
-                    g.gain.setValueAtTime(0.1, t);
-                    g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-                    osc.start(t); osc.stop(t + 0.05);
-                    break;
-                case 'bell': // Gongo
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(1500, t);
-                    g.gain.setValueAtTime(0.5, t);
-                    g.gain.exponentialRampToValueAtTime(0.001, t + 2.0);
-                    osc.start(t); osc.stop(t + 2.0);
-                    break;
-                case 'select':
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(600, t);
-                    g.gain.setValueAtTime(0.1, t);
-                    g.gain.linearRampToValueAtTime(0, t+0.1);
-                    osc.start(t); osc.stop(t + 0.1);
-                    break;
+        dist: (p1, p2) => {
+            if (!p1 || !p2) return 9999;
+            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        },
+
+        toScreen: (kp, w, h) => {
+            if (!kp || typeof kp.x !== 'number') return {x: w/2, y: h/2};
+            return { x: (1 - kp.x / 640) * w, y: (kp.y / 480) * h };
+        },
+
+        createPose: () => ({
+            head: {x:0, y:0},
+            shoulders: {l:{x:0,y:0}, r:{x:0,y:0}},
+            elbows: {l:{x:0,y:0}, r:{x:0,y:0}},
+            wrists: {
+                l:{x:0,y:0, z:0, state:'IDLE', hasHit: false, velocity: 0, punchForce: 1}, 
+                r:{x:0,y:0, z:0, state:'IDLE', hasHit: false, velocity: 0, punchForce: 1}
             }
-        }
+        })
     };
 
     // -----------------------------------------------------------------
-    // 3. GAME ENGINE
+    // 3. ENGINE DO JOGO
     // -----------------------------------------------------------------
     const Game = {
-        state: 'INIT', // INIT, TITLE, CHAR_SELECT, LOBBY, FIGHT, GAMEOVER
-        roomId: 'wii_box_v1',
+        state: 'INIT',
+        roomId: 'box_pro_v1',
         isOnline: false,
         dbRef: null,
         
-        // State Vars
-        selChar: 0,
-        timer: 99,
-        round: 1,
-        winner: null,
+        lastTime: 0, // Para cálculo de DeltaTime
         
-        // Game Feel
-        shake: 0,
-        hitStop: 0,
-        msgs: [], // Popups de texto
+        selChar: 0,
+        selArena: 0,
+        timer: 0,
+        round: 1,
 
-        // Entidades
-        p1: null, // Jogador Local (Sempre)
-        p2: null, // Oponente (AI ou Remoto)
+        p1: null,
+        p2: null,
+        msgs: [], 
 
-        // ============================
-        // LIFECYCLE
-        // ============================
         init: function() {
-            this.state = 'TITLE';
-            this.cleanup();
-            AudioSys.init();
-            window.System.msg("SUPER PUNCH-OUT");
-            
-            // Hook Input Global
-            window.System.canvas.onclick = (e) => this.onClick(e);
-        },
-
-        cleanup: function() {
-            if (this.dbRef) {
-                try { this.dbRef.child('players/'+window.System.playerId).remove(); } catch(e){}
-                this.dbRef.off();
+            try {
+                this.state = 'MODE_SELECT';
+                this.cleanup();
+                if(window.System && window.System.msg) window.System.msg("BOXING PRO");
+                
+                this.lastTime = performance.now();
+                this.p1 = this.createPlayer('p1', 0);
+                this.p2 = this.createPlayer('p2', 1);
+                
+                this.setupInput();
+            } catch(e) {
+                console.error("Critical Init Error:", e);
             }
         },
 
-        createFighter: function(charId, isAI, isRemote) {
+        createPlayer: function(id, charId) {
             return {
+                id: id,
                 charId: charId,
-                isAI: isAI,
-                isRemote: isRemote,
                 hp: 100, maxHp: 100,
                 stamina: 100,
                 guard: false,
-                // Pose Lógica (0.0 - 1.0)
-                pose: {
-                    head: {x:0.5, y:0.3},
-                    handL: {x:0.6, y:0.5, z:0, state:'IDLE', cd:0}, // Z: 0=perto corpo, 1=estendido
-                    handR: {x:0.4, y:0.5, z:0, state:'IDLE', cd:0}
-                },
-                // Raw Input suavizado
-                raw: { head:{x:0,y:0}, l:{x:0,y:0}, r:{x:0,y:0} },
-                // AI State
-                aiTimer: 0
+                score: 0,
+                pose: SafeUtils.createPose(),
+                aiState: { timer: 0, action: 'IDLE', targetX: 0, targetY: 0 }, 
+                isRemote: false
             };
         },
 
-        // ============================
-        // UPDATE LOOP (60 FPS)
-        // ============================
-        update: function(ctx, w, h, input) {
-            // Hit Stop Logic (Congela o jogo para impacto)
-            if (this.hitStop > 0) {
-                this.hitStop--;
-                this.render(ctx, w, h); // Renderiza estático
-                return;
+        cleanup: function() {
+            if (this.dbRef && window.System.playerId) {
+                try { 
+                    this.dbRef.child('players/' + window.System.playerId).remove(); 
+                    this.dbRef.off(); 
+                } catch(e){ console.warn("Firebase cleanup error", e); }
             }
-
-            // State Machine
-            switch (this.state) {
-                case 'INIT': this.init(); break;
-                case 'TITLE': this.drawTitle(ctx, w, h); break;
-                case 'CHAR_SELECT': this.drawCharSelect(ctx, w, h); break;
-                case 'LOBBY': this.drawLobby(ctx, w, h); break;
-                case 'GAMEOVER': this.drawGameOver(ctx, w, h); break;
-                case 'FIGHT':
-                    this.updateFight(w, h, input);
-                    this.render(ctx, w, h);
-                    break;
-            }
-            return 0; // Score dummy
+            if(window.System.canvas) window.System.canvas.onclick = null;
         },
 
-        updateFight: function(w, h, input) {
-            // Timer
-            if (Math.random() < 0.016) { // ~1 segundo
-                this.timer -= 1/60; 
-                if (this.timer < 0) this.endRound();
-            }
+        setupInput: function() {
+            window.System.canvas.onclick = (e) => {
+                const r = window.System.canvas.getBoundingClientRect();
+                const x = (e.clientX - r.left);
+                const y = (e.clientY - r.top);
+                const w = r.width;
+                const h = r.height;
 
-            // 1. Processa Input Player (P1)
-            if (!this.p1.isAI && input && input.keypoints) {
-                this.processPose(this.p1, input.keypoints, w, h);
-            }
-
-            // 2. Processa P2 (AI ou Sync)
-            if (this.p2.isAI) {
-                this.processAI(this.p2);
-            } else if (this.isOnline) {
-                this.syncNetwork(); // Envia P1, Recebe P2
-            }
-
-            // 3. Física de Mãos (Animação do Soco)
-            this.updateHands(this.p1);
-            this.updateHands(this.p2);
-
-            // 4. Efeitos
-            this.shake *= 0.9;
-            if (this.shake < 0.5) this.shake = 0;
-            this.msgs.forEach(m => { m.y -= 1; m.life--; });
-            this.msgs = this.msgs.filter(m => m.life > 0);
-
-            // 5. Win Condition
-            if (this.p1.hp <= 0 || this.p2.hp <= 0) {
-                this.winner = this.p1.hp > 0 ? this.p1 : this.p2;
-                this.state = 'GAMEOVER';
-                AudioSys.play('bell');
-            }
-        },
-
-        // --- FÍSICA DE SOCO E POSE ---
-        processPose: function(p, kp, w, h) {
-            const get = (idx) => kp[idx] && kp[idx].score > 0.3 ? kp[idx] : null;
-            const nose = get(0); // Nariz
-            const wl = get(9);   // Pulso Esq
-            const wr = get(10);  // Pulso Dir
-
-            // Suavização (Lerp) para remover tremedeira da webcam
-            const lerp = (curr, target) => curr + (target - curr) * 0.3;
-
-            // Cabeça (Esquiva)
-            if (nose) {
-                // Mapeia X (0-640) para (-1 a 1) para inclinação
-                // Espelhado: (1 - x)
-                const nx = (1 - nose.x/640); 
-                const ny = nose.y/480;
-                p.pose.head.x = lerp(p.pose.head.x, nx);
-                p.pose.head.y = lerp(p.pose.head.y, ny);
-            }
-
-            // Mãos
-            const processHand = (hand, rawKP, side) => {
-                if (!rawKP) return;
-                const nx = (1 - rawKP.x/640); // Espelhado
-                const ny = rawKP.y/480;
-
-                // Velocidade do movimento (Detecção de Soco)
-                const dx = (nx - p.raw[side].x) * 100;
-                const dy = (ny - p.raw[side].y) * 100;
-                const vel = Math.sqrt(dx*dx + dy*dy);
-
-                // Armazena raw para proximo frame
-                p.raw[side] = {x: nx, y: ny};
-
-                // Lógica de Estado
-                if (hand.state === 'IDLE') {
-                    // Segue a mão visualmente
-                    hand.x = lerp(hand.x, nx);
-                    hand.y = lerp(hand.y, ny);
-
-                    // Trigger Soco
-                    if (vel > CONF.PUNCH_TRIGGER_SPEED && hand.cd <= 0) {
-                        hand.state = 'PUNCH';
-                        hand.z = 0;
-                        AudioSys.play('swish');
-                    }
+                if (this.state === 'MODE_SELECT') {
+                    this.setMode(y < h/2 ? 'OFFLINE' : 'ONLINE');
+                    this.playSound('sine', 600);
+                } 
+                else if (this.state === 'CHAR_SELECT') {
+                    const colW = w / CHARACTERS.length;
+                    const clickedIndex = Math.floor(x / colW);
                     
-                    // Defesa (Mãos próximas ao rosto ou centro alto)
-                    const distToHead = Math.hypot(hand.x - p.pose.head.x, hand.y - p.pose.head.y);
-                    if (distToHead < 0.15) p.guard = true;
-                    else if (side==='l' && !p.guard) p.guard = false; // Simplificação
-                }
-            };
-
-            processHand(p.pose.handL, wl, 'l');
-            processHand(p.pose.handR, wr, 'r');
-            
-            // Stamina regen
-            p.stamina = Math.min(100, p.stamina + 0.2);
-        },
-
-        updateHands: function(p) {
-            ['handL', 'handR'].forEach(hKey => {
-                const h = p.pose[hKey];
-                
-                if (h.state === 'PUNCH') {
-                    h.z += CONF.PUNCH_EXTEND_SPEED; // Soco vai para frente
-                    
-                    // Zona de Impacto (Extensão máx)
-                    if (h.z >= CONF.REACH_DEPTH && !h.hitFrame) {
-                        h.hitFrame = true; // Só processa colisão uma vez
-                        this.checkCollision(p, h);
-                    }
-
-                    if (h.z >= 1.0) {
-                        h.state = 'RETRACT';
+                    if (clickedIndex >= 0 && clickedIndex < CHARACTERS.length) {
+                        this.selChar = clickedIndex;
+                        this.playSound('sine', 600);
+                        
+                        if (y > h * 0.75) {
+                            this.startGame();
+                            this.playSound('square', 400);
+                        }
                     }
                 } 
-                else if (h.state === 'RETRACT') {
-                    h.z -= CONF.PUNCH_RETRACT_SPEED; // Soco volta
-                    if (h.z <= 0) {
-                        h.z = 0;
-                        h.state = 'IDLE';
-                        h.hitFrame = false;
-                        h.cd = 10; // Cooldown frames
-                    }
+                else if (this.state === 'GAMEOVER') {
+                    this.init();
                 }
-                else if (h.cd > 0) h.cd--;
-            });
+            };
         },
 
-        checkCollision: function(attacker, hand) {
-            const defender = (attacker === this.p1) ? this.p2 : this.p1;
-            
-            // 1. Checa Defesa
-            if (defender.guard) {
-                this.spawnMsg("BLOCK", '#aaa');
-                AudioSys.play('block');
-                defender.stamina -= 5;
-                return;
-            }
+        setMode: function(mode) {
+            this.state = 'CHAR_SELECT';
+            this.isOnline = (mode === 'ONLINE' && !!window.DB);
+            if(mode === 'ONLINE' && !window.DB) window.System.msg("OFFLINE MODE");
+        },
 
-            // 2. Acerto (Hit)
-            // Dano base
-            let dmg = 8 * CHARACTERS[attacker.charId].power;
+        startGame: function() {
+            this.p1 = this.createPlayer('p1', this.selChar);
             
-            // Crítico (Se a mão alvo estiver alinhada com a cabeça do inimigo)
-            // Em 2.5D simplificado, assumimos que soco sempre mira no centro/cabeça
-            const isCrit = Math.random() > 0.8; 
-            if (isCrit) {
-                dmg *= 1.5;
-                this.shake = CONF.SHAKE_PWR;
-                this.hitStop = CONF.HIT_STOP + 4;
-                AudioSys.play('hit_heavy');
-                this.spawnMsg("CRITICAL!", '#ff0');
+            if (this.isOnline) {
+                this.connectLobby();
             } else {
-                this.shake = CONF.SHAKE_PWR / 2;
-                this.hitStop = CONF.HIT_STOP;
-                AudioSys.play('hit_light');
-                this.spawnMsg("HIT", '#fff');
-            }
-
-            defender.hp = Math.max(0, defender.hp - dmg);
-            
-            // Atualiza rede se for ataque local
-            if (this.isOnline && attacker === this.p1) {
-                this.dbRef.child('players/'+defender.id).update({hp: defender.hp});
+                const cpuId = (this.selChar + 1) % CHARACTERS.length;
+                this.p2 = this.createPlayer('p2', cpuId);
+                this.state = 'FIGHT';
+                this.timer = CONF.ROUND_TIME; 
+                this.lastTime = performance.now();
+                window.System.msg("FIGHT!");
             }
         },
 
-        // --- IA Oponente ---
-        processAI: function(ai) {
-            ai.aiTimer++;
-            const t = Date.now() / 1000;
-            
-            // Movimento da Cabeça (Bobbing)
-            ai.pose.head.x = 0.5 + Math.sin(t * 2) * 0.1;
-            ai.pose.head.y = 0.3 + Math.cos(t * 4) * 0.05;
+        connectLobby: function() {
+            this.state = 'LOBBY';
+            try {
+                this.dbRef = window.DB.ref('rooms/' + this.roomId);
+                const myData = { charId: this.selChar, hp: 100, pose: this.p1.pose };
+                this.dbRef.child('players/' + window.System.playerId).set(myData);
+                this.dbRef.child('players/' + window.System.playerId).onDisconnect().remove();
 
-            // Mãos em guarda
-            ai.pose.handL.x = ai.pose.head.x + 0.1;
-            ai.pose.handL.y = ai.pose.head.y + 0.2;
-            ai.pose.handR.x = ai.pose.head.x - 0.1;
-            ai.pose.handR.y = ai.pose.head.y + 0.2;
-
-            // Decisão de Atacar
-            if (ai.aiTimer > 60 && ai.hp > 0) { // A cada ~1s
-                const r = Math.random();
-                if (r < 0.4) { // 40% chance soco
-                    const hand = r < 0.2 ? ai.pose.handL : ai.pose.handR;
-                    if (hand.state === 'IDLE') {
-                        hand.state = 'PUNCH';
-                        AudioSys.play('swish');
+                this.dbRef.child('players').on('value', snap => {
+                    const players = snap.val();
+                    if (!players) return;
+                    const opId = Object.keys(players).find(id => id !== window.System.playerId);
+                    
+                    if (opId) {
+                        const opData = players[opId];
+                        if (this.state === 'LOBBY') {
+                            this.p2 = this.createPlayer('p2', opData.charId || 0);
+                            this.p2.isRemote = true;
+                            this.p2.id = opId;
+                            this.state = 'FIGHT';
+                            this.timer = CONF.ROUND_TIME;
+                            this.lastTime = performance.now();
+                            window.System.msg("VS ONLINE");
+                        } 
+                        else if (this.state === 'FIGHT') {
+                            this.p2.hp = opData.hp;
+                            if (opData.pose) this.syncPose(this.p2.pose, opData.pose);
+                        }
+                    } else if (this.state === 'FIGHT') {
+                        window.System.msg("OPONENTE DESCONECTOU");
+                        this.state = 'GAMEOVER';
                     }
-                    ai.aiTimer = 0;
-                } else if (r < 0.7) { // Bloqueio
-                    ai.guard = true;
-                    setTimeout(() => ai.guard = false, 500);
-                    ai.aiTimer = 30;
+                });
+            } catch(e) {
+                this.state = 'MODE_SELECT';
+            }
+        },
+
+        syncPose: function(local, remote) {
+            // Interpolação para rede (suave)
+            const f = 0.5; // Fator fixo para rede
+            
+            const syncPart = (l, r) => {
+                if(!r) return;
+                const next = SafeUtils.lerpPoint(l, r, f, 1);
+                l.x = next.x;
+                l.y = next.y;
+            };
+
+            const syncLimb = (l, r) => {
+                if(!r) return;
+                syncPart(l, r);
+                // CRUCIAL: Atualiza Z e State explicitamente
+                l.z = (r.z !== undefined) ? r.z : 0;
+                l.state = r.state || 'IDLE';
+            };
+
+            syncPart(local.head, remote.head);
+            syncPart(local.shoulders.l, remote.shoulders.l);
+            syncPart(local.shoulders.r, remote.shoulders.r);
+            syncPart(local.elbows.l, remote.elbows.l);
+            syncPart(local.elbows.r, remote.elbows.r);
+            
+            syncLimb(local.wrists.l, remote.wrists.l);
+            syncLimb(local.wrists.r, remote.wrists.r);
+        },
+
+        // -----------------------------------------------------------------
+        // LOOP PRINCIPAL (UPDATE)
+        // -----------------------------------------------------------------
+        update: function(ctx, w, h, inputPose) {
+            try {
+                const now = performance.now();
+                const dt = Math.min((now - this.lastTime) / 1000, 0.1); 
+                this.lastTime = now;
+
+                if (this.state !== 'FIGHT') {
+                    ctx.fillStyle = '#2c3e50'; ctx.fillRect(0,0,w,h);
+                }
+
+                if (this.state === 'MODE_SELECT') { this.uiMode(ctx, w, h); return; }
+                if (this.state === 'CHAR_SELECT') { this.uiChar(ctx, w, h); return; }
+                if (this.state === 'LOBBY') { this.uiLobby(ctx, w, h); return; }
+                if (this.state === 'GAMEOVER') { this.uiGameOver(ctx, w, h); return; }
+
+                if (this.state === 'FIGHT') {
+                    // 1. INPUT PLAYER
+                    this.processInput(inputPose, w, h, dt);
+
+                    // 2. LÓGICA (AI ou Rede)
+                    if (this.isOnline) this.sendUpdate();
+                    else this.updateAI(w, h, dt);
+
+                    // 3. RENDER
+                    this.drawArena(ctx, w, h);
+                    
+                    // Inimigo (Fundo)
+                    this.drawCharacter(ctx, this.p2, w, h, false);
+                    
+                    // Player (Frente - POV)
+                    ctx.globalAlpha = 0.7;
+                    this.drawCharacter(ctx, this.p1, w, h, true);
+                    ctx.globalAlpha = 1.0;
+
+                    // 4. UI
+                    this.drawHUD(ctx, w, h);
+                    this.renderMsgs(ctx, dt);
+
+                    // Timer
+                    if (this.timer > 0) this.timer -= dt;
+                    else this.endRound();
+
+                    if (this.p1.hp <= 0 || this.p2.hp <= 0) this.state = 'GAMEOVER';
+                }
+
+                return this.p1.score;
+
+            } catch (err) {
+                console.error("Game Loop Error:", err);
+                return 0;
+            }
+        },
+
+        processInput: function(input, w, h, dt) {
+            if (!input || !input.keypoints) return;
+
+            const kp = input.keypoints;
+            const p = this.p1.pose;
+            const smooth = CONF.SMOOTHING;
+
+            const get = (name, currentPos) => {
+                const point = kp.find(k => k.name === name);
+                if (point && point.score > 0.3) {
+                    const target = SafeUtils.toScreen(point, w, h);
+                    // Lerp independente de frame
+                    return SafeUtils.lerpPoint(currentPos, target, smooth, dt);
+                }
+                return currentPos;
+            };
+
+            const updatePart = (curr, name) => {
+                const next = get(name, curr);
+                curr.x = next.x;
+                curr.y = next.y;
+            };
+
+            updatePart(p.head, 'nose');
+            updatePart(p.shoulders.l, 'left_shoulder');
+            updatePart(p.shoulders.r, 'right_shoulder');
+            updatePart(p.elbows.l, 'left_elbow');
+            updatePart(p.elbows.r, 'right_elbow');
+            
+            // Logica especial para pulsos: Precisamos calcular aceleração e extensão
+            // Passamos o ombro correspondente para checar extensão
+            const nextWrL = get('left_wrist', p.wrists.l);
+            const nextWrR = get('right_wrist', p.wrists.r);
+            
+            this.updateHandLogic(p.wrists.l, nextWrL, p.shoulders.l, this.p1, this.p2, dt);
+            this.updateHandLogic(p.wrists.r, nextWrR, p.shoulders.r, this.p1, this.p2, dt);
+
+            // Guarda (Defesa melhorada)
+            const distL = SafeUtils.dist(p.wrists.l, p.head);
+            const distR = SafeUtils.dist(p.wrists.r, p.head);
+            // Defesa exige que as mãos estejam altas E perto do rosto
+            const handsHigh = (p.wrists.l.y < p.shoulders.l.y + 20) && (p.wrists.r.y < p.shoulders.r.y + 20);
+            this.p1.guard = (distL < CONF.BLOCK_DIST && distR < CONF.BLOCK_DIST && handsHigh);
+            
+            // Stamina regen
+            if(this.p1.stamina < 100) this.p1.stamina += (10 * dt);
+        },
+
+        updateHandLogic: function(hand, targetPos, shoulderPos, owner, opponent, dt) {
+            // 1. Calcular Velocidade Instantânea
+            const distMoved = SafeUtils.dist(hand, targetPos);
+            const instVelocity = distMoved / (dt || 0.016);
+            hand.velocity = instVelocity;
+
+            // 2. Calcular Extensão (Distância Ombro -> Mão)
+            // Importante: Socos reais movem a mão PARA LONGE do corpo
+            const currentExt = SafeUtils.dist(hand, shoulderPos);
+            const targetExt = SafeUtils.dist(targetPos, shoulderPos);
+            const isExtending = targetExt > currentExt + 2; // +2 é buffer de ruído
+
+            // Atualiza posição visual X/Y
+            hand.x = targetPos.x;
+            hand.y = targetPos.y;
+
+            // --- LÓGICA DE DETEÇÃO DE SOCO TIPO WII ---
+            
+            // Gatilho: Alta velocidade + Braço a esticar + Stamina + Estado IDLE
+            if (hand.state === 'IDLE' && owner.stamina > 15) {
+                // Checa se está a esticar o braço significativamente a partir do corpo
+                if (instVelocity > CONF.PUNCH_THRESH && isExtending && targetExt > CONF.MIN_EXTENSION) {
+                    hand.state = 'PUNCH';
+                    hand.z = 0;
+                    hand.hasHit = false; 
+                    
+                    // Fator de força: Quanto mais rápido o movimento real, mais rápido o soco no jogo
+                    const speedFactor = Math.min(2.0, instVelocity / CONF.PUNCH_THRESH);
+                    hand.punchForce = speedFactor; 
+
+                    owner.stamina -= 20;
+                    // Som pitch varia com a velocidade
+                    this.playSound('noise', 200 + (speedFactor * 100), 0.05);
+                }
+            }
+
+            // --- FÍSICA DO SOCO NO EIXO Z ---
+
+            if (hand.state === 'PUNCH') {
+                const charStats = CHARACTERS[owner.charId];
+                const fatigue = Math.max(0.4, owner.stamina / 100);
+                
+                // Velocidade baseada no movimento real (punchForce) e stats
+                const spd = CONF.PUNCH_SPEED_BASE * charStats.speed * fatigue * hand.punchForce;
+                
+                hand.z += spd * dt;
+                
+                // Janela de Hit (entre 50% e 90% da extensão máxima simulada)
+                if (hand.z > 50 && hand.z < 95) {
+                    this.checkHit(hand, owner, opponent);
+                }
+
+                // Extensão máxima atingida (100 unidades Z)
+                if (hand.z > 100) {
+                    hand.state = 'RETRACT';
+                    // Pequeno som de "whiff" se falhar o soco
+                    if (!hand.hasHit) this.playSound('noise', 100, 0.02);
+                }
+            } 
+            else if (hand.state === 'RETRACT') {
+                // Retorno linear mas rápido
+                hand.z -= CONF.RETRACT_SPEED * dt;
+                if (hand.z <= 0) {
+                    hand.z = 0;
+                    hand.state = 'IDLE';
+                    hand.hasHit = false; 
+                    hand.punchForce = 1;
                 }
             }
         },
 
-        // --- RENDERIZAÇÃO (WII STYLE) ---
-        render: function(ctx, w, h) {
-            // Apply Camera Shake
-            ctx.save();
-            if (this.shake > 0) {
-                const dx = (Math.random()-0.5) * this.shake;
-                const dy = (Math.random()-0.5) * this.shake;
-                ctx.translate(dx, dy);
+        checkHit: function(hand, attacker, defender) {
+            if (hand.hasHit) return;
+
+            const enemyPose = defender.pose;
+            // Hitbox da Cabeça
+            const headBox = { x: enemyPose.head.x, y: enemyPose.head.y, r: 70 };
+            
+            // Hitbox do Corpo (Centro dos ombros + offset para baixo)
+            const cx = (enemyPose.shoulders.l.x + enemyPose.shoulders.r.x) / 2;
+            const cy = (enemyPose.shoulders.l.y + enemyPose.shoulders.r.y) / 2;
+            const bodyBox = { x: cx, y: cy + 70, r: 90 };
+
+            // Verifica colisão 2D
+            const hitHead = SafeUtils.dist(hand, headBox) < headBox.r;
+            const hitBody = SafeUtils.dist(hand, bodyBox) < bodyBox.r;
+
+            if (hitHead || hitBody) {
+                hand.hasHit = true; 
+                
+                const basePwr = CHARACTERS[attacker.charId].pwr;
+                const fatigue = Math.max(0.3, attacker.stamina / 100);
+                // Dano escala com a força do movimento real
+                let damage = basePwr * 5 * fatigue * hand.punchForce; 
+
+                if (defender.guard) {
+                    damage *= 0.2; // Defesa reduz 80% do dano
+                    this.spawnMsg(headBox.x, headBox.y - 40, "BLOCK", "#aaa");
+                    this.playSound('square', 100, 0.1);
+                    // Recuo visual na defesa
+                    hand.z = 80; // "Bate" e volta um pouco
+                    hand.state = 'RETRACT';
+                } else {
+                    if (hitHead) {
+                        damage *= 2.0;
+                        this.spawnMsg(headBox.x, headBox.y - 50, "CRITICAL!", "#f00");
+                        if(window.Gfx) window.Gfx.shakeScreen(15 * hand.punchForce);
+                        this.playSound('sawtooth', 150, 0.2);
+                    } else {
+                        this.spawnMsg(bodyBox.x, bodyBox.y, "HIT", "#ff0");
+                        if(window.Gfx) window.Gfx.shakeScreen(5 * hand.punchForce);
+                        this.playSound('sine', 100, 0.1);
+                    }
+                    attacker.score += Math.floor(damage * 10);
+                }
+                
+                defender.hp = Math.max(0, defender.hp - damage);
+                
+                if(this.isOnline && this.dbRef && attacker === this.p1) {
+                     this.dbRef.child('players/' + defender.id).update({ hp: defender.hp });
+                }
+
+                // Efeito "Hit Stop" - Retrai imediatamente após o impacto
+                hand.state = 'RETRACT';
             }
+        },
 
-            // 1. Ringue (Fundo)
-            this.drawArena(ctx, w, h);
+        updateAI: function(w, h, dt) {
+            const ai = this.p2;
+            const p = ai.pose;
+            const t = this.timer; 
+            
+            // Movimentação básica da AI (Head bobbing)
+            const cx = w/2;
+            const cy = h * 0.35;
+            p.head = { x: cx + Math.sin(t*2)*30, y: cy + Math.cos(t*3)*10 };
+            p.shoulders.l = { x: p.head.x - 50, y: p.head.y + 60 };
+            p.shoulders.r = { x: p.head.x + 50, y: p.head.y + 60 };
+            p.elbows.l = { x: p.shoulders.l.x - 20, y: p.shoulders.l.y + 60 };
+            p.elbows.r = { x: p.shoulders.r.x + 20, y: p.shoulders.r.y + 60 };
 
-            // 2. Oponente (Background - Escala Normal)
-            this.drawFighter(ctx, this.p2, w, h, false);
+            // Lógica de Guarda da AI
+            if (this.p1.stamina < 90) ai.guard = true;
+            else if (ai.stamina > 90) ai.guard = false;
 
-            // 3. Player (Foreground - Escala Aumentada e Transparente)
-            ctx.globalAlpha = 0.6; // Efeito Wireframe/Fantasma para não tampar a visão
-            this.drawFighter(ctx, this.p1, w, h, true);
-            ctx.globalAlpha = 1.0;
+            const attackPattern = Math.sin(t * 5); 
+            
+            ['l', 'r'].forEach(s => {
+                const hnd = p.wrists[s];
+                let tx = p.head.x + (s==='l'?-40:40);
+                let ty = p.head.y + (ai.guard ? 20 : 80); // Mãos sobem na defesa
 
-            // 4. Efeitos e UI
-            this.drawFX(ctx, w, h);
-            this.drawHUD(ctx, w, h);
+                // AI Decide atacar
+                if (attackPattern > 0.9 && hnd.state === 'IDLE' && ai.stamina > 30) {
+                      ai.aiState.targetX = w/2 + (Math.sin(t)*50);
+                      ai.aiState.targetY = h/2 + 50;
+                      tx = ai.aiState.targetX;
+                      ty = ai.aiState.targetY;
+                }
 
+                // AI Simula movimento físico para usar a mesma lógica do Player
+                const speed = 8.0; 
+                const nextPos = SafeUtils.lerpPoint(hnd, {x: tx, y: ty}, speed, dt);
+                
+                // Passamos o ombro da AI para a função lógica
+                const shoulder = (s === 'l') ? p.shoulders.l : p.shoulders.r;
+                this.updateHandLogic(hnd, nextPos, shoulder, ai, this.p1, dt);
+            });
+            
+            if(ai.stamina < 100) ai.stamina += (10 * dt);
+        },
+
+        sendUpdate: function() {
+            if (Math.floor(this.timer * 10) % 3 === 0 && this.dbRef) {
+                const r = (v) => ({x: Math.round(v.x), y: Math.round(v.y), z: Math.round(v.z||0)});
+                const p = this.p1.pose;
+                this.dbRef.child('players/' + window.System.playerId).update({
+                    hp: this.p1.hp,
+                    pose: {
+                        head: r(p.head),
+                        shoulders: {l: r(p.shoulders.l), r: r(p.shoulders.r)},
+                        elbows: {l: r(p.elbows.l), r: r(p.elbows.r)},
+                        wrists: {
+                            l: {...r(p.wrists.l), state: p.wrists.l.state},
+                            r: {...r(p.wrists.r), state: p.wrists.r.state}
+                        }
+                    }
+                });
+            }
+        },
+
+        // -----------------------------------------------------------------
+        // RENDERIZAÇÃO
+        // -----------------------------------------------------------------
+        drawArena: function(ctx, w, h) {
+            const ar = ARENAS[this.selArena];
+            const mid = h * 0.6;
+            const g = ctx.createLinearGradient(0,0,0,mid);
+            g.addColorStop(0, ar.bg); g.addColorStop(1, '#000');
+            ctx.fillStyle = g; ctx.fillRect(0,0,w,mid);
+            ctx.fillStyle = ar.floor; ctx.fillRect(0,mid,w,h-mid);
+            ctx.strokeStyle = ar.rope; ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(0, mid-50); ctx.lineTo(w, mid-50); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, mid-120); ctx.lineTo(w, mid-120); ctx.stroke();
+        },
+
+        drawCharacter: function(ctx, player, w, h, isSelf) {
+            const p = player.pose;
+            if (p.shoulders.l.x === 0) return;
+
+            const c = CHARACTERS[player.charId].c;
+            let size = SafeUtils.dist(p.shoulders.l, p.shoulders.r) / 100;
+            if (!isSelf) size = 1.0; 
+            const s = size * (isSelf ? CONF.PLAYER_SCALE : CONF.ENEMY_SCALE);
+            const cx = (p.shoulders.l.x + p.shoulders.r.x) / 2;
+            const cy = (p.shoulders.l.y + p.shoulders.r.y) / 2;
+
+            const limb = (p1, p2, width) => {
+                if(p1.x===0 || p2.x===0) return;
+                ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+                ctx.lineWidth = width * s; ctx.lineCap='round'; ctx.strokeStyle = c.shirt; ctx.stroke();
+            };
+
+            ctx.fillStyle = c.shirt; 
+            ctx.beginPath(); ctx.ellipse(cx, cy + (40*s), 50*s, 70*s, 0, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = c.overall; 
+            ctx.fillRect(cx - 35*s, cy + 50*s, 70*s, 80*s);
+            
+            limb(p.shoulders.l, p.elbows.l, 25);
+            limb(p.elbows.l, p.wrists.l, 25);
+            limb(p.shoulders.r, p.elbows.r, 25);
+            limb(p.elbows.r, p.wrists.r, 25);
+
+            ctx.fillStyle = c.skin; ctx.beginPath(); ctx.arc(p.head.x, p.head.y, 45*s, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = c.hat; 
+            ctx.beginPath(); ctx.arc(p.head.x, p.head.y - 10*s, 48*s, Math.PI, 0); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(p.head.x, p.head.y - 10*s, 50*s, 15*s, 0, Math.PI, 0); ctx.fill();
+            ctx.fillStyle = "#fff"; ctx.font = `bold ${30*s}px Arial`; ctx.textAlign = 'center';
+            ctx.fillText(CHARACTERS[player.charId].name[0], p.head.x, p.head.y - 35*s);
+
+            this.drawGlove(ctx, p.wrists.l, s);
+            this.drawGlove(ctx, p.wrists.r, s);
+        },
+
+        drawGlove: function(ctx, hand, s) {
+            if (hand.x === 0) return;
+            // Proteção contra NaN se Z não for sincronizado
+            const zVal = hand.z || 0;
+            // Escala visual baseada no Z (profundidade)
+            const zScale = Math.max(0.5, 1.0 - (zVal * 0.003)); 
+            const size = s * zScale * 35;
+            
+            ctx.save();
+            ctx.translate(hand.x, hand.y);
+            // Sombra aumenta quando soco é lançado
+            ctx.shadowBlur = hand.state === 'PUNCH' ? 25 : 0;
+            ctx.shadowColor = '#000';
+            const g = ctx.createRadialGradient(-5, -5, 2, 0, 0, size);
+            g.addColorStop(0, '#fff'); g.addColorStop(1, '#ddd');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(0, 0, size, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#d00'; ctx.fillRect(-size/2, size*0.3, size, size*0.3);
             ctx.restore();
         },
 
-        drawArena: function(ctx, w, h) {
-            // Gradiente Estilo Estádio
-            const g = ctx.createLinearGradient(0,0,0,h);
-            g.addColorStop(0, '#2c3e50'); 
-            g.addColorStop(0.5, '#000'); 
-            g.addColorStop(1, '#2c3e50');
-            ctx.fillStyle = g; ctx.fillRect(0,0,w,h);
-
-            // Cordas (Perspectiva)
-            const pad = 100;
-            ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(0, h*0.4); ctx.lineTo(w, h*0.4); // Corda Fundo
-            ctx.moveTo(-pad, h*0.6); ctx.lineTo(w+pad, h*0.6); // Corda Frente
-            ctx.stroke();
-
-            // Chão
-            ctx.fillStyle = '#34495e';
-            ctx.beginPath();
-            ctx.moveTo(0, h*0.45); ctx.lineTo(w, h*0.45); ctx.lineTo(w, h); ctx.lineTo(0, h);
-            ctx.fill();
+        uiMode: function(ctx, w, h) {
+            ctx.fillStyle = "#fff"; ctx.font="bold 50px 'Russo One'"; ctx.textAlign="center";
+            ctx.fillText("BOXING PRO", w/2, 100);
+            this.drawBtn(ctx, w/2, h/2 - 60, "OFFLINE (VS CPU)", this.state);
+            this.drawBtn(ctx, w/2, h/2 + 60, "ONLINE (VS PLAYER)", this.state);
         },
 
-        drawFighter: function(ctx, f, w, h, isSelf) {
-            const scale = isSelf ? CONF.PLAYER_SCALE : CONF.ENEMY_SCALE;
-            const c = CHARACTERS[f.charId];
-            const p = f.pose;
-            
-            // Coordenadas de Tela
-            // Se for Inimigo, espelhamos X? Não necessariamente, mas centralizamos.
-            // Posição base (Head)
-            const hx = isSelf ? (1-p.head.x)*w : p.head.x*w;
-            const hy = p.head.y*h;
-            
-            // Corpo (Abstrato para parecer estilo Wii Sports Boxing)
-            ctx.fillStyle = c.color;
-            ctx.beginPath();
-            // Torso segue a cabeça levemente
-            ctx.roundRect(hx - 50*scale, hy + 50*scale, 100*scale, 150*scale, 20);
-            ctx.fill();
+        uiChar: function(ctx, w, h) {
+            ctx.fillStyle = "#222"; ctx.fillRect(0,0,w,h);
+            const colW = w / CHARACTERS.length;
+            CHARACTERS.forEach((c, i) => {
+                const x = i * colW;
+                const center = x + colW/2;
+                if (i === this.selChar) {
+                    ctx.fillStyle = c.c.overall;
+                    ctx.fillRect(x, 0, colW, h);
+                }
+                ctx.fillStyle = "#fff"; ctx.textAlign="center";
+                ctx.font = i === this.selChar ? "bold 30px Arial" : "20px Arial";
+                ctx.fillText(c.name, center, 100);
+                ctx.fillStyle = c.c.hat;
+                ctx.beginPath(); ctx.arc(center, 200, 40, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = "#fff"; ctx.font="30px Arial"; 
+                ctx.fillText(c.name[0], center, 210);
+            });
+            ctx.fillStyle = "#2ecc71"; ctx.fillRect(0, h-80, w, 80);
+            ctx.fillStyle = "#fff"; ctx.font="bold 40px Arial";
+            ctx.fillText("INICIAR LUTA", w/2, h-25);
+        },
 
-            // Cabeça
-            ctx.fillStyle = c.skin;
-            ctx.beginPath(); ctx.arc(hx, hy, 40*scale, 0, Math.PI*2); ctx.fill();
-            
-            // Luvas (Depth Logic)
-            const drawGlove = (hand) => {
-                // Posição XY
-                const gx = isSelf ? (1-hand.x)*w : hand.x*w;
-                const gy = hand.y*h;
-                
-                // Z-Scale: Soco vindo em sua direção (Inimigo) ou indo longe (Player)
-                // Inimigo: Z=1 (perto da camera). Player: Z=1 (longe da camera/no inimigo)
-                // Ajuste visual para parecer profundidade
-                let zSize = 1.0;
-                if (isSelf) zSize = 1.0 - (hand.z * 0.4); // Player soco diminui (vai longe)
-                else zSize = 1.0 + (hand.z * 0.5); // Inimigo soco aumenta (vem perto)
+        uiLobby: function(ctx, w, h) {
+            ctx.fillStyle = "#111"; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = "#fff"; ctx.textAlign="center"; ctx.font="30px sans-serif";
+            ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2);
+        },
 
-                const size = 45 * scale * zSize;
-                
-                ctx.fillStyle = c.gloves;
-                ctx.beginPath(); ctx.arc(gx, gy, size, 0, Math.PI*2); ctx.fill();
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
-            };
-
-            // Desenha luvas (Se for inimigo, luva com maior Z desenha por último para ficar em cima)
-            if (p.handL.z < p.handR.z) { drawGlove(p.handL); drawGlove(p.handR); }
-            else { drawGlove(p.handR); drawGlove(p.handL); }
-
-            // Escudo de Bloqueio
-            if (f.guard) {
-                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 4; ctx.globalAlpha = 0.5;
-                ctx.beginPath(); ctx.arc(hx, hy, 70*scale, 0, Math.PI*2); ctx.stroke();
-                ctx.globalAlpha = isSelf ? 0.6 : 1.0; // Restaura alpha original
-            }
+        uiGameOver: function(ctx, w, h) {
+            ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,w,h);
+            const win = this.p1.hp > 0;
+            ctx.fillStyle = win ? "#f1c40f" : "#e74c3c";
+            ctx.textAlign="center"; ctx.font="bold 60px 'Russo One'";
+            ctx.fillText(win ? "VITÓRIA!" : "DERROTA", w/2, h/2);
+            ctx.fillStyle = "#fff"; ctx.font="20px sans-serif"; ctx.fillText("CLIQUE PARA REINICIAR", w/2, h-50);
         },
 
         drawHUD: function(ctx, w, h) {
-            const bw = w * 0.4;
-            // P1 Bar
-            ctx.fillStyle = '#444'; ctx.fillRect(20, 20, bw, 30);
-            ctx.fillStyle = '#2ecc71'; ctx.fillRect(25, 25, (bw-10)*(this.p1.hp/100), 20);
-            // P2 Bar
-            ctx.fillStyle = '#444'; ctx.fillRect(w-bw-20, 20, bw, 30);
-            ctx.fillStyle = '#e74c3c'; ctx.fillRect(w-bw-15, 25, (bw-10)*(this.p2.hp/100), 20);
-            
-            // Timer
-            ctx.fillStyle = '#fff'; ctx.font = "bold 50px 'Russo One'"; ctx.textAlign='center';
-            ctx.fillText(Math.ceil(this.timer), w/2, 60);
+            const barW = w * 0.4;
+            ctx.fillStyle = "#444"; ctx.fillRect(10, 10, barW, 25);
+            ctx.fillStyle = "#e74c3c"; ctx.fillRect(10, 10, barW * (this.p1.hp/100), 25);
+            ctx.fillStyle = "#444"; ctx.fillRect(w-10-barW, 10, barW, 25);
+            ctx.fillStyle = "#3498db"; ctx.fillRect(w-10-barW, 10, barW * (this.p2.hp/100), 25);
+            ctx.fillStyle = "#f1c40f"; ctx.fillRect(10, 40, barW * (this.p1.stamina/100), 5);
+            ctx.fillStyle = "#fff"; ctx.font="bold 30px Arial"; ctx.textAlign="center";
+            ctx.fillText(Math.ceil(this.timer), w/2, 35);
         },
 
-        drawFX: function(ctx, w, h) {
+        drawBtn: function(ctx, x, y, txt) {
+            ctx.fillStyle = "#34495e"; ctx.fillRect(x-150, y-30, 300, 60);
+            ctx.strokeStyle = "#fff"; ctx.strokeRect(x-150, y-30, 300, 60);
+            ctx.fillStyle = "#fff"; ctx.font="20px sans-serif"; ctx.fillText(txt, x, y+8);
+        },
+
+        spawnMsg: function(x, y, txt, col) {
+            this.msgs.push({x, y, t:txt, c:col, life: 1.0}); 
+        },
+        
+        renderMsgs: function(ctx, dt) {
             this.msgs.forEach(m => {
-                ctx.fillStyle = m.col; 
-                ctx.font = "bold 40px 'Russo One'"; ctx.textAlign='center';
-                ctx.fillText(m.text, w/2, h/2 - 100 + (100 - m.life*2)); // Sobe
+                m.y -= (30 * dt); m.life -= dt;
+                ctx.fillStyle = m.c; ctx.font = "bold 30px 'Russo One'"; 
+                ctx.strokeText(m.t, m.x, m.y); ctx.fillText(m.t, m.x, m.y);
             });
+            this.msgs = this.msgs.filter(m => m.life > 0);
         },
 
-        spawnMsg: function(text, col) {
-            this.msgs.push({text, col, life: 50});
+        playSound: function(type, freq, vol=0.1) {
+            if(window.Sfx) window.Sfx.play(freq, type, 0.1, vol);
         },
 
-        // ============================
-        // INTERFACE (MENU & LOBBY)
-        // ============================
-        onClick: function(e) {
-            AudioSys.resume(); // Acorda audio
-            AudioSys.play('select');
-            
-            const r = window.System.canvas.getBoundingClientRect();
-            const y = (e.clientY - r.top) / r.height;
-            const x = (e.clientX - r.left) / r.width;
-
-            if (this.state === 'TITLE') {
-                if (y < 0.5) this.startOffline();
-                else this.startOnline();
-            }
-            else if (this.state === 'CHAR_SELECT') {
-                if (y > 0.8) {
-                    this.startGame();
-                    AudioSys.play('bell');
-                } else {
-                    this.selChar = Math.floor(x * CHARACTERS.length);
-                }
-            }
-            else if (this.state === 'GAMEOVER') {
-                this.init();
-            }
-        },
-
-        startOffline: function() {
-            this.isOnline = false;
-            this.state = 'CHAR_SELECT';
-        },
-        startOnline: function() {
-            if (!window.DB) { window.System.msg("OFFLINE ONLY"); return; }
-            this.isOnline = true;
-            this.state = 'CHAR_SELECT';
-        },
-        startGame: function() {
-            this.p1 = this.createFighter(this.selChar, false, false);
-            if (this.isOnline) {
-                this.state = 'LOBBY';
-                this.connect();
-            } else {
-                this.state = 'FIGHT';
-                const cpu = Math.floor(Math.random()*CHARACTERS.length);
-                this.p2 = this.createFighter(cpu, true, false);
-                window.System.msg("ROUND 1");
-            }
-        },
-
-        connect: function() {
-            const ref = window.DB.ref('rooms/' + this.roomId);
-            this.dbRef = ref;
-            const me = ref.child('players/'+window.System.playerId);
-            me.set({ charId: this.selChar, hp: 100, ready: true });
-            me.onDisconnect().remove();
-
-            ref.child('players').on('value', snap => {
-                const ps = snap.val();
-                if (!ps) return;
-                const opId = Object.keys(ps).find(id => id !== window.System.playerId);
-                
-                if (this.state === 'LOBBY' && opId) {
-                    this.p2 = this.createFighter(ps[opId].charId, false, true);
-                    this.p2.id = opId;
-                    this.state = 'FIGHT';
-                    window.System.msg("ONLINE MATCH");
-                }
-                
-                if (this.state === 'FIGHT' && opId) {
-                    // Sync Pose
-                    const op = ps[opId];
-                    if (op.pose) this.p2.pose = op.pose;
-                    if (op.hp !== undefined) this.p2.hp = op.hp;
-                }
-            });
-        },
-
-        // TELAS DE MENU
-        drawTitle: function(ctx, w, h) {
-            ctx.fillStyle = '#2c3e50'; ctx.fillRect(0,0,w,h);
-            ctx.fillStyle = '#fff'; ctx.textAlign='center'; 
-            ctx.font = "bold 60px 'Russo One'"; ctx.fillText("SUPER PUNCH-OUT", w/2, h*0.3);
-            
-            // Botões
-            ctx.fillStyle = '#34495e'; ctx.fillRect(w/2-150, h*0.4, 300, 60);
-            ctx.fillStyle = '#fff'; ctx.font="30px Arial"; ctx.fillText("OFFLINE", w/2, h*0.4+40);
-            
-            ctx.fillStyle = '#34495e'; ctx.fillRect(w/2-150, h*0.6, 300, 60);
-            ctx.fillStyle = '#fff'; ctx.fillText("ONLINE", w/2, h*0.6+40);
-        },
-        drawCharSelect: function(ctx, w, h) {
-            ctx.fillStyle = '#111'; ctx.fillRect(0,0,w,h);
-            const cw = w / CHARACTERS.length;
-            CHARACTERS.forEach((c, i) => {
-                if (i === this.selChar) { ctx.fillStyle = '#e67e22'; ctx.fillRect(i*cw, 0, cw, h); }
-                ctx.fillStyle = c.color; ctx.beginPath(); ctx.arc(i*cw+cw/2, h/2, 50, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = '#fff'; ctx.textAlign='center'; ctx.fillText(c.name, i*cw+cw/2, h/2+80);
-            });
-            ctx.fillStyle = '#27ae60'; ctx.fillRect(0, h-80, w, 80);
-            ctx.fillStyle = '#fff'; ctx.font="40px 'Russo One'"; ctx.fillText("FIGHT!", w/2, h-25);
-        },
-        drawLobby: function(ctx, w, h) {
-            ctx.fillStyle = '#000'; ctx.fillRect(0,0,w,h);
-            ctx.fillStyle = '#fff'; ctx.textAlign='center'; ctx.fillText("WAITING FOR OPPONENT...", w/2, h/2);
-        },
-        drawGameOver: function(ctx, w, h) {
-            ctx.fillStyle = 'rgba(0,0,0,0.9)'; ctx.fillRect(0,0,w,h);
-            const win = this.winner === this.p1;
-            ctx.fillStyle = win ? '#f1c40f' : '#e74c3c'; 
-            ctx.font = "bold 80px 'Russo One'"; ctx.fillText(win ? "KO! YOU WIN" : "YOU LOSE", w/2, h/2);
-            ctx.font = "30px Arial"; ctx.fillStyle = '#fff'; ctx.fillText("CLICK TO MENU", w/2, h/2+100);
+        endRound: function() {
+            if(this.round < CONF.ROUNDS) {
+                this.round++;
+                this.timer = CONF.ROUND_TIME;
+                window.System.msg("ROUND " + this.round);
+            } else this.state = 'GAMEOVER';
         }
     };
 
-    if(window.System) window.System.registerGame('box_leg', 'Super Boxing', '🥊', Game, { camOpacity: 0.1 });
+    const register = () => {
+        if(window.System && window.System.registerGame) {
+            window.System.registerGame('box_pro', 'Boxing Pro', '🥊', Game, { camOpacity: 0.1 });
+        } else {
+            setTimeout(register, 500);
+        }
+    };
+    register();
 
 })();
