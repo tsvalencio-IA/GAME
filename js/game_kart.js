@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: TITANIUM MASTER FIXED (MULTIPLAYER START LOGIC)
+// KART LEGENDS: TITANIUM MASTER DEFINITIVE (FIXED & STABLE)
 // ARQUITETO: PARCEIRO DE PROGRAMAÇÃO
-// STATUS: CORREÇÃO DE INICIALIZAÇÃO MULTIPLAYER + SINCRONIA DE LARGADA
+// STATUS: FUNCIONAL, SEM ERROS DE SINTAXE, MULTIPLAYER BLINDADO
 // =============================================================================
 
 (function() {
@@ -11,14 +11,14 @@
     // -----------------------------------------------------------------
     
     const CHARACTERS = [
-        { id: 0, name: 'MARIO',  color: '#e74c3c', hat: '#d32f2f', speedInfo: 1.00, turnInfo: 1.00, weight: 1.0, accel: 0.040, aggression: 0.5 },
-        { id: 1, name: 'LUIGI',  color: '#2ecc71', hat: '#27ae60', speedInfo: 1.05, turnInfo: 0.90, weight: 1.0, accel: 0.038, aggression: 0.4 },
-        { id: 2, name: 'PEACH',  color: '#ff9ff3', hat: '#fd79a8', speedInfo: 0.98, turnInfo: 1.15, weight: 0.8, accel: 0.055, aggression: 0.2 },
-        { id: 3, name: 'BOWSER', color: '#f1c40f', hat: '#e67e22', speedInfo: 1.15, turnInfo: 0.70, weight: 1.6, accel: 0.025, aggression: 0.9 },
-        { id: 4, name: 'TOAD',   color: '#3498db', hat: '#ecf0f1', speedInfo: 0.92, turnInfo: 1.25, weight: 0.6, accel: 0.070, aggression: 0.3 },
-        { id: 5, name: 'YOSHI',  color: '#76ff03', hat: '#64dd17', speedInfo: 1.02, turnInfo: 1.10, weight: 0.9, accel: 0.045, aggression: 0.4 },
-        { id: 6, name: 'DK',     color: '#795548', hat: '#5d4037', speedInfo: 1.12, turnInfo: 0.80, weight: 1.5, accel: 0.030, aggression: 0.8 },
-        { id: 7, name: 'WARIO',  color: '#ffeb3b', hat: '#fbc02d', speedInfo: 1.08, turnInfo: 0.85, weight: 1.5, accel: 0.032, aggression: 0.85 }
+        { id: 0, name: 'MARIO',  color: '#e74c3c', hat: '#d32f2f', speedInfo: 1.00, turnInfo: 1.00, weight: 1.0, accel: 0.040, aggression: 0.6 },
+        { id: 1, name: 'LUIGI',  color: '#2ecc71', hat: '#27ae60', speedInfo: 1.05, turnInfo: 0.90, weight: 1.0, accel: 0.038, aggression: 0.5 },
+        { id: 2, name: 'PEACH',  color: '#ff9ff3', hat: '#fd79a8', speedInfo: 0.98, turnInfo: 1.15, weight: 0.8, accel: 0.055, aggression: 0.3 },
+        { id: 3, name: 'BOWSER', color: '#f1c40f', hat: '#e67e22', speedInfo: 1.15, turnInfo: 0.70, weight: 1.6, accel: 0.025, aggression: 0.95 },
+        { id: 4, name: 'TOAD',   color: '#3498db', hat: '#ecf0f1', speedInfo: 0.92, turnInfo: 1.25, weight: 0.6, accel: 0.070, aggression: 0.4 },
+        { id: 5, name: 'YOSHI',  color: '#76ff03', hat: '#64dd17', speedInfo: 1.02, turnInfo: 1.10, weight: 0.9, accel: 0.045, aggression: 0.5 },
+        { id: 6, name: 'DK',     color: '#795548', hat: '#5d4037', speedInfo: 1.12, turnInfo: 0.80, weight: 1.5, accel: 0.030, aggression: 0.9 },
+        { id: 7, name: 'WARIO',  color: '#ffeb3b', hat: '#fbc02d', speedInfo: 1.08, turnInfo: 0.85, weight: 1.5, accel: 0.032, aggression: 0.95 }
     ];
 
     const TRACKS = [
@@ -39,6 +39,12 @@
         TOTAL_LAPS: 3
     };
 
+    const SAFETY = {
+        ZOMBIE_TIMEOUT: 15000,    
+        MAX_RACE_TIME: 300000,    
+        MAINTENANCE_RATE: 2000    
+    };
+
     const PHYSICS = {
         gripAsphalt: 0.98,
         gripZebra: 0.85,
@@ -50,7 +56,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 1.5 AUDIO ENGINE (Sintetizador)
+    // 1.5 AUDIO ENGINE
     // -----------------------------------------------------------------
     const KartAudio = {
         ctx: null, masterGain: null,
@@ -214,6 +220,7 @@
         totalRacers: 0,
         remotePlayersData: {},
         localBots: [],
+        maintenanceInterval: null,
 
         // Física
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
@@ -245,6 +252,7 @@
         cleanup: function() {
             if (this.dbRef) try { this.dbRef.child('players').off(); } catch(e){}
             if (this.roomRef) try { this.roomRef.off(); } catch(e){}
+            if (this.maintenanceInterval) clearInterval(this.maintenanceInterval);
             if(nitroBtn) nitroBtn.remove();
             KartAudio.stop(); 
             window.System.canvas.onclick = null;
@@ -312,10 +320,14 @@
                     if (y > 0.8) { 
                         if (this.isOnline) {
                             if (this.isHost) {
-                                // CORREÇÃO: Verifica se há jogadores suficientes e INICIA a corrida alterando o estado GLOBAL
+                                // CORREÇÃO MULTIPLAYER: Inicio Autoritário do Host
                                 const playerCount = Object.keys(this.remotePlayersData || {}).length;
                                 if (playerCount >= 2) {
-                                    this.roomRef.update({ raceState: 'RACING', totalRacers: playerCount });
+                                    this.roomRef.update({ 
+                                        raceState: 'RACING', 
+                                        totalRacers: playerCount,
+                                        raceStartTime: firebase.database.ServerValue.TIMESTAMP 
+                                    });
                                 } else {
                                     window.System.msg("AGUARDANDO JOGADORES...");
                                 }
@@ -389,6 +401,29 @@
             this.state = 'LOBBY';
         },
 
+        performHostMaintenance: function() {
+            if (!this.isHost || !this.remotePlayersData || !this.roomRef) return;
+            const now = Date.now();
+            
+            Object.keys(this.remotePlayersData).forEach(pid => {
+                if (pid.startsWith('bot_') || pid === window.System.playerId) return;
+                const p = this.remotePlayersData[pid];
+                if (now - (p.lastSeen || 0) > SAFETY.ZOMBIE_TIMEOUT) {
+                    this.dbRef.child('players/' + pid).remove();
+                    this.pushMsg("PLAYER CAIU", "#f00", 30);
+                }
+            });
+
+            if (this.raceState === 'RACING') {
+                this.roomRef.child('raceStartTime').once('value', snap => {
+                    const startT = snap.val();
+                    if (startT && (now - startT > SAFETY.MAX_RACE_TIME)) {
+                        this.roomRef.update({ raceState: 'GAMEOVER' }); 
+                    }
+                });
+            }
+        },
+
         connectMultiplayer: function() {
             this.roomRef = window.DB.ref('rooms/' + this.roomId);
             this.dbRef = this.roomRef;
@@ -400,10 +435,15 @@
             });
             myRef.onDisconnect().remove();
 
+            this.maintenanceInterval = setInterval(() => this.performHostMaintenance(), SAFETY.MAINTENANCE_RATE);
+
             this.roomRef.child('raceState').on('value', (snap) => {
                 const globalState = snap.val();
+                this.raceState = globalState; 
+
                 if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING')) {
                     const playerCount = Object.keys(this.remotePlayersData || {}).length;
+                    
                     if (this.isHost && playerCount < 2) {
                         this.roomRef.update({ raceState: 'LOBBY' });
                         return; 
@@ -432,13 +472,9 @@
                 
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
-                    // CORREÇÃO CRÍTICA: Se eu sou o Host e estou no LOBBY localmente, 
-                    // eu devo FORÇAR a sala para LOBBY. Isso impede que o jogo autoinicie 
-                    // se a sala estava "suja" com estado 'RACING' de uma sessão anterior.
                     if (this.state === 'LOBBY') {
-                        // Fazemos uma verificação rápida para não ficar spammando update
                         this.roomRef.child('raceState').once('value', s => {
-                            if (s.val() !== 'LOBBY') {
+                            if (s.val() === 'RACING' && ids.length < 2) {
                                 this.roomRef.update({ raceState: 'LOBBY', trackId: this.selectedTrack });
                             }
                         });
@@ -446,7 +482,8 @@
                 } else { this.isHost = false; }
 
                 const humanRivals = ids
-                    .filter(id => id !== window.System.playerId && !id.includes('bot_') && (now - data[id].lastSeen < 15000))
+                    .filter(id => id !== window.System.playerId && !id.includes('bot_'))
+                    .filter(id => (now - data[id].lastSeen < SAFETY.ZOMBIE_TIMEOUT + 5000)) 
                     .map(id => ({ id, ...data[id], isRemote: true, color: CHARACTERS[data[id].charId || 0].color || '#fff' }));
 
                 if (this.isHost) {
@@ -482,7 +519,6 @@
         },
 
         startRace: function(trackId) {
-            // CORREÇÃO: Reset completo para garantir que todos larguem juntos do zero
             this.state = 'RACE';
             this.status = 'RACING';
             this.buildTrack(trackId); 
@@ -491,7 +527,6 @@
             window.Sfx.play(600, 'square', 0.5, 0.2);
             KartAudio.start();
             
-            // Força posição zero para o jogador local
             this.pos = 0; 
             this.lap = 1; 
             this.maxLapPos = 0;
@@ -509,9 +544,9 @@
                     this.localBots.push({
                         id: 'cpu' + i, 
                         charId: cfg.char, 
-                        pos: 0, // Força posição zero para Bots
+                        pos: 0, 
                         x: (i % 2 === 0 ? -0.5 : 0.5) * (1 + i*0.2), 
-                        speed: 0, // Força velocidade zero
+                        speed: 0, 
                         lap: 1, 
                         status: 'RACING', 
                         finishTime: 0, 
@@ -704,6 +739,11 @@
 
                     let targetX = -(lookAheadSeg.curve * 0.6); 
                     
+                    const distToPlayerAbs = Math.abs(distToPlayer);
+                    if (distToPlayerAbs < 500 && rChar.aggression > 0.4) {
+                         targetX = (targetX * 0.9) + (d.playerX * 0.1);
+                    }
+
                     if (Math.random() < 0.02) r.errorTimer = 30; 
                     if (r.errorTimer > 0) {
                         r.errorTimer--;
@@ -724,7 +764,9 @@
                     if (r.pos >= trackLength) { 
                         r.pos -= trackLength; r.lap++; 
                         if (r.lap > CONF.TOTAL_LAPS) { 
-                            r.status = 'FINISHED'; r.finishTime = Date.now(); r.speed = 0; r.lap = CONF.TOTAL_LAPS; 
+                            r.status = 'FINISHED'; 
+                            if (r.finishTime === 0) r.finishTime = Date.now(); 
+                            r.speed = 0; r.lap = CONF.TOTAL_LAPS; 
                         }
                     }
                 });
@@ -761,7 +803,9 @@
                 if (d.maxLapPos > trackLength * 0.70) {
                     d.pos -= trackLength; d.lap++; d.maxLapPos = 0;
                     if (d.lap > CONF.TOTAL_LAPS) {
-                        d.lap = CONF.TOTAL_LAPS; d.status = 'FINISHED'; d.state = 'SPECTATE'; d.finishTime = Date.now(); d.speed = 0;
+                        d.lap = CONF.TOTAL_LAPS; d.status = 'FINISHED'; d.state = 'SPECTATE'; 
+                        if (d.finishTime === 0) d.finishTime = Date.now(); 
+                        d.speed = 0;
                         window.Sfx.play(1000, 'sine', 1, 0.5); this.pushMsg("FINALIZADO!", "#ff0", 80); nitroBtn.style.display = 'none';
                         if(this.isOnline) this.syncMultiplayer();
                         KartAudio.stop(); 
