@@ -1,7 +1,7 @@
 // =============================================================================
 // SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL)
 // ARQUITETO: SENIOR DEV (CODE 177) & PARCEIRO DE PROGRAMACAO
-// STATUS: PLATINUM MASTER (REFACTORED v3.0 - TRUE MOTION PHYSICS)
+// STATUS: PLATINUM MASTER (REFACTORED v3.1 - FAIR AI UPDATE)
 // =============================================================================
 
 (function() {
@@ -502,9 +502,10 @@
             p.elbows.l = { x: p.shoulders.l.x - 20, y: p.shoulders.l.y + 60 };
             p.elbows.r = { x: p.shoulders.r.x + 20, y: p.shoulders.r.y + 60 };
 
-            // Lógica de Guarda da AI
-            if (this.p1.stamina < 90) ai.guard = true;
-            else if (ai.stamina > 90) ai.guard = false;
+            // Lógica de Guarda da AI (AJUSTE: Menos rigorosa)
+            // Só defende se o jogador "spammar" (Stamina < 50)
+            if (this.p1.stamina < 50) ai.guard = true;
+            else if (ai.stamina > 70) ai.guard = false;
 
             const attackPattern = Math.sin(t * 5); 
             
