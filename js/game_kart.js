@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: TITANIUM MASTER FIXED (AUDIO + PHYSICS + MENU RESTORED)
-// ARQUITETO: SENIOR DEV (CODE 177)
-// STATUS: CORREÇÃO CRÍTICA DE RENDERIZAÇÃO (MENU/LOBBY) + IA & SOM
+// KART LEGENDS: TITANIUM MASTER FIXED (MULTIPLAYER START LOGIC)
+// ARQUITETO: PARCEIRO DE PROGRAMAÇÃO
+// STATUS: CORREÇÃO DE INICIALIZAÇÃO MULTIPLAYER + SINCRONIA DE LARGADA
 // =============================================================================
 
 (function() {
@@ -202,7 +202,7 @@
     const Logic = {
         state: 'MODE_SELECT',
         raceState: 'LOBBY',
-        roomId: 'mario_arena_titanium_v8', // V8 = Limpeza de Cache
+        roomId: 'mario_arena_titanium_v8',
         selectedChar: 0,
         selectedTrack: 0,
         isReady: false,
@@ -312,6 +312,7 @@
                     if (y > 0.8) { 
                         if (this.isOnline) {
                             if (this.isHost) {
+                                // CORREÇÃO: Verifica se há jogadores suficientes e INICIA a corrida alterando o estado GLOBAL
                                 const playerCount = Object.keys(this.remotePlayersData || {}).length;
                                 if (playerCount >= 2) {
                                     this.roomRef.update({ raceState: 'RACING', totalRacers: playerCount });
@@ -431,8 +432,16 @@
                 
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
-                    if (ids.length === 1 && this.state === 'LOBBY') {
-                        this.roomRef.update({ raceState: 'LOBBY', trackId: this.selectedTrack });
+                    // CORREÇÃO CRÍTICA: Se eu sou o Host e estou no LOBBY localmente, 
+                    // eu devo FORÇAR a sala para LOBBY. Isso impede que o jogo autoinicie 
+                    // se a sala estava "suja" com estado 'RACING' de uma sessão anterior.
+                    if (this.state === 'LOBBY') {
+                        // Fazemos uma verificação rápida para não ficar spammando update
+                        this.roomRef.child('raceState').once('value', s => {
+                            if (s.val() !== 'LOBBY') {
+                                this.roomRef.update({ raceState: 'LOBBY', trackId: this.selectedTrack });
+                            }
+                        });
                     }
                 } else { this.isHost = false; }
 
@@ -473,6 +482,7 @@
         },
 
         startRace: function(trackId) {
+            // CORREÇÃO: Reset completo para garantir que todos larguem juntos do zero
             this.state = 'RACE';
             this.status = 'RACING';
             this.buildTrack(trackId); 
@@ -480,8 +490,13 @@
             this.pushMsg("LARGADA!", "#0f0", 60);
             window.Sfx.play(600, 'square', 0.5, 0.2);
             KartAudio.start();
-            this.pos = 0; this.lap = 1; this.maxLapPos = 0;
-            this.speed = 0; this.finishTime = 0;
+            
+            // Força posição zero para o jogador local
+            this.pos = 0; 
+            this.lap = 1; 
+            this.maxLapPos = 0;
+            this.speed = 0; 
+            this.finishTime = 0;
             this.localBots = [];
             
             if (!this.isOnline || (this.isOnline && this.isHost)) {
@@ -494,9 +509,9 @@
                     this.localBots.push({
                         id: 'cpu' + i, 
                         charId: cfg.char, 
-                        pos: 0, 
+                        pos: 0, // Força posição zero para Bots
                         x: (i % 2 === 0 ? -0.5 : 0.5) * (1 + i*0.2), 
-                        speed: 0, 
+                        speed: 0, // Força velocidade zero
                         lap: 1, 
                         status: 'RACING', 
                         finishTime: 0, 
@@ -974,7 +989,6 @@
             }
         },
 
-        // --- AS FUNÇÕES PERDIDAS FORAM RESTAURADAS AQUI ---
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 40px 'Russo One'";
