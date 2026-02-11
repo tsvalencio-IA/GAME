@@ -444,8 +444,14 @@
                 if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING')) {
                     const playerCount = Object.keys(this.remotePlayersData || {}).length;
                     
-                    if (this.isHost && playerCount < 2) {
-                        this.roomRef.update({ raceState: 'LOBBY' });
+                    // SEGURANÇA MULTIPLAYER REFORÇADA:
+                    // Se não houver 2 jogadores, NÃO INICIA (mesmo que o banco diga RACING).
+                    // Se sou Host, corrijo o banco.
+                    if (playerCount < 2) {
+                        if (this.isHost) {
+                            this.roomRef.update({ raceState: 'LOBBY' });
+                        }
+                        // Não executa startRace
                         return; 
                     }
                     this.roomRef.child('trackId').once('value').then(tSnap => {
@@ -472,6 +478,7 @@
                 
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
+                    // ANTI-SALA SUJA: Reset forçado se < 2 players e estado RACING
                     if (this.state === 'LOBBY') {
                         this.roomRef.child('raceState').once('value', s => {
                             if (s.val() === 'RACING' && ids.length < 2) {
@@ -491,7 +498,13 @@
                 } else {
                     const serverBots = Object.keys(data)
                         .filter(k => k.startsWith('bot_'))
-                        .map(k => ({ id: k, ...data[k], isRemote: true, color: CHARACTERS[data[k].charId || 0].color || '#fff' }));
+                        .map(k => ({ 
+                            id: k, 
+                            ...data[k], 
+                            isRemote: true, 
+                            // Correção de Visualização: Garante fallback seguro para ID e cor
+                            color: CHARACTERS[data[k].charId !== undefined ? data[k].charId : 0].color || '#fff' 
+                        }));
                     this.rivals = [...humanRivals, ...serverBots];
                 }
             });
@@ -527,6 +540,7 @@
             window.Sfx.play(600, 'square', 0.5, 0.2);
             KartAudio.start();
             
+            // GARANTIA DE RESET: Todos começam da linha 0
             this.pos = 0; 
             this.lap = 1; 
             this.maxLapPos = 0;
@@ -558,7 +572,19 @@
                     });
                 });
 
-                if(!this.isOnline) this.rivals = this.localBots;
+                if(!this.isOnline) {
+                    this.rivals = this.localBots;
+                } else if (this.isHost) {
+                    // FORÇA UPDATE IMEDIATO DOS BOTS PARA QUE OS CLIENTES OS VEJAM
+                    // Isso corrige o "atraso" ou falta de bots na tela dos outros
+                    this.localBots.forEach((b, i) => {
+                        this.dbRef.child('players/bot_' + i).set({
+                            pos: 0, x: b.x, speed: 0,
+                            lap: 1, status: 'RACING', finishTime: 0,
+                            charId: b.charId, name: b.name, lastSeen: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    });
+                }
             }
         },
 
