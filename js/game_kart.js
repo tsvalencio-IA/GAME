@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: TITANIUM MASTER DEFINITIVE (FIXED & STABLE)
+// KART LEGENDS: TITANIUM MASTER FINAL V3 (HOST AUTHORITY FIXED)
 // ARQUITETO: PARCEIRO DE PROGRAMAÇÃO
-// STATUS: FUNCIONAL, SEM ERROS DE SINTAXE, MULTIPLAYER BLINDADO
+// STATUS: CORREÇÃO DE LARGADA (CLIENTE OBEDIENTE) + BOTS VISÍVEIS
 // =============================================================================
 
 (function() {
@@ -175,7 +175,7 @@
     let hudMessages = [];
     let particles = [];
     let nitroBtn = null;
-    let resetBtn = null; // Botão de Reset
+    let resetBtn = null; 
     
     const DUMMY_SEG = { curve: 0, y: 0, color: 'light', obs: [], theme: 'grass' };
 
@@ -293,7 +293,6 @@
                 cursor: 'pointer', userSelect: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
             });
 
-            // Botão de Reset de Sala (Visível apenas no Lobby)
             if(resetBtn) resetBtn.remove();
             resetBtn = document.createElement('div');
             resetBtn.id = 'reset-btn-kart';
@@ -320,7 +319,6 @@
             const handleReset = (e) => {
                 if(e && e.cancelable) e.preventDefault();
                 if(this.state === 'LOBBY' && this.isOnline) {
-                    // Força reset da sala no Firebase
                     if(this.roomRef) {
                         this.roomRef.update({ 
                             raceState: 'LOBBY',
@@ -355,16 +353,19 @@
                     if (y > 0.8) { 
                         if (this.isOnline) {
                             if (this.isHost) {
-                                // CORREÇÃO MULTIPLAYER: Inicio Autoritário do Host
-                                const playerCount = Object.keys(this.remotePlayersData || {}).length;
-                                if (playerCount >= 2) {
+                                // CORREÇÃO DE LARGADA: Conta jogadores ativos REAIS
+                                const activePlayers = Object.values(this.remotePlayersData || {})
+                                    .filter(p => (Date.now() - p.lastSeen < SAFETY.ZOMBIE_TIMEOUT));
+                                
+                                if (activePlayers.length >= 2) {
                                     this.roomRef.update({ 
                                         raceState: 'RACING', 
-                                        totalRacers: playerCount,
+                                        totalRacers: activePlayers.length,
                                         raceStartTime: firebase.database.ServerValue.TIMESTAMP 
                                     });
                                 } else {
-                                    window.System.msg("AGUARDANDO JOGADORES...");
+                                    window.System.msg("PRECISA DE 2 JOGADORES!");
+                                    window.Sfx.play(150, 'sawtooth', 0.3, 0.1); 
                                 }
                             } else { this.toggleReady(); }
                         } else {
@@ -477,18 +478,8 @@
                 this.raceState = globalState; 
 
                 if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING')) {
-                    const playerCount = Object.keys(this.remotePlayersData || {}).length;
-                    
-                    // SEGURANÇA MULTIPLAYER REFORÇADA:
-                    // Se não houver 2 jogadores, NÃO INICIA (mesmo que o banco diga RACING).
-                    // Se sou Host, corrijo o banco.
-                    if (playerCount < 2) {
-                        if (this.isHost) {
-                            this.roomRef.update({ raceState: 'LOBBY' });
-                        }
-                        // Não executa startRace
-                        return; 
-                    }
+                    // CORREÇÃO CRÍTICA: CLIENTE OBEDECE AO HOST
+                    // Se o estado é RACING, o cliente inicia, independentemente da contagem local.
                     this.roomRef.child('trackId').once('value').then(tSnap => {
                         this.startRace(tSnap.val() || 0);
                     });
@@ -496,8 +487,9 @@
                 if(globalState === 'GAMEOVER' && (this.state === 'RACE' || this.state === 'SPECTATE')) {
                     this.state = 'GAMEOVER'; window.Sfx.play(1000, 'sine', 1, 0.5);
                 }
-                if(globalState === 'LOBBY' && this.state === 'GAMEOVER') {
+                if(globalState === 'LOBBY' && (this.state === 'GAMEOVER' || this.state === 'RACE')) {
                     this.state = 'LOBBY'; this.resetPhysics();
+                    window.System.msg("SALA REINICIADA");
                 }
             });
 
@@ -513,7 +505,7 @@
                 
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
-                    // ANTI-SALA SUJA: Reset forçado se < 2 players e estado RACING
+                    // Reset apenas se realmente estiver inconsistente (0 ou 1 players)
                     if (this.state === 'LOBBY') {
                         this.roomRef.child('raceState').once('value', s => {
                             if (s.val() === 'RACING' && ids.length < 2) {
@@ -537,7 +529,6 @@
                             id: k, 
                             ...data[k], 
                             isRemote: true, 
-                            // Correção de Visualização: Garante fallback seguro para ID e cor
                             color: CHARACTERS[data[k].charId !== undefined ? data[k].charId : 0].color || '#fff' 
                         }));
                     this.rivals = [...humanRivals, ...serverBots];
@@ -571,12 +562,11 @@
             this.status = 'RACING';
             this.buildTrack(trackId); 
             nitroBtn.style.display = 'flex';
-            resetBtn.style.display = 'none'; // Esconde reset durante corrida
+            resetBtn.style.display = 'none'; 
             this.pushMsg("LARGADA!", "#0f0", 60);
             window.Sfx.play(600, 'square', 0.5, 0.2);
             KartAudio.start();
             
-            // GARANTIA DE RESET: Todos começam da linha 0
             this.pos = 0; 
             this.lap = 1; 
             this.maxLapPos = 0;
@@ -611,8 +601,7 @@
                 if(!this.isOnline) {
                     this.rivals = this.localBots;
                 } else if (this.isHost) {
-                    // FORÇA UPDATE IMEDIATO DOS BOTS PARA QUE OS CLIENTES OS VEJAM
-                    // Isso corrige o "atraso" ou falta de bots na tela dos outros
+                    // CORREÇÃO BOTS: Sincronia Forçada Imediata
                     this.localBots.forEach((b, i) => {
                         this.dbRef.child('players/bot_' + i).set({
                             pos: 0, x: b.x, speed: 0,
@@ -1114,6 +1103,11 @@
             ctx.fillText(char.name, w/2, h*0.3 + 100);
             ctx.font = "20px 'Russo One'"; ctx.fillText("PISTA: " + TRACKS[this.selectedTrack].name, w/2, h*0.55);
             
+            // LÓGICA DE VISIBILIDADE DO BOTÃO DE RESET (Só para Host no Lobby Online)
+            if (resetBtn) {
+                resetBtn.style.display = (this.isOnline && this.isHost) ? 'flex' : 'none';
+            }
+
             if (this.isOnline) {
                 const pids = Object.keys(this.remotePlayersData || {});
                 let startY = h * 0.62;
