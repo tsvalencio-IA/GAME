@@ -175,6 +175,7 @@
     let hudMessages = [];
     let particles = [];
     let nitroBtn = null;
+    let resetBtn = null; // Botão de Reset
     
     const DUMMY_SEG = { curve: 0, y: 0, color: 'light', obs: [], theme: 'grass' };
 
@@ -254,6 +255,7 @@
             if (this.roomRef) try { this.roomRef.off(); } catch(e){}
             if (this.maintenanceInterval) clearInterval(this.maintenanceInterval);
             if(nitroBtn) nitroBtn.remove();
+            if(resetBtn) resetBtn.remove();
             KartAudio.stop(); 
             window.System.canvas.onclick = null;
         },
@@ -291,6 +293,19 @@
                 cursor: 'pointer', userSelect: 'none', boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
             });
 
+            // Botão de Reset de Sala (Visível apenas no Lobby)
+            if(resetBtn) resetBtn.remove();
+            resetBtn = document.createElement('div');
+            resetBtn.id = 'reset-btn-kart';
+            resetBtn.innerHTML = "RESET SALA";
+            Object.assign(resetBtn.style, {
+                position: 'absolute', top: '10px', left: '10px', width: '100px', height: '40px',
+                borderRadius: '5px', background: '#c0392b', border: '2px solid #fff',
+                color: '#fff', display: 'none', alignItems: 'center', justifyContent: 'center',
+                fontFamily: "'Russo One', sans-serif", fontSize: '12px', zIndex: '101',
+                cursor: 'pointer', userSelect: 'none'
+            });
+
             const handleNitro = (e) => {
                 if(e && e.cancelable) e.preventDefault();
                 if((this.state === 'RACE') && this.nitro >= 20 && !this.turboLock) {
@@ -301,9 +316,29 @@
                     this.pushMsg("CARREGANDO...", "#f00", 30);
                 }
             };
+            
+            const handleReset = (e) => {
+                if(e && e.cancelable) e.preventDefault();
+                if(this.state === 'LOBBY' && this.isOnline) {
+                    // Força reset da sala no Firebase
+                    if(this.roomRef) {
+                        this.roomRef.update({ 
+                            raceState: 'LOBBY',
+                            totalRacers: 0,
+                            raceStartTime: 0
+                        });
+                        window.System.msg("SALA RESETADA!");
+                    }
+                }
+            };
+
             nitroBtn.addEventListener('mousedown', handleNitro);
             nitroBtn.addEventListener('touchstart', handleNitro);
+            resetBtn.addEventListener('mousedown', handleReset);
+            resetBtn.addEventListener('touchstart', handleReset);
+            
             document.getElementById('game-ui').appendChild(nitroBtn);
+            document.getElementById('game-ui').appendChild(resetBtn);
 
             window.System.canvas.onclick = (e) => {
                 const rect = window.System.canvas.getBoundingClientRect();
@@ -536,6 +571,7 @@
             this.status = 'RACING';
             this.buildTrack(trackId); 
             nitroBtn.style.display = 'flex';
+            resetBtn.style.display = 'none'; // Esconde reset durante corrida
             this.pushMsg("LARGADA!", "#0f0", 60);
             window.Sfx.play(600, 'square', 0.5, 0.2);
             KartAudio.start();
