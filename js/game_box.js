@@ -172,7 +172,6 @@
                         this.playSound('sine', 600);
                         
                         if (y > h * 0.75) {
-                            // MUDANÇA: Em vez de startGame, vai para CALIBRATION
                             this.state = 'CALIBRATION';
                             this.calibTimer = 0;
                             this.calibSuccessTimer = 0;
@@ -383,47 +382,38 @@
             ctx.font = "20px Arial";
             ctx.fillText("ABRA OS BRAÇOS EM 90°", w/2, h * 0.25);
 
-            // --- LÓGICA DE VALIDAÇÃO (PROFISSIONAL) ---
-            const shWidth = SafeUtils.dist(p.shoulders.l, p.shoulders.r);
-            const armL = SafeUtils.dist(p.shoulders.l, p.wrists.l);
-            const armR = SafeUtils.dist(p.shoulders.r, p.wrists.r);
+            // --- LÓGICA DE VALIDAÇÃO (EXTREMAMENTE TOLERANTE) ---
+            // Usa apenas distância horizontal (X) para robustez em mobile
+            const armL = Math.abs(p.wrists.l.x - p.shoulders.l.x);
+            const armR = Math.abs(p.wrists.r.x - p.shoulders.r.x);
+            const shWidth = Math.abs(p.shoulders.r.x - p.shoulders.l.x);
             
-            // 1. Verificar extensão (Mais tolerante: 1.25x ombros)
-            const extendedL = armL > (shWidth * 1.25);
-            const extendedR = armR > (shWidth * 1.25);
+            const extendedL = armL > (shWidth * 0.9);
+            const extendedR = armR > (shWidth * 0.9);
+
+            const verticalTolerance = shWidth * 1.2;
             
-            // 2. Verificar nível vertical (Mais tolerante: 0.8x largura)
-            const levelTolerance = shWidth * 0.8;
-            const levelL = Math.abs(p.shoulders.l.y - p.wrists.l.y) < levelTolerance;
-            const levelR = Math.abs(p.shoulders.r.y - p.wrists.r.y) < levelTolerance;
+            const levelL = Math.abs(p.shoulders.l.y - p.wrists.l.y) < verticalTolerance;
+            const levelR = Math.abs(p.shoulders.r.y - p.wrists.r.y) < verticalTolerance;
 
-            const leftValid = extendedL && levelL;
-            const rightValid = extendedR && levelR;
-
-            // 3. Validação combinada (Permite micro falhas se o outro braço estiver ok)
-            // Permite calibração se ambos OK OU (um perfeito E outro estendido)
-            const isValid = (leftValid && rightValid) || 
-                            (leftValid && extendedR) || 
-                            (rightValid && extendedL);
+            const isValid = extendedL && extendedR;
 
             // Feedback nas mãos
-            ctx.fillStyle = (leftValid) ? "#2ecc71" : "#e74c3c";
+            ctx.fillStyle = (isValid) ? "#2ecc71" : "#e74c3c";
             ctx.beginPath(); ctx.arc(p.wrists.l.x, p.wrists.l.y, 10, 0, Math.PI*2); ctx.fill();
-            
-            ctx.fillStyle = (rightValid) ? "#2ecc71" : "#e74c3c";
             ctx.beginPath(); ctx.arc(p.wrists.r.x, p.wrists.r.y, 10, 0, Math.PI*2); ctx.fill();
 
             if (isValid && shWidth > 20) {
                 this.calibTimer += dt;
                 
-                // Barra de progresso (Escala em 1.5s)
-                const progress = Math.min(1.0, this.calibTimer / 1.5);
+                // Barra de progresso (Escala em 1.2s)
+                const progress = Math.min(1.0, this.calibTimer / 1.2);
                 ctx.fillStyle = "#2ecc71";
                 ctx.fillRect(w/2 - 100, h * 0.3, 200 * progress, 20);
                 ctx.strokeStyle = "#fff";
                 ctx.strokeRect(w/2 - 100, h * 0.3, 200, 20);
 
-                if (this.calibTimer > 1.5) {
+                if (this.calibTimer > 1.2) {
                     // CALCULAR E SALVAR
                     const avgArm = (armL + armR) / 2;
                     
@@ -435,7 +425,7 @@
 
                     // Define variáveis dinâmicas
                     this.dynamicMinExtension = 0.25 * avgArm;
-                    this.dynamicPunchThresh = 2.2 * avgArm; // Mais largo o braço, mais velocidade precisa (relativa)
+                    this.dynamicPunchThresh = 2.2 * avgArm; 
                     this.dynamicBlockDist = 0.9 * avgArm;
 
                     this.calibSuccessTimer = 0.01; // Inicia sequência de sucesso
@@ -443,7 +433,7 @@
                 }
             } else {
                 // Decay lento para tolerância a falhas
-                this.calibTimer -= dt * 0.5;
+                this.calibTimer -= dt * 0.3;
                 if(this.calibTimer < 0) this.calibTimer = 0;
             }
         },
