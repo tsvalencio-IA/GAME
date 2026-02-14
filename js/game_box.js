@@ -383,37 +383,47 @@
             ctx.font = "20px Arial";
             ctx.fillText("ABRA OS BRAÇOS EM 90°", w/2, h * 0.25);
 
-            // --- LÓGICA DE VALIDAÇÃO ---
+            // --- LÓGICA DE VALIDAÇÃO (PROFISSIONAL) ---
             const shWidth = SafeUtils.dist(p.shoulders.l, p.shoulders.r);
             const armL = SafeUtils.dist(p.shoulders.l, p.wrists.l);
             const armR = SafeUtils.dist(p.shoulders.r, p.wrists.r);
             
-            // 1. Verificar extensão (Braços abertos) > 1.8x ombros (aproximado T-Pose)
-            const extendedL = armL > (shWidth * 1.8);
-            const extendedR = armR > (shWidth * 1.8);
+            // 1. Verificar extensão (Mais tolerante: 1.25x ombros)
+            const extendedL = armL > (shWidth * 1.25);
+            const extendedR = armR > (shWidth * 1.25);
             
-            // 2. Verificar nível vertical (Mãos na altura dos ombros)
-            const levelL = Math.abs(p.shoulders.l.y - p.wrists.l.y) < 40;
-            const levelR = Math.abs(p.shoulders.r.y - p.wrists.r.y) < 40;
+            // 2. Verificar nível vertical (Mais tolerante: 0.8x largura)
+            const levelTolerance = shWidth * 0.8;
+            const levelL = Math.abs(p.shoulders.l.y - p.wrists.l.y) < levelTolerance;
+            const levelR = Math.abs(p.shoulders.r.y - p.wrists.r.y) < levelTolerance;
 
-            const isValid = extendedL && extendedR && levelL && levelR && shWidth > 20;
+            const leftValid = extendedL && levelL;
+            const rightValid = extendedR && levelR;
+
+            // 3. Validação combinada (Permite micro falhas se o outro braço estiver ok)
+            // Permite calibração se ambos OK OU (um perfeito E outro estendido)
+            const isValid = (leftValid && rightValid) || 
+                            (leftValid && extendedR) || 
+                            (rightValid && extendedL);
 
             // Feedback nas mãos
-            ctx.fillStyle = (isValid) ? "#2ecc71" : "#e74c3c";
+            ctx.fillStyle = (leftValid) ? "#2ecc71" : "#e74c3c";
             ctx.beginPath(); ctx.arc(p.wrists.l.x, p.wrists.l.y, 10, 0, Math.PI*2); ctx.fill();
+            
+            ctx.fillStyle = (rightValid) ? "#2ecc71" : "#e74c3c";
             ctx.beginPath(); ctx.arc(p.wrists.r.x, p.wrists.r.y, 10, 0, Math.PI*2); ctx.fill();
 
-            if (isValid) {
+            if (isValid && shWidth > 20) {
                 this.calibTimer += dt;
                 
-                // Barra de progresso
-                const progress = Math.min(1.0, this.calibTimer / 2.0);
+                // Barra de progresso (Escala em 1.5s)
+                const progress = Math.min(1.0, this.calibTimer / 1.5);
                 ctx.fillStyle = "#2ecc71";
                 ctx.fillRect(w/2 - 100, h * 0.3, 200 * progress, 20);
                 ctx.strokeStyle = "#fff";
                 ctx.strokeRect(w/2 - 100, h * 0.3, 200, 20);
 
-                if (this.calibTimer > 2.0) {
+                if (this.calibTimer > 1.5) {
                     // CALCULAR E SALVAR
                     const avgArm = (armL + armR) / 2;
                     
@@ -432,7 +442,9 @@
                     this.playSound('sine', 800);
                 }
             } else {
-                this.calibTimer = 0;
+                // Decay lento para tolerância a falhas
+                this.calibTimer -= dt * 0.5;
+                if(this.calibTimer < 0) this.calibTimer = 0;
             }
         },
 
