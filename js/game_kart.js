@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: TITANIUM MASTER FINAL V3 (HOST AUTHORITY FIXED)
-// ARQUITETO: PARCEIRO DE PROGRAMAÇÃO
-// STATUS: CORREÇÃO DE LARGADA (CLIENTE OBEDIENTE) + BOTS VISÍVEIS
+// KART LEGENDS: TITANIUM MASTER FINAL V4 (AAA AI OVERHAUL)
+// ARQUITETO: SENIOR GAME ENGINE ARCHITECT
+// STATUS: IA AUTÔNOMA + CÂMERA PRO 3RD PERSON + NO RUBBER BAND
 // =============================================================================
 
 (function() {
@@ -10,6 +10,17 @@
     // 1. DADOS E CONFIGURAÇÕES
     // -----------------------------------------------------------------
     
+    // Configuração de Dificuldade da IA
+    // HARD agora é realmente desafiador, com velocidades acima do player.
+    const AI_DIFFICULTY_SETTINGS = {
+        'EASY':   { speedMult: 0.85, accelMult: 0.8,  reaction: 0.02, lookAhead: 10, errorRate: 0.05 },
+        'MEDIUM': { speedMult: 0.98, accelMult: 0.95, reaction: 0.05, lookAhead: 20, errorRate: 0.02 },
+        'HARD':   { speedMult: 1.12, accelMult: 1.2,  reaction: 0.15, lookAhead: 35, errorRate: 0.00 }
+    };
+    
+    // Defina aqui a dificuldade global atual
+    const CURRENT_DIFFICULTY = 'HARD'; 
+
     const CHARACTERS = [
         { id: 0, name: 'MARIO',  color: '#e74c3c', hat: '#d32f2f', speedInfo: 1.00, turnInfo: 1.00, weight: 1.0, accel: 0.040, aggression: 0.6 },
         { id: 1, name: 'LUIGI',  color: '#2ecc71', hat: '#27ae60', speedInfo: 1.05, turnInfo: 0.90, weight: 1.0, accel: 0.038, aggression: 0.5 },
@@ -36,7 +47,10 @@
         SEGMENT_LENGTH: 200,
         DRAW_DISTANCE: 250, 
         RUMBLE_LENGTH: 3,
-        TOTAL_LAPS: 3
+        TOTAL_LAPS: 3,
+        CAMERA_HEIGHT: 120, // Altura da câmera simulada
+        CAMERA_DEPTH: 0.8,  // Distância focal
+        CAMERA_LERP: 0.08   // Suavização da câmera (Lag)
     };
 
     const SAFETY = {
@@ -223,8 +237,9 @@
         localBots: [],
         maintenanceInterval: null,
 
-        // Física
+        // Física e Câmera
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
+        cameraX: 0, // Lerped Camera Position
         nitro: 100, turboLock: false, gestureTimer: 0,
         spinAngle: 0, spinTimer: 0, lateralInertia: 0, vibration: 0,
         engineTimer: 0,
@@ -262,6 +277,7 @@
 
         resetPhysics: function() {
             this.speed = 0; this.pos = 0; this.playerX = 0; this.steer = 0;
+            this.cameraX = 0;
             this.lap = 1; this.maxLapPos = 0;
             this.status = 'RACING';
             this.finishTime = 0;
@@ -478,8 +494,6 @@
                 this.raceState = globalState; 
 
                 if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING')) {
-                    // CORREÇÃO CRÍTICA: CLIENTE OBEDECE AO HOST
-                    // Se o estado é RACING, o cliente inicia, independentemente da contagem local.
                     this.roomRef.child('trackId').once('value').then(tSnap => {
                         this.startRace(tSnap.val() || 0);
                     });
@@ -505,7 +519,6 @@
                 
                 if (ids[0] === window.System.playerId) {
                     this.isHost = true;
-                    // Reset apenas se realmente estiver inconsistente (0 ou 1 players)
                     if (this.state === 'LOBBY') {
                         this.roomRef.child('raceState').once('value', s => {
                             if (s.val() === 'RACING' && ids.length < 2) {
@@ -574,6 +587,9 @@
             this.finishTime = 0;
             this.localBots = [];
             
+            // CONFIGURAÇÃO DA IA
+            const diff = AI_DIFFICULTY_SETTINGS[CURRENT_DIFFICULTY];
+
             if (!this.isOnline || (this.isOnline && this.isHost)) {
                 const botConfigs = [
                     { char: 3, name: 'Bowser' }, { char: 4, name: 'Toad' }, 
@@ -592,16 +608,19 @@
                         finishTime: 0, 
                         name: cfg.name,
                         color: CHARACTERS[cfg.char].color,
-                        ai_targetX: 0,
-                        ai_aggression: CHARACTERS[cfg.char].aggression || 0.5,
-                        ai_mistakeTimer: 0
+                        // NOVOS PARAMETROS DE IA
+                        ai_speedMult: diff.speedMult + (Math.random() * 0.05), // Variação leve
+                        ai_accelMult: diff.accelMult,
+                        ai_reaction: diff.reaction,
+                        ai_lookAhead: diff.lookAhead,
+                        ai_targetLane: (i % 2 === 0 ? -0.5 : 0.5), // Faixa alvo
+                        ai_laneTimer: 0
                     });
                 });
 
                 if(!this.isOnline) {
                     this.rivals = this.localBots;
                 } else if (this.isHost) {
-                    // CORREÇÃO BOTS: Sincronia Forçada Imediata
                     this.localBots.forEach((b, i) => {
                         this.dbRef.child('players/bot_' + i).set({
                             pos: 0, x: b.x, speed: 0,
@@ -761,6 +780,13 @@
 
             KartAudio.update(d.speed, CONF.MAX_SPEED, d.lateralInertia, absX > 1.45, d.turboLock);
 
+            // =================================================================
+            // LOGICA DA CÂMERA (LERP)
+            // =================================================================
+            // Interpolação linear para a câmera seguir o player com atraso (peso)
+            // Isso cria a sensação de que o carro se move e a câmera ajusta depois.
+            d.cameraX += (d.playerX - d.cameraX) * CONF.CAMERA_LERP;
+
             const seg = getSegment(d.pos / CONF.SEGMENT_LENGTH);
             const ratio = d.speed / CONF.MAX_SPEED;
             const centrifugal = -(seg.curve * (ratio ** 2)) * PHYSICS.centrifugalForce * char.weight;
@@ -772,46 +798,74 @@
                 this.spawnParticle(w/2 - 45, h*0.92, 'smoke'); this.spawnParticle(w/2 + 45, h*0.92, 'smoke');
             }
 
+            // =================================================================
+            // NOVA IA PROFISSIONAL (ZERO RUBBER BAND)
+            // =================================================================
             if (this.localBots.length > 0 && d.state !== 'GAMEOVER') {
                 this.localBots.forEach(r => {
                     if (r.status === 'FINISHED') return;
+                    
                     const rChar = CHARACTERS[r.charId || 0];
-                    const lookAheadSeg = getSegment((r.pos + 600) / CONF.SEGMENT_LENGTH); 
-                    
-                    let catchUp = 0;
-                    const distToPlayer = (d.lap * trackLength + d.pos) - (r.lap * trackLength + r.pos);
-                    if (distToPlayer > 2000) catchUp = 5; 
-                    if (distToPlayer < -1000) catchUp = -3; 
+                    const diff = AI_DIFFICULTY_SETTINGS[CURRENT_DIFFICULTY];
 
-                    const curveSeverity = Math.abs(lookAheadSeg.curve);
-                    let targetSpeed = (CONF.MAX_SPEED * rChar.speedInfo) + catchUp;
-                    if (curveSeverity > 2) targetSpeed *= 0.6; 
-                    else if (curveSeverity > 1) targetSpeed *= 0.85;
-
-                    let targetX = -(lookAheadSeg.curve * 0.6); 
+                    // 1. Visão de Futuro (Look Ahead)
+                    const lookAheadDist = r.ai_lookAhead * CONF.SEGMENT_LENGTH;
+                    const futureSeg = getSegment((r.pos + lookAheadDist) / CONF.SEGMENT_LENGTH);
                     
-                    const distToPlayerAbs = Math.abs(distToPlayer);
-                    if (distToPlayerAbs < 500 && rChar.aggression > 0.4) {
-                         targetX = (targetX * 0.9) + (d.playerX * 0.1);
+                    // 2. Cálculo de Curva Futura
+                    const curveSeverity = futureSeg.curve; // Previsão da curva
+                    
+                    // 3. Velocidade Alvo Independente
+                    // Baseada nos stats do personagem e dificuldade, NÃO no player.
+                    let targetSpeed = CONF.MAX_SPEED * rChar.speedInfo * r.ai_speedMult;
+                    
+                    // 4. Frenagem Inteligente
+                    // Se a curva futura for forte, desacelera ANTES.
+                    if (Math.abs(curveSeverity) > 2) targetSpeed *= 0.55;
+                    else if (Math.abs(curveSeverity) > 1) targetSpeed *= 0.85;
+
+                    // 5. Sistema de Lanes (Faixas)
+                    r.ai_laneTimer++;
+                    if (r.ai_laneTimer > 100) { // A cada X frames, reavalia a posição
+                         r.ai_laneTimer = 0;
+                         // 30% de chance de mudar de lane para ultrapassagem ou ajuste
+                         if (Math.random() < 0.3) {
+                             // Escolhe entre Esquerda (-0.8), Centro (0), Direita (0.8)
+                             const lanes = [-0.7, 0, 0.7];
+                             r.ai_targetLane = lanes[Math.floor(Math.random() * lanes.length)];
+                         }
                     }
 
-                    if (Math.random() < 0.02) r.errorTimer = 30; 
-                    if (r.errorTimer > 0) {
-                        r.errorTimer--;
-                        targetX = r.x + (Math.random() > 0.5 ? 0.5 : -0.5); 
-                        targetSpeed *= 0.9; 
+                    // Se a curva é muito forte, tangencia para o lado oposto
+                    if (curveSeverity > 2) r.ai_targetLane = -0.8; // Curva direita, vai pra dentro (esq)
+                    else if (curveSeverity < -2) r.ai_targetLane = 0.8; // Curva esq, vai pra dentro (dir)
+
+                    // 6. Controle de Direção (Steering)
+                    // Move suavemente para a lane alvo - a curva da pista já move o X do mundo relativo
+                    // Mas o bot precisa compensar visualmente para ficar na pista
+                    let moveX = (r.ai_targetLane - r.x) * r.ai_reaction; 
+                    
+                    // Adiciona compensação da curva atual para manter o carro na pista (física básica de bot)
+                    moveX -= (getSegment(r.pos / CONF.SEGMENT_LENGTH).curve * 0.04); 
+
+                    // Aplica movimento lateral
+                    r.x += moveX;
+
+                    // Limites da pista
+                    if (r.x > 1.8) { r.x = 1.8; r.speed *= 0.95; } // Punição leve por sair
+                    if (r.x < -1.8) { r.x = -1.8; r.speed *= 0.95; }
+
+                    // 7. Aceleração Física
+                    if (r.speed < targetSpeed) {
+                        r.speed += rChar.accel * r.ai_accelMult;
+                    } else {
+                        r.speed *= 0.99; // Drag natural
                     }
 
-                    if (r.speed < targetSpeed) r.speed += rChar.accel;
-                    else r.speed *= 0.98; 
-
-                    r.x += (targetX - r.x) * (0.05 * rChar.turnInfo); 
-                    
-                    if (r.x > 1.8) { r.x = 1.8; r.speed *= 0.9; }
-                    if (r.x < -1.8) { r.x = -1.8; r.speed *= 0.9; }
-
+                    // Atualiza Posição
                     r.pos += r.speed;
 
+                    // Volta
                     if (r.pos >= trackLength) { 
                         r.pos -= trackLength; r.lap++; 
                         if (r.lap > CONF.TOTAL_LAPS) { 
@@ -878,8 +932,12 @@
 
         renderWorld: function(ctx, w, h) {
             const d = Logic; const cx = w / 2; 
-            // AJUSTE DE CÂMERA: Horizonte mais alto para simular visão de cima/terceira pessoa
-            const horizon = h * 0.50 + d.bounce; 
+            
+            // =================================================================
+            // CÂMERA PRO 3RD PERSON
+            // =================================================================
+            // O Horizonte sobe (CONF.CAMERA_HEIGHT) e o carro desce
+            const horizon = (h / 2) + d.bounce - (d.visualTilt * 2) + (CONF.CAMERA_HEIGHT * 0.3);
             
             const currentSegIndex = Math.floor(d.pos / CONF.SEGMENT_LENGTH);
             const isOffRoad = Math.abs(d.playerX) > 1.2;
@@ -889,7 +947,8 @@
             gradSky.addColorStop(0, currentSky[0]); gradSky.addColorStop(1, currentSky[1]);
             ctx.fillStyle = gradSky; ctx.fillRect(0, 0, w, horizon);
 
-            const bgOffset = (getSegment(currentSegIndex).curve * 30) + (d.steer * 20);
+            // Usa d.cameraX em vez de d.playerX para suavizar o movimento do cenário
+            const bgOffset = (getSegment(currentSegIndex).curve * 30) + (d.cameraX * 20); // Usando CameraX aqui
             ctx.fillStyle = this.skyColor === 0 ? '#44aa44' : (this.skyColor===1 ? '#d35400' : '#fff'); 
             ctx.beginPath(); ctx.moveTo(0, horizon);
             for(let i=0; i<=12; i++) { ctx.lineTo((w/12 * i) - (bgOffset * 0.5), horizon - 50 - Math.abs(Math.sin(i + d.pos*0.0001))*40); }
@@ -901,19 +960,22 @@
             
             ctx.fillStyle = isOffRoad ? '#336622' : theme[1]; ctx.fillRect(0, horizon, w, h-horizon);
 
-            let dx = 0; let camX = d.playerX * (w * 0.4);
+            let dx = 0; 
+            // Usa d.cameraX para calcular a projeção da pista. 
+            // Isso faz a pista "deslizar" suavemente em vez de travar no centro.
+            let camX = d.cameraX * (w * 0.45); 
+            
             let segmentCoords = [];
 
             for(let n = 0; n < CONF.DRAW_DISTANCE; n++) {
                 const seg = getSegment(currentSegIndex + n);
-                dx += (seg.curve * 0.8);
-                // AJUSTE DE PROJEÇÃO: Fator levemente reduzido para "afastar" o foco
+                dx += (seg.curve * CONF.CAMERA_DEPTH); // Ajuste de profundidade da curva
                 const scale = 1 / (1 + (n * 20 * 0.05));
                 const nextScale = 1 / (1 + ((n+1) * 20 * 0.05));
                 const sy = horizon + ((h - horizon) * scale);
                 const nsy = horizon + ((h - horizon) * nextScale);
                 const sx = cx - (camX * scale) - (dx * n * 20 * scale * 2);
-                const nsx = cx - (camX * nextScale) - ((dx + seg.curve*0.8) * (n+1) * 20 * nextScale * 2);
+                const nsx = cx - (camX * nextScale) - ((dx + seg.curve*CONF.CAMERA_DEPTH) * (n+1) * 20 * nextScale * 2);
                 segmentCoords.push({ x: sx, y: sy, scale });
                 ctx.fillStyle = (seg.color === 'dark') ? (isOffRoad?'#336622':theme[1]) : (isOffRoad?'#336622':theme[0]);
                 ctx.fillRect(0, nsy, w, sy - nsy);
@@ -947,8 +1009,8 @@
             }); ctx.globalAlpha = 1;
 
             if (d.state !== 'SPECTATE') {
-                // AJUSTE DE POSIÇÃO DO KART: Renderizado mais abaixo na tela para afastar a câmera
-                this.drawKartSprite(ctx, cx, h*0.90 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d.spinAngle, CHARACTERS[d.selectedChar].color, d.selectedChar);
+                // Posiciona o carro mais abaixo na tela para efeito de câmera elevada
+                this.drawKartSprite(ctx, cx, h * 0.88 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d.spinAngle, CHARACTERS[d.selectedChar].color, d.selectedChar);
             }
         },
 
