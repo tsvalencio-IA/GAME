@@ -877,7 +877,10 @@
         },
 
         renderWorld: function(ctx, w, h) {
-            const d = Logic; const cx = w / 2; const horizon = h * 0.40 + d.bounce;
+            const d = Logic; const cx = w / 2; 
+            // AJUSTE DE CÂMERA: Horizonte mais alto para simular visão de cima/terceira pessoa
+            const horizon = h * 0.50 + d.bounce; 
+            
             const currentSegIndex = Math.floor(d.pos / CONF.SEGMENT_LENGTH);
             const isOffRoad = Math.abs(d.playerX) > 1.2;
             const skyGrads = [['#3388ff', '#88ccff'], ['#e67e22', '#f1c40f'], ['#0984e3', '#74b9ff']];
@@ -904,6 +907,7 @@
             for(let n = 0; n < CONF.DRAW_DISTANCE; n++) {
                 const seg = getSegment(currentSegIndex + n);
                 dx += (seg.curve * 0.8);
+                // AJUSTE DE PROJEÇÃO: Fator levemente reduzido para "afastar" o foco
                 const scale = 1 / (1 + (n * 20 * 0.05));
                 const nextScale = 1 / (1 + ((n+1) * 20 * 0.05));
                 const sy = horizon + ((h - horizon) * scale);
@@ -943,7 +947,8 @@
             }); ctx.globalAlpha = 1;
 
             if (d.state !== 'SPECTATE') {
-                this.drawKartSprite(ctx, cx, h*0.85 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d.spinAngle, CHARACTERS[d.selectedChar].color, d.selectedChar);
+                // AJUSTE DE POSIÇÃO DO KART: Renderizado mais abaixo na tela para afastar a câmera
+                this.drawKartSprite(ctx, cx, h*0.90 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d.spinAngle, CHARACTERS[d.selectedChar].color, d.selectedChar);
             }
         },
 
