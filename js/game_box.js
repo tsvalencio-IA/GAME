@@ -1,7 +1,7 @@
 // =============================================================================
-// SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL)
+// SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL + CALIBRATION SYSTEM)
 // ARQUITETO: SENIOR DEV (CODE 177) & PARCEIRO DE PROGRAMACAO
-// STATUS: PLATINUM MASTER (REFACTORED v3.1 - FAIR AI UPDATE)
+// STATUS: PLATINUM MASTER (REFACTORED v3.2 - CALIBRATION UPDATE)
 // =============================================================================
 
 (function() {
@@ -97,6 +97,14 @@
         p2: null,
         msgs: [], 
 
+        // Variáveis de Calibração
+        calibTimer: 0,
+        calibration: null,
+        dynamicMinExtension: null,
+        dynamicPunchThresh: null,
+        dynamicBlockDist: null,
+        calibSuccessTimer: 0,
+
         init: function() {
             try {
                 this.state = 'MODE_SELECT';
@@ -106,6 +114,12 @@
                 this.lastTime = performance.now();
                 this.p1 = this.createPlayer('p1', 0);
                 this.p2 = this.createPlayer('p2', 1);
+                
+                // Reseta calibração
+                this.calibration = null;
+                this.dynamicMinExtension = null;
+                this.dynamicPunchThresh = null;
+                this.dynamicBlockDist = null;
                 
                 this.setupInput();
             } catch(e) {
@@ -158,7 +172,10 @@
                         this.playSound('sine', 600);
                         
                         if (y > h * 0.75) {
-                            this.startGame();
+                            // MUDANÇA: Em vez de startGame, vai para CALIBRATION
+                            this.state = 'CALIBRATION';
+                            this.calibTimer = 0;
+                            this.calibSuccessTimer = 0;
                             this.playSound('square', 400);
                         }
                     }
@@ -266,7 +283,7 @@
                 const dt = Math.min((now - this.lastTime) / 1000, 0.1); 
                 this.lastTime = now;
 
-                if (this.state !== 'FIGHT') {
+                if (this.state !== 'FIGHT' && this.state !== 'CALIBRATION') {
                     ctx.fillStyle = '#2c3e50'; ctx.fillRect(0,0,w,h);
                 }
 
@@ -274,6 +291,14 @@
                 if (this.state === 'CHAR_SELECT') { this.uiChar(ctx, w, h); return; }
                 if (this.state === 'LOBBY') { this.uiLobby(ctx, w, h); return; }
                 if (this.state === 'GAMEOVER') { this.uiGameOver(ctx, w, h); return; }
+
+                // --- NOVO ESTADO: CALIBRATION ---
+                if (this.state === 'CALIBRATION') {
+                    // Processa input para mover o esqueleto (visualização)
+                    this.processInput(inputPose, w, h, dt); 
+                    this.uiCalibration(ctx, w, h, dt);
+                    return;
+                }
 
                 if (this.state === 'FIGHT') {
                     // 1. INPUT PLAYER
@@ -313,6 +338,104 @@
             }
         },
 
+        // LÓGICA DE CALIBRAÇÃO E RENDER
+        uiCalibration: function(ctx, w, h, dt) {
+            // Fundo
+            ctx.fillStyle = '#111'; ctx.fillRect(0,0,w,h);
+            
+            // Desenha o player para feedback visual
+            this.drawCharacter(ctx, this.p1, w, h, true);
+
+            const p = this.p1.pose;
+            
+            // Guia Visual (Círculos Transparentes)
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.lineWidth = 3;
+            
+            const drawGuide = (pt, r) => {
+                ctx.beginPath(); ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); ctx.stroke();
+            };
+            
+            // Guias nos ombros
+            drawGuide(p.shoulders.l, 20);
+            drawGuide(p.shoulders.r, 20);
+
+            // Instrução Central
+            ctx.fillStyle = "#FFF"; 
+            ctx.textAlign = "center";
+            
+            if (this.calibSuccessTimer > 0) {
+                // SUCESSO
+                ctx.font = "bold 50px Arial";
+                ctx.fillStyle = "#2ecc71";
+                ctx.fillText("CALIBRAÇÃO OK", w/2, h/2);
+                
+                this.calibSuccessTimer += dt;
+                if (this.calibSuccessTimer > 1.0) {
+                    this.startGame();
+                }
+                return;
+            }
+
+            // MENSAGEM PADRÃO
+            ctx.font = "bold 40px Arial";
+            ctx.fillText("FAÇA A POSE T", w/2, h * 0.2);
+            ctx.font = "20px Arial";
+            ctx.fillText("ABRA OS BRAÇOS EM 90°", w/2, h * 0.25);
+
+            // --- LÓGICA DE VALIDAÇÃO ---
+            const shWidth = SafeUtils.dist(p.shoulders.l, p.shoulders.r);
+            const armL = SafeUtils.dist(p.shoulders.l, p.wrists.l);
+            const armR = SafeUtils.dist(p.shoulders.r, p.wrists.r);
+            
+            // 1. Verificar extensão (Braços abertos) > 1.8x ombros (aproximado T-Pose)
+            const extendedL = armL > (shWidth * 1.8);
+            const extendedR = armR > (shWidth * 1.8);
+            
+            // 2. Verificar nível vertical (Mãos na altura dos ombros)
+            const levelL = Math.abs(p.shoulders.l.y - p.wrists.l.y) < 40;
+            const levelR = Math.abs(p.shoulders.r.y - p.wrists.r.y) < 40;
+
+            const isValid = extendedL && extendedR && levelL && levelR && shWidth > 20;
+
+            // Feedback nas mãos
+            ctx.fillStyle = (isValid) ? "#2ecc71" : "#e74c3c";
+            ctx.beginPath(); ctx.arc(p.wrists.l.x, p.wrists.l.y, 10, 0, Math.PI*2); ctx.fill();
+            ctx.beginPath(); ctx.arc(p.wrists.r.x, p.wrists.r.y, 10, 0, Math.PI*2); ctx.fill();
+
+            if (isValid) {
+                this.calibTimer += dt;
+                
+                // Barra de progresso
+                const progress = Math.min(1.0, this.calibTimer / 2.0);
+                ctx.fillStyle = "#2ecc71";
+                ctx.fillRect(w/2 - 100, h * 0.3, 200 * progress, 20);
+                ctx.strokeStyle = "#fff";
+                ctx.strokeRect(w/2 - 100, h * 0.3, 200, 20);
+
+                if (this.calibTimer > 2.0) {
+                    // CALCULAR E SALVAR
+                    const avgArm = (armL + armR) / 2;
+                    
+                    this.calibration = {
+                        armLengthBase: avgArm,
+                        shoulderWidthBase: shWidth,
+                        scaleFactor: avgArm / 120
+                    };
+
+                    // Define variáveis dinâmicas
+                    this.dynamicMinExtension = 0.25 * avgArm;
+                    this.dynamicPunchThresh = 2.2 * avgArm; // Mais largo o braço, mais velocidade precisa (relativa)
+                    this.dynamicBlockDist = 0.9 * avgArm;
+
+                    this.calibSuccessTimer = 0.01; // Inicia sequência de sucesso
+                    this.playSound('sine', 800);
+                }
+            } else {
+                this.calibTimer = 0;
+            }
+        },
+
         processInput: function(input, w, h, dt) {
             if (!input || !input.keypoints) return;
 
@@ -347,21 +470,34 @@
             const nextWrL = get('left_wrist', p.wrists.l);
             const nextWrR = get('right_wrist', p.wrists.r);
             
-            this.updateHandLogic(p.wrists.l, nextWrL, p.shoulders.l, this.p1, this.p2, dt);
-            this.updateHandLogic(p.wrists.r, nextWrR, p.shoulders.r, this.p1, this.p2, dt);
+            // Só roda lógica de soco se estiver em FIGHT, mas atualiza posição sempre
+            if (this.state === 'FIGHT') {
+                this.updateHandLogic(p.wrists.l, nextWrL, p.shoulders.l, this.p1, this.p2, dt);
+                this.updateHandLogic(p.wrists.r, nextWrR, p.shoulders.r, this.p1, this.p2, dt);
 
-            // Guarda (Defesa melhorada)
-            const distL = SafeUtils.dist(p.wrists.l, p.head);
-            const distR = SafeUtils.dist(p.wrists.r, p.head);
-            // Defesa exige que as mãos estejam altas E perto do rosto
-            const handsHigh = (p.wrists.l.y < p.shoulders.l.y + 20) && (p.wrists.r.y < p.shoulders.r.y + 20);
-            this.p1.guard = (distL < CONF.BLOCK_DIST && distR < CONF.BLOCK_DIST && handsHigh);
-            
-            // Stamina regen
-            if(this.p1.stamina < 100) this.p1.stamina += (10 * dt);
+                // Guarda (Defesa melhorada) - Usa valor Dinâmico se existir
+                const distL = SafeUtils.dist(p.wrists.l, p.head);
+                const distR = SafeUtils.dist(p.wrists.r, p.head);
+                const blockDist = this.dynamicBlockDist || CONF.BLOCK_DIST;
+
+                // Defesa exige que as mãos estejam altas E perto do rosto
+                const handsHigh = (p.wrists.l.y < p.shoulders.l.y + 20) && (p.wrists.r.y < p.shoulders.r.y + 20);
+                this.p1.guard = (distL < blockDist && distR < blockDist && handsHigh);
+                
+                // Stamina regen
+                if(this.p1.stamina < 100) this.p1.stamina += (10 * dt);
+            } else {
+                // Em calibração apenas atualiza pos
+                p.wrists.l.x = nextWrL.x; p.wrists.l.y = nextWrL.y;
+                p.wrists.r.x = nextWrR.x; p.wrists.r.y = nextWrR.y;
+            }
         },
 
         updateHandLogic: function(hand, targetPos, shoulderPos, owner, opponent, dt) {
+            // USAR CONSTANTES DINÂMICAS SE DISPONÍVEIS
+            const MIN_EXTENSION = this.dynamicMinExtension || CONF.MIN_EXTENSION;
+            const PUNCH_THRESH = this.dynamicPunchThresh || CONF.PUNCH_THRESH;
+
             // 1. Calcular Velocidade Instantânea
             const distMoved = SafeUtils.dist(hand, targetPos);
             const instVelocity = distMoved / (dt || 0.016);
@@ -382,13 +518,13 @@
             // Gatilho: Alta velocidade + Braço a esticar + Stamina + Estado IDLE
             if (hand.state === 'IDLE' && owner.stamina > 15) {
                 // Checa se está a esticar o braço significativamente a partir do corpo
-                if (instVelocity > CONF.PUNCH_THRESH && isExtending && targetExt > CONF.MIN_EXTENSION) {
+                if (instVelocity > PUNCH_THRESH && isExtending && targetExt > MIN_EXTENSION) {
                     hand.state = 'PUNCH';
                     hand.z = 0;
                     hand.hasHit = false; 
                     
                     // Fator de força: Quanto mais rápido o movimento real, mais rápido o soco no jogo
-                    const speedFactor = Math.min(2.0, instVelocity / CONF.PUNCH_THRESH);
+                    const speedFactor = Math.min(2.0, instVelocity / PUNCH_THRESH);
                     hand.punchForce = speedFactor; 
 
                     owner.stamina -= 20;
