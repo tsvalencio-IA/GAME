@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: TITANIUM MASTER FINAL V4 (AAA AI OVERHAUL)
+// KART LEGENDS: TITANIUM MASTER FINAL V5 (CAMERA OVERHAUL)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: IA AUTÔNOMA + CÂMERA PRO 3RD PERSON + NO RUBBER BAND
+// STATUS: CÂMERA ARCADE 3RD PERSON (MAIS ALTA/DISTANTE)
 // =============================================================================
 
 (function() {
@@ -11,14 +11,12 @@
     // -----------------------------------------------------------------
     
     // Configuração de Dificuldade da IA
-    // HARD agora é realmente desafiador, com velocidades acima do player.
     const AI_DIFFICULTY_SETTINGS = {
         'EASY':   { speedMult: 0.85, accelMult: 0.8,  reaction: 0.02, lookAhead: 10, errorRate: 0.05 },
         'MEDIUM': { speedMult: 0.98, accelMult: 0.95, reaction: 0.05, lookAhead: 20, errorRate: 0.02 },
         'HARD':   { speedMult: 1.12, accelMult: 1.2,  reaction: 0.15, lookAhead: 35, errorRate: 0.00 }
     };
     
-    // Defina aqui a dificuldade global atual
     const CURRENT_DIFFICULTY = 'HARD'; 
 
     const CHARACTERS = [
@@ -48,9 +46,9 @@
         DRAW_DISTANCE: 250, 
         RUMBLE_LENGTH: 3,
         TOTAL_LAPS: 3,
-        CAMERA_HEIGHT: 120, // Altura da câmera simulada
-        CAMERA_DEPTH: 0.8,  // Distância focal
-        CAMERA_LERP: 0.08   // Suavização da câmera (Lag)
+        CAMERA_HEIGHT: 250, // AUMENTADO (De 120 para 250) - Câmera mais alta
+        CAMERA_DEPTH: 1.5,  // AUMENTADO (De 0.8 para 1.5) - Maior distância focal
+        CAMERA_LERP: 0.08
     };
 
     const SAFETY = {
@@ -239,7 +237,7 @@
 
         // Física e Câmera
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0,
-        cameraX: 0, // Lerped Camera Position
+        cameraX: 0, 
         nitro: 100, turboLock: false, gestureTimer: 0,
         spinAngle: 0, spinTimer: 0, lateralInertia: 0, vibration: 0,
         engineTimer: 0,
@@ -783,8 +781,6 @@
             // =================================================================
             // LOGICA DA CÂMERA (LERP)
             // =================================================================
-            // Interpolação linear para a câmera seguir o player com atraso (peso)
-            // Isso cria a sensação de que o carro se move e a câmera ajusta depois.
             d.cameraX += (d.playerX - d.cameraX) * CONF.CAMERA_LERP;
 
             const seg = getSegment(d.pos / CONF.SEGMENT_LENGTH);
@@ -799,7 +795,7 @@
             }
 
             // =================================================================
-            // NOVA IA PROFISSIONAL (ZERO RUBBER BAND)
+            // IA PROFISSIONAL
             // =================================================================
             if (this.localBots.length > 0 && d.state !== 'GAMEOVER') {
                 this.localBots.forEach(r => {
@@ -813,59 +809,46 @@
                     const futureSeg = getSegment((r.pos + lookAheadDist) / CONF.SEGMENT_LENGTH);
                     
                     // 2. Cálculo de Curva Futura
-                    const curveSeverity = futureSeg.curve; // Previsão da curva
+                    const curveSeverity = futureSeg.curve; 
                     
                     // 3. Velocidade Alvo Independente
-                    // Baseada nos stats do personagem e dificuldade, NÃO no player.
                     let targetSpeed = CONF.MAX_SPEED * rChar.speedInfo * r.ai_speedMult;
                     
                     // 4. Frenagem Inteligente
-                    // Se a curva futura for forte, desacelera ANTES.
                     if (Math.abs(curveSeverity) > 2) targetSpeed *= 0.55;
                     else if (Math.abs(curveSeverity) > 1) targetSpeed *= 0.85;
 
                     // 5. Sistema de Lanes (Faixas)
                     r.ai_laneTimer++;
-                    if (r.ai_laneTimer > 100) { // A cada X frames, reavalia a posição
+                    if (r.ai_laneTimer > 100) { 
                          r.ai_laneTimer = 0;
-                         // 30% de chance de mudar de lane para ultrapassagem ou ajuste
                          if (Math.random() < 0.3) {
-                             // Escolhe entre Esquerda (-0.8), Centro (0), Direita (0.8)
                              const lanes = [-0.7, 0, 0.7];
                              r.ai_targetLane = lanes[Math.floor(Math.random() * lanes.length)];
                          }
                     }
 
-                    // Se a curva é muito forte, tangencia para o lado oposto
-                    if (curveSeverity > 2) r.ai_targetLane = -0.8; // Curva direita, vai pra dentro (esq)
-                    else if (curveSeverity < -2) r.ai_targetLane = 0.8; // Curva esq, vai pra dentro (dir)
+                    if (curveSeverity > 2) r.ai_targetLane = -0.8; 
+                    else if (curveSeverity < -2) r.ai_targetLane = 0.8; 
 
-                    // 6. Controle de Direção (Steering)
-                    // Move suavemente para a lane alvo - a curva da pista já move o X do mundo relativo
-                    // Mas o bot precisa compensar visualmente para ficar na pista
+                    // 6. Controle de Direção
                     let moveX = (r.ai_targetLane - r.x) * r.ai_reaction; 
-                    
-                    // Adiciona compensação da curva atual para manter o carro na pista (física básica de bot)
                     moveX -= (getSegment(r.pos / CONF.SEGMENT_LENGTH).curve * 0.04); 
 
-                    // Aplica movimento lateral
                     r.x += moveX;
 
-                    // Limites da pista
-                    if (r.x > 1.8) { r.x = 1.8; r.speed *= 0.95; } // Punição leve por sair
+                    if (r.x > 1.8) { r.x = 1.8; r.speed *= 0.95; } 
                     if (r.x < -1.8) { r.x = -1.8; r.speed *= 0.95; }
 
-                    // 7. Aceleração Física
+                    // 7. Aceleração
                     if (r.speed < targetSpeed) {
                         r.speed += rChar.accel * r.ai_accelMult;
                     } else {
-                        r.speed *= 0.99; // Drag natural
+                        r.speed *= 0.99; 
                     }
 
-                    // Atualiza Posição
                     r.pos += r.speed;
 
-                    // Volta
                     if (r.pos >= trackLength) { 
                         r.pos -= trackLength; r.lap++; 
                         if (r.lap > CONF.TOTAL_LAPS) { 
@@ -934,9 +917,8 @@
             const d = Logic; const cx = w / 2; 
             
             // =================================================================
-            // CÂMERA PRO 3RD PERSON
+            // CÂMERA PRO 3RD PERSON - HORIZONTE
             // =================================================================
-            // O Horizonte sobe (CONF.CAMERA_HEIGHT) e o carro desce
             const horizon = (h / 2) + d.bounce - (d.visualTilt * 2) + (CONF.CAMERA_HEIGHT * 0.3);
             
             const currentSegIndex = Math.floor(d.pos / CONF.SEGMENT_LENGTH);
@@ -947,8 +929,7 @@
             gradSky.addColorStop(0, currentSky[0]); gradSky.addColorStop(1, currentSky[1]);
             ctx.fillStyle = gradSky; ctx.fillRect(0, 0, w, horizon);
 
-            // Usa d.cameraX em vez de d.playerX para suavizar o movimento do cenário
-            const bgOffset = (getSegment(currentSegIndex).curve * 30) + (d.cameraX * 20); // Usando CameraX aqui
+            const bgOffset = (getSegment(currentSegIndex).curve * 30) + (d.cameraX * 20); 
             ctx.fillStyle = this.skyColor === 0 ? '#44aa44' : (this.skyColor===1 ? '#d35400' : '#fff'); 
             ctx.beginPath(); ctx.moveTo(0, horizon);
             for(let i=0; i<=12; i++) { ctx.lineTo((w/12 * i) - (bgOffset * 0.5), horizon - 50 - Math.abs(Math.sin(i + d.pos*0.0001))*40); }
@@ -961,15 +942,13 @@
             ctx.fillStyle = isOffRoad ? '#336622' : theme[1]; ctx.fillRect(0, horizon, w, h-horizon);
 
             let dx = 0; 
-            // Usa d.cameraX para calcular a projeção da pista. 
-            // Isso faz a pista "deslizar" suavemente em vez de travar no centro.
             let camX = d.cameraX * (w * 0.45); 
             
             let segmentCoords = [];
 
             for(let n = 0; n < CONF.DRAW_DISTANCE; n++) {
                 const seg = getSegment(currentSegIndex + n);
-                dx += (seg.curve * CONF.CAMERA_DEPTH); // Ajuste de profundidade da curva
+                dx += (seg.curve * CONF.CAMERA_DEPTH); 
                 const scale = 1 / (1 + (n * 20 * 0.05));
                 const nextScale = 1 / (1 + ((n+1) * 20 * 0.05));
                 const sy = horizon + ((h - horizon) * scale);
@@ -1009,8 +988,8 @@
             }); ctx.globalAlpha = 1;
 
             if (d.state !== 'SPECTATE') {
-                // Posiciona o carro mais abaixo na tela para efeito de câmera elevada
-                this.drawKartSprite(ctx, cx, h * 0.88 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d.spinAngle, CHARACTERS[d.selectedChar].color, d.selectedChar);
+                // AJUSTE CRÍTICO DE POSIÇÃO DO KART (0.88 -> 0.92)
+                this.drawKartSprite(ctx, cx, h * 0.92 + d.bounce, w * 0.0055, d.steer, d.visualTilt, d.spinAngle, CHARACTERS[d.selectedChar].color, d.selectedChar);
             }
         },
 
