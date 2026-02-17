@@ -1,7 +1,7 @@
 // =============================================================================
 // SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL + CALIBRATION SYSTEM)
 // ARQUITETO: SENIOR DEV (CODE 177) & PARCEIRO DE PROGRAMACAO
-// STATUS: PLATINUM MASTER (REFACTORED v3.2 - CALIBRATION UPDATE)
+// STATUS: PLATINUM MASTER (REFACTORED v3.3 - EXTREME TOLERANCE UPDATE)
 // =============================================================================
 
 (function() {
@@ -169,6 +169,7 @@
                     
                     if (clickedIndex >= 0 && clickedIndex < CHARACTERS.length) {
                         this.selChar = clickedIndex;
+                        this.p1.charId = clickedIndex; // CORREÇÃO: Atualiza personagem imediatamente
                         this.playSound('sine', 600);
                         
                         if (y > h * 0.75) {
@@ -388,15 +389,17 @@
             const armR = Math.abs(p.wrists.r.x - p.shoulders.r.x);
             const shWidth = Math.abs(p.shoulders.r.x - p.shoulders.l.x);
             
+            // Validação mais flexível: 90% da largura do ombro
             const extendedL = armL > (shWidth * 0.9);
             const extendedR = armR > (shWidth * 0.9);
 
+            // Tolerância vertical grande: 1.2x a largura dos ombros
             const verticalTolerance = shWidth * 1.2;
             
             const levelL = Math.abs(p.shoulders.l.y - p.wrists.l.y) < verticalTolerance;
             const levelR = Math.abs(p.shoulders.r.y - p.wrists.r.y) < verticalTolerance;
 
-            const isValid = extendedL && extendedR;
+            const isValid = extendedL && extendedR; // Remove validação de level para máxima tolerância se necessário, mas aqui mantemos só extensão
 
             // Feedback nas mãos
             ctx.fillStyle = (isValid) ? "#2ecc71" : "#e74c3c";
@@ -574,13 +577,13 @@
             if (hand.hasHit) return;
 
             const enemyPose = defender.pose;
-            // Hitbox da Cabeça
-            const headBox = { x: enemyPose.head.x, y: enemyPose.head.y, r: 70 };
+            // Hitbox da Cabeça - CORREÇÃO DE TAMANHO (Aumentado para garantir detecção)
+            const headBox = { x: enemyPose.head.x, y: enemyPose.head.y, r: 80 };
             
-            // Hitbox do Corpo (Centro dos ombros + offset para baixo)
+            // Hitbox do Corpo (Centro dos ombros + offset para baixo) - CORREÇÃO DE TAMANHO
             const cx = (enemyPose.shoulders.l.x + enemyPose.shoulders.r.x) / 2;
             const cy = (enemyPose.shoulders.l.y + enemyPose.shoulders.r.y) / 2;
-            const bodyBox = { x: cx, y: cy + 70, r: 90 };
+            const bodyBox = { x: cx, y: cy + 70, r: 100 };
 
             // Verifica colisão 2D
             const hitHead = SafeUtils.dist(hand, headBox) < headBox.r;
