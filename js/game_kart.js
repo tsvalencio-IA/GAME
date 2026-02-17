@@ -61,9 +61,9 @@
         gripAsphalt: 0.98,
         gripZebra: 0.85,
         gripOffroad: 0.35,
-        centrifugalForce: 0.22,
+        centrifugalForce: 0.16,
         momentumTransfer: 1.6,
-        steerSensitivity: 0.10, 
+        steerSensitivity: 0.0555, 
         lateralInertiaDecay: 0.95 
     };
 
@@ -730,7 +730,7 @@
 
                 if (lw?.score > 0.2 && rw?.score > 0.2) {
                     const pl = map(lw); const pr = map(rw);
-                    d.targetSteer = Math.atan2(pr.y - pl.y, pr.x - pl.x) * 3.0;
+                    d.targetSteer = Math.atan2(pr.y - pl.y, pr.x - pl.x) * 1.8;
                     d.virtualWheel = { x: (pl.x+pr.x)/2, y: (pl.y+pr.y)/2, r: Math.hypot(pr.x-pl.x, pr.y-pl.y)/2, opacity: 1 };
                     detected = true;
                     if (nose && lw.y < nose.y && rw.y < nose.y) {
