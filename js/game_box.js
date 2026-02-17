@@ -63,7 +63,7 @@
 
         toScreen: (kp, w, h) => {
             if (!kp || typeof kp.x !== 'number') return {x: w/2, y: h/2};
-            return { x: (1 - kp.x / 640) * w, y: (kp.y / 480) * h };
+            return { x: (kp.x / 640) * w, y: (kp.y / 480) * h };
         },
 
         createPose: () => ({
