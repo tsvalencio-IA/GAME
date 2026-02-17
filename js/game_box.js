@@ -112,8 +112,9 @@
                 if(window.System && window.System.msg) window.System.msg("BOXING PRO");
                 
                 this.lastTime = performance.now();
-                this.p1 = null;
-this.p2 = null;
+                this.p1 = this.createPlayer('p1', 0);
+                this.p2 = this.createPlayer('p2', 1);
+                
                 // Reseta calibração
                 this.calibration = null;
                 this.dynamicMinExtension = null;
@@ -151,50 +152,39 @@ this.p2 = null;
         },
 
         setupInput: function() {
-    window.System.canvas.onclick = (e) => {
+            window.System.canvas.onclick = (e) => {
+                const r = window.System.canvas.getBoundingClientRect();
+                const x = (e.clientX - r.left);
+                const y = (e.clientY - r.top);
+                const w = r.width;
+                const h = r.height;
 
-        const r = window.System.canvas.getBoundingClientRect();
-        const x = (e.clientX - r.left);
-        const y = (e.clientY - r.top);
-        const w = r.width;
-        const h = r.height;
+                if (this.state === 'MODE_SELECT') {
+                    this.setMode(y < h/2 ? 'OFFLINE' : 'ONLINE');
+                    this.playSound('sine', 600);
+                } 
+                else if (this.state === 'CHAR_SELECT') {
+                    const colW = w / CHARACTERS.length;
+                    const clickedIndex = Math.floor(x / colW);
+                    
+                    if (clickedIndex >= 0 && clickedIndex < CHARACTERS.length) {
+                        this.selChar = clickedIndex;
+                        this.playSound('sine', 600);
+                        
+                        if (y > h * 0.75) {
+                            this.state = 'CALIBRATION';
+                            this.calibTimer = 0;
+                            this.calibSuccessTimer = 0;
+                            this.playSound('square', 400);
+                        }
+                    }
+                } 
+                else if (this.state === 'GAMEOVER') {
+                    this.init();
+                }
+            };
+        },
 
-        if (this.state === 'MODE_SELECT') {
-
-            this.setMode(y < h/2 ? 'OFFLINE' : 'ONLINE');
-            this.playSound('sine', 600);
-            return;
-        }
-
-        if (this.state === 'CHAR_SELECT') {
-
-            const colW = w / CHARACTERS.length;
-            const clickedIndex = Math.floor(x / colW);
-
-            // Botão iniciar
-            if (y >= h - 80) {
-                this.state = 'CALIBRATION';
-                this.calibTimer = 0;
-                this.calibSuccessTimer = 0;
-                this.playSound('square', 400);
-                return;
-            }
-
-            // Seleção de personagem
-            if (clickedIndex >= 0 && clickedIndex < CHARACTERS.length) {
-                this.selChar = clickedIndex;
-                this.playSound('sine', 600);
-            }
-
-            return;
-        }
-
-        if (this.state === 'GAMEOVER') {
-            this.init();
-            return;
-        }
-    };
-},
         setMode: function(mode) {
             this.state = 'CHAR_SELECT';
             this.isOnline = (mode === 'ONLINE' && !!window.DB);
