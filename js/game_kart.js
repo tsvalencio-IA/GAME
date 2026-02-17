@@ -815,8 +815,8 @@
                     let targetSpeed = CONF.MAX_SPEED * rChar.speedInfo * r.ai_speedMult;
                     
                     // 4. Frenagem Inteligente
-                    if (Math.abs(curveSeverity) > 2) targetSpeed *= 0.55;
-                    else if (Math.abs(curveSeverity) > 1) targetSpeed *= 0.85;
+                    if (Math.abs(curveSeverity) > 2) targetSpeed *= 0.75;
+                    else if (Math.abs(curveSeverity) > 1) targetSpeed *= 0.92;
 
                     // 5. Sistema de Lanes (Faixas)
                     r.ai_laneTimer++;
@@ -844,7 +844,7 @@
                     if (r.speed < targetSpeed) {
                         r.speed += rChar.accel * r.ai_accelMult;
                     } else {
-                        r.speed *= 0.99; 
+                        r.speed *= 0.995; 
                     }
 
                     r.pos += r.speed;
