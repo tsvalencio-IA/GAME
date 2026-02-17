@@ -112,9 +112,8 @@
                 if(window.System && window.System.msg) window.System.msg("BOXING PRO");
                 
                 this.lastTime = performance.now();
-                this.p1 = this.createPlayer('p1', 0);
-                this.p2 = this.createPlayer('p2', 1);
-                
+                this.p1 = null;
+this.p2 = null;
                 // Reseta calibração
                 this.calibration = null;
                 this.dynamicMinExtension = null;
