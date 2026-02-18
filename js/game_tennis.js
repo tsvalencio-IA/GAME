@@ -1,7 +1,7 @@
 // =============================================================================
-// TABLE TENNIS: PROTOCOL 177 (FINAL GOLD MASTER PATCHED)
+// TABLE TENNIS: PROTOCOL 177 (VISUAL UPDATE)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 ABSOLUTE PHYSICS & LOGIC FIX (SUBSTEP, DOT, AI HUMANIZED)
+// STATUS: SKELETON CALIBRATION + IN-GAME ARM IMMERSION
 // =============================================================================
 
 (function() {
@@ -85,12 +85,10 @@
             return sx;
         },
 
-        // CORREÇÃO 3 (Parte 1): Previsão de Y para IA
         predictY: (b, targetZ) => {
             let sy = b.y, sz = b.z;
             let svy = b.vy, svz = b.vz;
             let steps = 0;
-            // Simulação simplificada apenas para altura
             while(sz < targetZ && steps < 300) {
                 svy += CONF.GRAVITY;
                 svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
@@ -108,16 +106,18 @@
     const Game = {
         state: 'INIT', 
         timer: 0,
+        pose: null, // Armazena pose completa para renderização do esqueleto
         
         p1: { 
             gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 200, 
             prevX: 0, prevY: 0, 
             velX: 0, velY: 0,
-            currRawX: 0, currRawY: 0
+            currRawX: 0, currRawY: 0,
+            elbowX: 0, elbowY: 0 // Para desenhar o braço
         },
         p2: { 
             gameX: 0, gameY: -200, gameZ: CONF.TABLE_L/2 + 200,
-            targetX: 0, targetZ: 0, targetY: -200, // Adicionado targetY
+            targetX: 0, targetZ: 0, targetY: -200,
             velX: 0, velZ: 0
         },
         ball: { 
@@ -233,9 +233,18 @@
         },
 
         processPose: function(pose) {
+            this.pose = pose; // Salva para renderização do esqueleto na calibração
             if (!pose || !pose.keypoints) return;
-            let wrist = pose.keypoints.find(k => k.name === 'right_wrist' && k.score > 0.3) || 
-                        pose.keypoints.find(k => k.name === 'left_wrist' && k.score > 0.3);
+            
+            // Tenta encontrar braço direito primeiro
+            let wrist = pose.keypoints.find(k => k.name === 'right_wrist' && k.score > 0.3);
+            let elbow = pose.keypoints.find(k => k.name === 'right_elbow' && k.score > 0.3);
+
+            // Fallback para esquerdo
+            if (!wrist) {
+                wrist = pose.keypoints.find(k => k.name === 'left_wrist' && k.score > 0.3);
+                elbow = pose.keypoints.find(k => k.name === 'left_elbow' && k.score > 0.3);
+            }
 
             if (wrist) {
                 const rawX = 640 - wrist.x; 
@@ -249,8 +258,8 @@
                     let nx = (rawX - this.calib.tlX) / rangeX;
                     let ny = (rawY - this.calib.tlY) / rangeY;
                     
-                    nx = Math.max(0, Math.min(1, nx));
-                    ny = Math.max(0, Math.min(1, ny));
+                    nx = MathCore.clamp(nx, 0, 1);
+                    ny = MathCore.clamp(ny, 0, 1);
 
                     const targetX = MathCore.lerp(-CONF.TABLE_W*0.6, CONF.TABLE_W*0.6, nx); 
                     const targetY = MathCore.lerp(-800, 100, ny); 
@@ -258,6 +267,26 @@
                     this.p1.gameX = MathCore.lerp(this.p1.gameX, targetX, 0.5);
                     this.p1.gameY = MathCore.lerp(this.p1.gameY, targetY, 0.5);
                     this.p1.gameZ = -CONF.TABLE_L/2 - 200;
+
+                    // Mapeamento do Cotovelo para desenhar o braço
+                    if (elbow) {
+                        const rawEx = 640 - elbow.x;
+                        const rawEy = elbow.y;
+                        let nex = (rawEx - this.calib.tlX) / rangeX;
+                        let ney = (rawEy - this.calib.tlY) / rangeY;
+                        nex = MathCore.clamp(nex, 0, 1);
+                        ney = MathCore.clamp(ney, 0, 1);
+                        
+                        const targetEx = MathCore.lerp(-CONF.TABLE_W*0.6, CONF.TABLE_W*0.6, nex);
+                        const targetEy = MathCore.lerp(-800, 100, ney);
+                        
+                        this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.5);
+                        this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.5);
+                    } else {
+                        // Fallback se não achar cotovelo: simula posição atrás da raquete
+                        this.p1.elbowX = this.p1.gameX + 50;
+                        this.p1.elbowY = this.p1.gameY + 200;
+                    }
 
                     this.p1.velX = this.p1.gameX - this.p1.prevX;
                     this.p1.velY = this.p1.gameY - this.p1.prevY;
@@ -302,7 +331,6 @@
             if (speed > 50) steps = 3; 
             
             for(let s=0; s<steps; s++) {
-                // CORREÇÃO 1: prevY local dentro do substep
                 const previousY = b.y;
 
                 b.x += b.vx / steps; 
@@ -313,7 +341,6 @@
                     b.lastHitBy = null;
                 }
 
-                // Uso de previousY para detecção de bounce
                 if (b.y >= 0 && previousY < 0) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                         b.y = 0; 
@@ -349,8 +376,6 @@
         },
 
         checkPaddleHit: function() {
-            // CORREÇÃO 2: Dot Product (paddle - ball) e dot > 0
-
             // P1
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
@@ -362,7 +387,6 @@
                     
                     const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
                     
-                    // Bola deve estar se aproximando do paddle (dot > 0)
                     if (dot > 0) {
                         const dx = this.ball.x - this.p1.gameX;
                         const dy = this.ball.y - this.p1.gameY;
@@ -452,17 +476,15 @@
 
         calculateAITarget: function() {
             const predX = MathCore.predict(this.ball, this.p2.gameZ);
-            
-            // CORREÇÃO 3: IA Humanizada Vertical
             const predY = MathCore.predictY(this.ball, this.p2.gameZ);
 
             const speed = Math.abs(this.ball.vz);
             const errorBase = speed * 0.2; 
             const errorX = (Math.random() - 0.5) * errorBase;
-            const errorY = (Math.random() - 0.5) * speed * 0.15; // Erro vertical
+            const errorY = (Math.random() - 0.5) * speed * 0.15; 
 
             this.p2.targetX = predX + errorX;
-            this.p2.targetY = predY + errorY; // Target dinâmico Y
+            this.p2.targetY = predY + errorY; 
             
             if (Math.abs(this.ball.vz) < 50) this.p2.targetZ = CONF.TABLE_L/2; 
             else this.p2.targetZ = CONF.TABLE_L/2 + 300;
@@ -480,13 +502,12 @@
             ai.velZ *= 0.85;
             ai.gameZ += ai.velZ;
 
-            // IA não segue bola, segue targetY previsto
             ai.gameY = MathCore.lerp(ai.gameY, ai.targetY, 0.08);
             
             if (this.ball.vz < 0) {
                 ai.targetX = 0;
                 ai.targetZ = CONF.TABLE_L/2 + 300;
-                ai.targetY = -200; // Reset altura em standby
+                ai.targetY = -200; 
             }
         },
 
@@ -552,8 +573,36 @@
             this.drawTable(ctx, w, h);
             this.drawPaddle(ctx, this.p2.gameX, this.p2.gameY, this.p2.gameZ, '#e74c3c', w, h);
             this.drawBall(ctx, w, h);
+            
+            // Desenhar Braço + Raquete
+            this.drawPlayerArm(ctx, w, h);
             this.drawPaddle(ctx, this.p1.gameX, this.p1.gameY, this.p1.gameZ, '#3498db', w, h);
+            
             this.drawParticles(ctx, w, h);
+        },
+        
+        // Novo método para desenhar o braço
+        drawPlayerArm: function(ctx, w, h) {
+            const wristZ = this.p1.gameZ;
+            const elbowZ = this.p1.gameZ + 400; // Cotovelo projetado para trás
+
+            const pWrist = MathCore.project(this.p1.gameX, this.p1.gameY, wristZ, w, h);
+            const pElbow = MathCore.project(this.p1.elbowX, this.p1.elbowY, elbowZ, w, h);
+            
+            if (pWrist.visible && pElbow.visible) {
+                // Braço
+                ctx.strokeStyle = "#e0ac69"; // Cor de pele
+                ctx.lineWidth = 18 * pWrist.s;
+                ctx.lineCap = "round";
+                ctx.beginPath(); 
+                ctx.moveTo(pElbow.x, pElbow.y); 
+                ctx.lineTo(pWrist.x, pWrist.y); 
+                ctx.stroke();
+                
+                // Mão (Articulação)
+                ctx.fillStyle = "#e0ac69";
+                ctx.beginPath(); ctx.arc(pWrist.x, pWrist.y, 10*pWrist.s, 0, Math.PI*2); ctx.fill();
+            }
         },
 
         drawTable: function(ctx, w, h) {
@@ -736,8 +785,15 @@
             ctx.fillText("CLIQUE PARA JOGAR", w/2, h*0.7);
         },
 
+        // Renderização do Esqueleto na Calibração
         renderCalibration: function(ctx, w, h) {
             ctx.fillStyle = "#111"; ctx.fillRect(0,0,w,h);
+            
+            // Desenha Esqueleto
+            if (this.pose && this.pose.keypoints) {
+                this.drawSkeleton(ctx, w, h);
+            }
+
             const isTL = this.state === 'CALIB_TL';
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
             ctx.font = "30px sans-serif";
@@ -751,6 +807,44 @@
                 const cy = (this.p1.currRawY / 480) * h;
                 ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2); ctx.fill();
             }
+        },
+
+        drawSkeleton: function(ctx, w, h) {
+             const kps = this.pose.keypoints;
+             const find = (n) => kps.find(k => k.name === n && k.score > 0.3);
+             
+             const bones = [
+                 ['nose', 'left_eye'], ['nose', 'right_eye'],
+                 ['left_shoulder', 'right_shoulder'],
+                 ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+                 ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'],
+                 ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'],
+                 ['left_hip', 'right_hip']
+             ];
+
+             ctx.strokeStyle = "rgba(0, 255, 0, 0.5)"; ctx.lineWidth = 4;
+             ctx.fillStyle = "#0f0";
+
+             bones.forEach(bone => {
+                 const p1 = find(bone[0]);
+                 const p2 = find(bone[1]);
+                 if(p1 && p2) {
+                     const x1 = ((640 - p1.x) / 640) * w;
+                     const y1 = (p1.y / 480) * h;
+                     const x2 = ((640 - p2.x) / 640) * w;
+                     const y2 = (p2.y / 480) * h;
+                     
+                     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+                 }
+             });
+             
+             kps.forEach(k => {
+                 if(k.score > 0.3) {
+                     const x = ((640 - k.x) / 640) * w;
+                     const y = (k.y / 480) * h;
+                     ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+                 }
+             });
         },
 
         renderEnd: function(ctx, w, h) {
