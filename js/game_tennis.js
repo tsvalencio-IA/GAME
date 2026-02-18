@@ -146,6 +146,7 @@
         bounceCount: 0,
         lastHitter: null,
         rallyCount: 0,
+        aiNeedsRecalc: false, // [PATCH] Flag de recálculo
 
         // Efeitos Visuais
         shake: 0,
@@ -467,6 +468,9 @@
             // Isso considera gravidade e curva, diferent do código anterior linear
             let futureX = MathCore.simulateTrajectory(this.ball, this.p2.gameZ);
 
+            // [PATCH] Micro refinamento de precisão (Spin Compensation)
+            futureX += this.ball.spinY * 5;
+
             // Adiciona erro humano dependendo da dificuldade
             // Erro é maior se a bola vem com muito Spin
             const spinFactor = Math.abs(this.ball.spinY) * 0.1;
@@ -485,11 +489,18 @@
 
             // [PATCH] Recálculo dinâmico
             const currSpeed = Math.abs(this.ball.vz);
+
+            // [PATCH] Verificação de Spin Intenso para recálculo
+            if (Math.abs(this.ball.spinX) > 0.5 || Math.abs(this.ball.spinY) > 0.5) {
+                this.aiNeedsRecalc = true;
+            }
+
             if (this.ball.active && this.ball.vz > 0) { // Bola vindo
-                if (currSpeed > CONF.SMASH_TRIGGER || Math.abs(currSpeed - (ai.lastSpeed||0)) > 5) {
+                if (currSpeed > CONF.SMASH_TRIGGER || Math.abs(currSpeed - (ai.lastSpeed||0)) > 5 || this.aiNeedsRecalc) {
                     if (!ai.recalcTimer) {
                          this.calculateAITarget();
                          ai.recalcTimer = 10;
+                         this.aiNeedsRecalc = false; // Reset flag
                     }
                 }
             }
@@ -548,17 +559,18 @@
             const s2 = this.score.p2;
 
             // [PATCH] Regras Oficiais (11 pontos, diff 2)
+            // Substituição COMPLETA da lógica de fim de jogo pela Regra Universal
             let gameOver = false;
 
-            if (s1 >= 10 && s2 >= 10) {
-                if (Math.abs(s1 - s2) >= 2) gameOver = true;
-                else {
-                    if (s1 > s2) this.addMsg("VANTAGEM P1", "#ffff00");
-                    else if (s2 > s1) this.addMsg("VANTAGEM CPU", "#ffff00");
-                    else this.addMsg("DEUCE", "#fff");
-                }
-            } else if (s1 >= 11 || s2 >= 11) {
+            if ((s1 >= 11 || s2 >= 11) && Math.abs(s1 - s2) >= 2) {
                 gameOver = true;
+            }
+
+            // Mensagens de Feedback (HUD Only - Não afeta lógica de fim)
+            if (s1 >= 10 && s2 >= 10 && !gameOver) {
+                if (s1 > s2) this.addMsg("VANTAGEM P1", "#ffff00");
+                else if (s2 > s1) this.addMsg("VANTAGEM CPU", "#ffff00");
+                else this.addMsg("DEUCE", "#fff");
             }
 
             if (gameOver) {
