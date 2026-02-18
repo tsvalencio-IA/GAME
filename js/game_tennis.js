@@ -1,7 +1,7 @@
 // =============================================================================
-// TABLE TENNIS: PROTOCOL 177 (VISUAL UPDATE)
+// TABLE TENNIS: PROTOCOL 177 (HAND SELECT + GUIDED CALIBRATION)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: SKELETON CALIBRATION + IN-GAME ARM IMMERSION
+// STATUS: 10/10 PHYSICS + UX OVERHAUL (HANDEDNESS SUPPORT)
 // =============================================================================
 
 (function() {
@@ -106,14 +106,15 @@
     const Game = {
         state: 'INIT', 
         timer: 0,
-        pose: null, // Armazena pose completa para renderização do esqueleto
+        pose: null, 
+        handedness: null, // 'right' ou 'left'
         
         p1: { 
             gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 200, 
             prevX: 0, prevY: 0, 
             velX: 0, velY: 0,
             currRawX: 0, currRawY: 0,
-            elbowX: 0, elbowY: 0 // Para desenhar o braço
+            elbowX: 0, elbowY: 0
         },
         p2: { 
             gameX: 0, gameY: -200, gameZ: CONF.TABLE_L/2 + 200,
@@ -145,14 +146,9 @@
 
         init: function() {
             this.state = 'MENU';
-            this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: PROTOCOL 177 PATCHED");
+            this.handedness = null; 
+            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: PROTOCOL 177 UX");
             this.setupInput();
-        },
-
-        loadCalib: function() {
-            const s = localStorage.getItem('tennis_calib_177');
-            if(s) this.calib = JSON.parse(s);
         },
 
         setupInput: function() {
@@ -162,12 +158,20 @@
                 const my = e.clientY - window.System.canvas.getBoundingClientRect().top;
 
                 if (this.state === 'MENU') {
-                    if (my > h*0.8) this.state = 'CALIB_TL';
-                    else {
-                        this.startGame();
+                    if (my > h*0.7) {
+                        this.state = 'CALIB_HAND_SELECT'; // Novo fluxo inicial
+                        window.Sfx.click();
+                    } else {
+                        // Se ja tem calibração, joga direto, senão calibra
+                        if (this.handedness && this.calib.brX !== 640) {
+                            this.startGame();
+                        } else {
+                            this.state = 'CALIB_HAND_SELECT';
+                        }
                         window.Sfx.click();
                     }
                 } else if (this.state.startsWith('CALIB')) {
+                    // Cliques na calibração avançam etapa se tracking estiver ok
                     this.doCalibStep();
                 } else if (this.state === 'END') {
                     this.state = 'MENU';
@@ -182,14 +186,27 @@
         },
 
         doCalibStep: function() {
-            if (this.state === 'CALIB_TL') {
+            if (this.state === 'CALIB_HAND_SELECT') {
+                // Seleção é feita por gesto, não clique, mas clique pode confirmar se mão detectada
+                if (this.handedness) {
+                    this.state = 'CALIB_TL';
+                    window.Sfx.coin();
+                }
+            } else if (this.state === 'CALIB_TL') {
                 this.state = 'CALIB_BR';
                 window.Sfx.click();
             } else if (this.state === 'CALIB_BR') {
                 if(this.p1.currRawX) {
-                    if(Math.abs(this.calib.tlX - this.calib.brX) < 10) this.calib.brX = this.calib.tlX + 100;
-                    if(Math.abs(this.calib.tlY - this.calib.brY) < 10) this.calib.brY = this.calib.tlY + 100;
-                    localStorage.setItem('tennis_calib_177', JSON.stringify(this.calib));
+                    // Margem de segurança para evitar 0
+                    if(Math.abs(this.calib.tlX - this.calib.brX) < 50) this.calib.brX = this.calib.tlX + 200;
+                    if(Math.abs(this.calib.tlY - this.calib.brY) < 50) this.calib.brY = this.calib.tlY + 200;
+                    
+                    // Salva Handedness junto
+                    localStorage.setItem('tennis_calib_177_ux', JSON.stringify({
+                        calib: this.calib,
+                        hand: this.handedness
+                    }));
+                    
                     this.state = 'MENU';
                     window.Sfx.coin();
                 }
@@ -233,25 +250,66 @@
         },
 
         processPose: function(pose) {
-            this.pose = pose; // Salva para renderização do esqueleto na calibração
+            this.pose = pose; 
             if (!pose || !pose.keypoints) return;
-            
-            // Tenta encontrar braço direito primeiro
-            let wrist = pose.keypoints.find(k => k.name === 'right_wrist' && k.score > 0.3);
-            let elbow = pose.keypoints.find(k => k.name === 'right_elbow' && k.score > 0.3);
 
-            // Fallback para esquerdo
-            if (!wrist) {
-                wrist = pose.keypoints.find(k => k.name === 'left_wrist' && k.score > 0.3);
-                elbow = pose.keypoints.find(k => k.name === 'left_elbow' && k.score > 0.3);
+            // -----------------------------------------------------------
+            // ETAPA 1: SELEÇÃO DE MÃO (CALIB_HAND_SELECT)
+            // -----------------------------------------------------------
+            if (this.state === 'CALIB_HAND_SELECT') {
+                const nose = pose.keypoints.find(k => k.name === 'nose');
+                const leftW = pose.keypoints.find(k => k.name === 'left_wrist');
+                const rightW = pose.keypoints.find(k => k.name === 'right_wrist');
+
+                if (nose && leftW && rightW) {
+                    // Detecta mão levantada (acima do nariz - Y menor é mais alto)
+                    const leftUp = leftW.y < nose.y;
+                    const rightUp = rightW.y < nose.y;
+
+                    if (leftUp && !rightUp) this.handedness = 'left';
+                    else if (rightUp && !leftUp) this.handedness = 'right';
+                    
+                    // Atualiza coordenadas raw para feedback visual imediato
+                    if (this.handedness === 'left') {
+                        this.p1.currRawX = 640 - leftW.x;
+                        this.p1.currRawY = leftW.y;
+                    } else if (this.handedness === 'right') {
+                        this.p1.currRawX = 640 - rightW.x;
+                        this.p1.currRawY = rightW.y;
+                    }
+                }
+                return;
             }
+
+            // -----------------------------------------------------------
+            // ETAPA 2: GAMEPLAY E CALIBRAÇÃO (MÃO FIXA)
+            // -----------------------------------------------------------
+            if (!this.handedness) return; // Segurança
+
+            const wristName = this.handedness + '_wrist';
+            const elbowName = this.handedness + '_elbow';
+
+            const wrist = pose.keypoints.find(k => k.name === wristName && k.score > 0.3);
+            const elbow = pose.keypoints.find(k => k.name === elbowName && k.score > 0.3);
 
             if (wrist) {
                 const rawX = 640 - wrist.x; 
                 const rawY = wrist.y;
-                this.p1.currRawX = rawX; this.p1.currRawY = rawY;
-
-                if (!this.state.startsWith('CALIB')) {
+                
+                // Na calibração, salvamos o RAW para definir os limites
+                if (this.state.startsWith('CALIB')) {
+                    this.p1.currRawX = rawX;
+                    this.p1.currRawY = rawY;
+                    
+                    if (this.state === 'CALIB_TL') {
+                        this.calib.tlX = rawX; this.calib.tlY = rawY;
+                    }
+                    if (this.state === 'CALIB_BR') {
+                        this.calib.brX = rawX; this.calib.brY = rawY;
+                    }
+                } 
+                // No jogo, usamos a calibração para mapear
+                else {
                     const rangeX = (this.calib.brX - this.calib.tlX) || 1;
                     const rangeY = (this.calib.brY - this.calib.tlY) || 1;
                     
@@ -268,7 +326,7 @@
                     this.p1.gameY = MathCore.lerp(this.p1.gameY, targetY, 0.5);
                     this.p1.gameZ = -CONF.TABLE_L/2 - 200;
 
-                    // Mapeamento do Cotovelo para desenhar o braço
+                    // Elbow logic
                     if (elbow) {
                         const rawEx = 640 - elbow.x;
                         const rawEy = elbow.y;
@@ -283,9 +341,8 @@
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.5);
                         this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.5);
                     } else {
-                        // Fallback se não achar cotovelo: simula posição atrás da raquete
-                        this.p1.elbowX = this.p1.gameX + 50;
-                        this.p1.elbowY = this.p1.gameY + 200;
+                        this.p1.elbowX = this.p1.gameX + (this.handedness === 'right' ? 100 : -100);
+                        this.p1.elbowY = this.p1.gameY + 300;
                     }
 
                     this.p1.velX = this.p1.gameX - this.p1.prevX;
@@ -574,24 +631,26 @@
             this.drawPaddle(ctx, this.p2.gameX, this.p2.gameY, this.p2.gameZ, '#e74c3c', w, h);
             this.drawBall(ctx, w, h);
             
-            // Desenhar Braço + Raquete
-            this.drawPlayerArm(ctx, w, h);
-            this.drawPaddle(ctx, this.p1.gameX, this.p1.gameY, this.p1.gameZ, '#3498db', w, h);
+            // Renderiza Braço apenas no jogo (não na calibração pois tem esqueleto lá)
+            if (!this.state.startsWith('CALIB')) {
+                this.drawPlayerArm(ctx, w, h);
+                this.drawPaddle(ctx, this.p1.gameX, this.p1.gameY, this.p1.gameZ, '#3498db', w, h);
+            }
             
             this.drawParticles(ctx, w, h);
         },
         
-        // Novo método para desenhar o braço
         drawPlayerArm: function(ctx, w, h) {
+            if(!this.handedness) return; // Não desenha se não escolheu mão
+
             const wristZ = this.p1.gameZ;
-            const elbowZ = this.p1.gameZ + 400; // Cotovelo projetado para trás
+            const elbowZ = this.p1.gameZ + 400; 
 
             const pWrist = MathCore.project(this.p1.gameX, this.p1.gameY, wristZ, w, h);
             const pElbow = MathCore.project(this.p1.elbowX, this.p1.elbowY, elbowZ, w, h);
             
             if (pWrist.visible && pElbow.visible) {
-                // Braço
-                ctx.strokeStyle = "#e0ac69"; // Cor de pele
+                ctx.strokeStyle = "#e0ac69"; 
                 ctx.lineWidth = 18 * pWrist.s;
                 ctx.lineCap = "round";
                 ctx.beginPath(); 
@@ -599,7 +658,6 @@
                 ctx.lineTo(pWrist.x, pWrist.y); 
                 ctx.stroke();
                 
-                // Mão (Articulação)
                 ctx.fillStyle = "#e0ac69";
                 ctx.beginPath(); ctx.arc(pWrist.x, pWrist.y, 10*pWrist.s, 0, Math.PI*2); ctx.fill();
             }
@@ -785,27 +843,86 @@
             ctx.fillText("CLIQUE PARA JOGAR", w/2, h*0.7);
         },
 
-        // Renderização do Esqueleto na Calibração
+        // Renderização do Esqueleto e Calibração Guiada
         renderCalibration: function(ctx, w, h) {
             ctx.fillStyle = "#111"; ctx.fillRect(0,0,w,h);
             
-            // Desenha Esqueleto
+            // Desenha Esqueleto e Raquete Fixa na mão selecionada
             if (this.pose && this.pose.keypoints) {
                 this.drawSkeleton(ctx, w, h);
+                
+                // Se já escolheu a mão, desenha a raquete nela para dar feedback
+                if (this.handedness && this.p1.currRawX) {
+                    const cx = (this.p1.currRawX / 640) * w;
+                    const cy = (this.p1.currRawY / 480) * h;
+                    
+                    // Desenha raquete 2D simples para feedback
+                    ctx.translate(cx, cy);
+                    ctx.rotate(-0.2);
+                    ctx.fillStyle = "#8d6e63"; ctx.fillRect(-5, 0, 10, 30); // Cabo
+                    ctx.fillStyle = "#3498db"; ctx.beginPath(); ctx.arc(0, -20, 25, 0, Math.PI*2); ctx.fill(); // Borracha
+                    ctx.rotate(0.2);
+                    ctx.translate(-cx, -cy);
+                }
             }
 
-            const isTL = this.state === 'CALIB_TL';
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-            ctx.font = "30px sans-serif";
-            ctx.fillText(isTL ? "TOQUE CANTO SUPERIOR ESQUERDO" : "TOQUE CANTO INFERIOR DIREITO", w/2, h*0.2);
-            const tx = isTL ? 50 : w-50;
-            const ty = isTL ? 50 : h-50;
-            ctx.strokeStyle = "#0f0"; ctx.lineWidth = 3;
-            ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
-            if(this.p1.currRawX) {
-                const cx = (this.p1.currRawX / 640) * w;
-                const cy = (this.p1.currRawY / 480) * h;
-                ctx.fillStyle = "#f00"; ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2); ctx.fill();
+
+            if (this.state === 'CALIB_HAND_SELECT') {
+                ctx.font = "bold 40px sans-serif";
+                ctx.fillText("ESCOLHA SUA MÃO", w/2, h*0.15);
+                ctx.font = "24px sans-serif";
+                ctx.fillStyle = "#aaa";
+                ctx.fillText("Levante a mão ESQUERDA ou DIREITA para selecionar", w/2, h*0.22);
+                
+                // Icones de mão
+                ctx.font = "50px sans-serif";
+                ctx.fillText("✋ Esquerda", w*0.2, h*0.5);
+                ctx.fillText("Direita ✋", w*0.8, h*0.5);
+                
+                // Feedback visual da seleção
+                if (this.handedness === 'left') {
+                    ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5; ctx.strokeRect(w*0.1, h*0.4, w*0.2, h*0.2);
+                } else if (this.handedness === 'right') {
+                    ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5; ctx.strokeRect(w*0.7, h*0.4, w*0.2, h*0.2);
+                }
+
+            } else {
+                // FASE DE PONTOS
+                const isTL = this.state === 'CALIB_TL';
+                ctx.font = "bold 30px sans-serif"; 
+                ctx.fillStyle = "#fff";
+                ctx.fillText(isTL ? "TOQUE NO ALVO VERDE (ALTO)" : "TOQUE NO ALVO VERMELHO (BAIXO)", w/2, h*0.15);
+                
+                // Alvos com margem interna (Inset)
+                const tx = isTL ? 100 : w-100;
+                const ty = isTL ? 100 : h-100;
+                const color = isTL ? "#0f0" : "#f00";
+                
+                // Círculo do Alvo
+                ctx.strokeStyle = color; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(tx, ty, 50, 0, Math.PI*2); ctx.stroke();
+                
+                // Animação de Pulso
+                const pulse = 1 + Math.sin(Date.now()*0.01)*0.2;
+                ctx.fillStyle = color; ctx.globalAlpha = 0.3;
+                ctx.beginPath(); ctx.arc(tx, ty, 50*pulse, 0, Math.PI*2); ctx.fill();
+                ctx.globalAlpha = 1;
+
+                // LINHA GUIA (Vector Guidance)
+                if(this.p1.currRawX) {
+                    const cx = (this.p1.currRawX / 640) * w;
+                    const cy = (this.p1.currRawY / 480) * h;
+                    
+                    // Linha conectando mão ao alvo
+                    ctx.setLineDash([10, 10]);
+                    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
+                    ctx.setLineDash([]);
+                    
+                    // Bolinha na mão
+                    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, 15, 0, Math.PI*2); ctx.fill();
+                }
             }
         },
 
@@ -822,9 +939,8 @@
                  ['left_hip', 'right_hip']
              ];
 
-             ctx.strokeStyle = "rgba(0, 255, 0, 0.5)"; ctx.lineWidth = 4;
-             ctx.fillStyle = "#0f0";
-
+             ctx.strokeStyle = "rgba(0, 255, 0, 0.3)"; ctx.lineWidth = 3;
+             
              bones.forEach(bone => {
                  const p1 = find(bone[0]);
                  const p2 = find(bone[1]);
@@ -833,16 +949,17 @@
                      const y1 = (p1.y / 480) * h;
                      const x2 = ((640 - p2.x) / 640) * w;
                      const y2 = (p2.y / 480) * h;
-                     
                      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
                  }
              });
              
+             // Desenha juntas
              kps.forEach(k => {
                  if(k.score > 0.3) {
                      const x = ((640 - k.x) / 640) * w;
                      const y = (k.y / 480) * h;
-                     ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+                     ctx.fillStyle = "#0f0";
+                     ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
                  }
              });
         },
