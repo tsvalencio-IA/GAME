@@ -1,9 +1,7 @@
 // =============================================================================
 // TABLE TENNIS: PROTOCOL 177 (FINAL GOLD MASTER PATCHED + HARDENED + AAA POLISH)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 ABSOLUTE - DYNAMIC AUDIO, PRO AI, PROGRESSIVE DIFF, STABLE
-// BUGFIX: TIMER REAL (DT), AUTO-SAQUE GARANTIDO, FALLBACK TRACKING, ANTI-FREEZE
-// BUGFIX CRÍTICO: SAFE AUDIO WRAPPER PARA PREVENIR TRAVAMENTO NA CALIBRAÇÃO
+// STATUS: 10/10 ABSOLUTE - ANTI-NAN SHIELD, ANTI-TELEPORT, REAL DELTA TIME
 // =============================================================================
 
 (function() {
@@ -174,7 +172,6 @@
             this.setupInput();
         },
 
-        // Wrapper de segurança para impedir travamento se o core.js falhar
         sfx: function(action, ...args) {
             try {
                 if (window.Sfx) {
@@ -196,7 +193,12 @@
                 const s = localStorage.getItem('tennis_calib_auto');
                 if(s) {
                     const data = JSON.parse(s);
-                    if(data.calib) this.calib = data.calib;
+                    if(data.calib) {
+                        this.calib.tlX = Number(data.calib.tlX) || 0;
+                        this.calib.tlY = Number(data.calib.tlY) || 0;
+                        this.calib.brX = Number(data.calib.brX) || 640;
+                        this.calib.brY = Number(data.calib.brY) || 480;
+                    }
                     if(data.hand) this.handedness = data.hand;
                 }
             } catch(e) { console.error("Calib Load Error", e); }
@@ -214,7 +216,7 @@
                         this.calibTimer = 0;
                         this.sfx('click');
                     } else {
-                        if (this.handedness && this.calib.brX !== 640) {
+                        if (this.handedness && Math.abs(this.calib.brX - this.calib.tlX) > 10) {
                             this.startGame();
                         } else {
                             this.state = 'CALIB_HAND_SELECT';
@@ -273,7 +275,6 @@
                 clearTimeout(this.roundTimeout);
                 this.roundTimeout = null;
             }
-            this.state = 'STARTING'; 
             this.score = { p1: 0, p2: 0 };
             this.server = 'p1';
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
@@ -331,7 +332,7 @@
             }
 
             ctx.save();
-            if(this.shake > 0) {
+            if(this.shake > 0 && !isNaN(this.shake)) {
                 this.shakeX = (Math.random()-0.5) * this.shake;
                 this.shakeY = (Math.random()-0.5) * this.shake;
                 ctx.translate(this.shakeX, this.shakeY);
@@ -342,7 +343,7 @@
             this.renderScene(ctx, w, h);
             ctx.restore();
 
-            if (this.flash > 0) {
+            if (this.flash > 0 && !isNaN(this.flash)) {
                 ctx.fillStyle = `rgba(255,255,255,${this.flash})`;
                 ctx.fillRect(0,0,w,h);
                 this.flash *= 0.8;
@@ -373,7 +374,7 @@
                 }
             } 
             else if (this.state === 'CALIB_TL') {
-                if (this.p1.currRawX) {
+                if (this.p1.currRawX !== undefined && this.p1.currRawX !== null && !isNaN(this.p1.currRawX)) {
                     this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.tlX = this.p1.currRawX;
@@ -385,19 +386,29 @@
                 }
             } 
             else if (this.state === 'CALIB_BR') {
-                if (this.p1.currRawX) {
+                if (this.p1.currRawX !== undefined && this.p1.currRawX !== null && !isNaN(this.p1.currRawX)) {
                     this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.currRawX;
                         this.calib.brY = this.p1.currRawY;
                         
-                        localStorage.setItem('tennis_calib_auto', JSON.stringify({
-                            calib: this.calib,
-                            hand: this.handedness
-                        }));
+                        // CLAMP DE SEGURANÇA EXTREMA: Garante que o range nunca seja Zero ou negativo bizarro
+                        if (Math.abs(this.calib.tlX - this.calib.brX) < 50) {
+                            this.calib.brX = this.calib.tlX + 150;
+                        }
+                        if (Math.abs(this.calib.tlY - this.calib.brY) < 50) {
+                            this.calib.brY = this.calib.tlY + 150;
+                        }
+                        
+                        try {
+                            localStorage.setItem('tennis_calib_auto', JSON.stringify({
+                                calib: this.calib,
+                                hand: this.handedness
+                            }));
+                        } catch(e) {}
                         
                         this.calibTimer = 0; 
-                        this.startGame();
+                        this.startGame(); 
                         this.sfx('coin');
                     }
                 }
@@ -408,8 +419,8 @@
             if(this.state.startsWith('CALIB')) {
                 this.calibHandCandidate = null;
             } else if (this.state === 'SERVE' || this.state === 'RALLY' || this.state === 'IDLE') {
-                this.p1.gameX = MathCore.lerp(this.p1.gameX, 0, 0.05);
-                this.p1.gameY = MathCore.lerp(this.p1.gameY, -200, 0.05);
+                this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, 0, 0.05);
+                this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, -200, 0.05);
                 
                 if (this.state === 'SERVE' && this.server === 'p1') {
                     this.ball.x = this.p1.gameX;
@@ -473,30 +484,35 @@
                     this.p1.currRawY = rawY;
                 } 
                 else {
-                    let safeRangeX = this.calib.brX - this.calib.tlX;
-                    let safeRangeY = this.calib.brY - this.calib.tlY;
+                    let safeRangeX = (this.calib.brX || 640) - (this.calib.tlX || 0);
+                    let safeRangeY = (this.calib.brY || 480) - (this.calib.tlY || 0);
                     
-                    if (Math.abs(safeRangeX) < 1) safeRangeX = safeRangeX >= 0 ? 1 : -1;
-                    if (Math.abs(safeRangeY) < 1) safeRangeY = safeRangeY >= 0 ? 1 : -1;
+                    if (Math.abs(safeRangeX) < 1 || isNaN(safeRangeX)) safeRangeX = 640;
+                    if (Math.abs(safeRangeY) < 1 || isNaN(safeRangeY)) safeRangeY = 480;
                     
-                    let nx = (rawX - this.calib.tlX) / safeRangeX;
-                    let ny = (rawY - this.calib.tlY) / safeRangeY;
+                    let nx = (rawX - (this.calib.tlX || 0)) / safeRangeX;
+                    let ny = (rawY - (this.calib.tlY || 0)) / safeRangeY;
                     
+                    if (isNaN(nx)) nx = 0.5;
+                    if (isNaN(ny)) ny = 0.5;
+
                     nx = MathCore.clamp(nx, 0, 1);
                     ny = MathCore.clamp(ny, 0, 1);
 
                     const targetX = MathCore.lerp(-CONF.TABLE_W*0.6, CONF.TABLE_W*0.6, nx); 
                     const targetY = MathCore.lerp(-800, 100, ny); 
 
-                    this.p1.gameX = MathCore.lerp(this.p1.gameX, targetX, 0.5);
-                    this.p1.gameY = MathCore.lerp(this.p1.gameY, targetY, 0.5);
+                    this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.5);
+                    this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.5);
                     this.p1.gameZ = -CONF.TABLE_L/2 - 200;
 
                     if (elbow) {
                         const rawEx = 640 - elbow.x;
                         const rawEy = elbow.y;
-                        let nex = (rawEx - this.calib.tlX) / safeRangeX;
-                        let ney = (rawEy - this.calib.tlY) / safeRangeY;
+                        let nex = (rawEx - (this.calib.tlX||0)) / safeRangeX;
+                        let ney = (rawEy - (this.calib.tlY||0)) / safeRangeY;
+                        if(isNaN(nex)) nex = 0.5;
+                        if(isNaN(ney)) ney = 0.5;
                         nex = MathCore.clamp(nex, 0, 1);
                         ney = MathCore.clamp(ney, 0, 1);
                         
@@ -510,8 +526,16 @@
                         this.p1.elbowY = this.p1.gameY + 300;
                     }
 
-                    this.p1.velX = this.p1.gameX - this.p1.prevX;
-                    this.p1.velY = this.p1.gameY - this.p1.prevY;
+                    // BUGFIX: Capping Velocity para evitar o "Instant Smash" no spawn pós-calibração
+                    let calculatedVelX = this.p1.gameX - (this.p1.prevX !== undefined ? this.p1.prevX : this.p1.gameX);
+                    let calculatedVelY = this.p1.gameY - (this.p1.prevY !== undefined ? this.p1.prevY : this.p1.gameY);
+
+                    if (Math.abs(calculatedVelX) > 150) calculatedVelX = 0;
+                    if (Math.abs(calculatedVelY) > 150) calculatedVelY = 0;
+
+                    this.p1.velX = calculatedVelX;
+                    this.p1.velY = calculatedVelY;
+
                     this.p1.prevX = this.p1.gameX;
                     this.p1.prevY = this.p1.gameY;
 
@@ -547,8 +571,8 @@
             const magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
             const magY = b.spinX * b.vz * CONF.MAGNUS_FORCE * 0.01;
             
-            b.vx += magX;
-            b.vy += magY + CONF.GRAVITY;
+            b.vx += isNaN(magX) ? 0 : magX;
+            b.vy += (isNaN(magY) ? 0 : magY) + CONF.GRAVITY;
             b.vx *= CONF.AIR_DRAG; b.vy *= CONF.AIR_DRAG; b.vz *= CONF.AIR_DRAG;
 
             const currentSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
@@ -589,7 +613,7 @@
             }
 
             const totalSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
-            if (totalSpeed > CONF.MAX_TOTAL_SPEED) {
+            if (totalSpeed > CONF.MAX_TOTAL_SPEED && !isNaN(totalSpeed)) {
                 const scale = CONF.MAX_TOTAL_SPEED / totalSpeed;
                 b.vx *= scale; b.vy *= scale; b.vz *= scale;
             }
@@ -641,8 +665,9 @@
         hitBall: function(who, offX, offY) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
-            let velX = isP1 ? paddle.velX : paddle.velX;
-            let velY = isP1 ? paddle.velY : 0;
+            let velX = paddle.velX || 0;
+            // Correção da IA: Usa velZ para simular efeito vertical da rebatida da IA
+            let velY = isP1 ? (paddle.velY || 0) : (paddle.velZ ? paddle.velZ * 0.15 : 0);
             
             if (isNaN(velX)) velX = 0;
             if (isNaN(velY)) velY = 0;
@@ -665,8 +690,8 @@
             this.ball.active = true;
             this.ball.lastHitBy = who;
             this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
-            this.ball.vx = (offX * 0.35) + (velX * 0.6);
-            this.ball.vy = -18 + (velY * 0.4) + (offY * 0.1); 
+            this.ball.vx = ((offX||0) * 0.35) + (velX * 0.6);
+            this.ball.vy = -18 + (velY * 0.4) + ((offY||0) * 0.1); 
             this.ball.spinY = velX * 1.0;
             this.ball.spinX = velY * 1.0;
 
@@ -703,20 +728,23 @@
 
         calculateAITarget: function() {
             const profile = this.activeAIProfile;
-            const predX = MathCore.predict(this.ball, this.p2.gameZ);
-            const predY = MathCore.predictY(this.ball, this.p2.gameZ);
+            let predX = MathCore.predict(this.ball, this.p2.gameZ);
+            let predY = MathCore.predictY(this.ball, this.p2.gameZ);
             
+            if (isNaN(predX)) predX = 0;
+            if (isNaN(predY)) predY = -200;
+
             const baseError = 40;
-            const speedFactor = Math.min(1, Math.abs(this.ball.vx) / 25);
+            const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
             const humanError = baseError * profile.difficultyFactor * speedFactor;
             
             const errorX = (Math.random() - 0.5) * humanError;
-            const errorY = (Math.random() - 0.5) * Math.abs(this.ball.vz) * 0.15; 
+            const errorY = (Math.random() - 0.5) * Math.abs(this.ball.vz || 0) * 0.15; 
 
             this.p2.targetX = predX + errorX;
             this.p2.targetY = predY + errorY; 
             
-            if (Math.abs(this.ball.vz) < 50) this.p2.targetZ = CONF.TABLE_L/2; 
+            if (Math.abs(this.ball.vz || 0) < 50) this.p2.targetZ = CONF.TABLE_L/2; 
             else this.p2.targetZ = CONF.TABLE_L/2 + 300;
         },
 
@@ -734,18 +762,18 @@
 
             const ai = this.p2;
             const profile = this.activeAIProfile;
-            const dx = ai.targetX - ai.gameX;
+            const dx = (ai.targetX || 0) - (ai.gameX || 0);
             
             ai.velX += dx * profile.speed;
             ai.velX *= 0.80; 
             ai.gameX += ai.velX;
             
-            const dz = ai.targetZ - ai.gameZ;
+            const dz = (ai.targetZ || 0) - (ai.gameZ || 0);
             ai.velZ += dz * 0.05;
             ai.velZ *= 0.85;
             ai.gameZ += ai.velZ;
 
-            ai.gameY = MathCore.lerp(ai.gameY, ai.targetY, 0.08);
+            ai.gameY = MathCore.lerp(ai.gameY || -200, ai.targetY || -200, 0.08);
             
             if (this.ball.vz < 0) {
                 ai.targetX = 0;
@@ -755,9 +783,9 @@
         },
 
         aiServe: function() {
-            this.ball.x = this.p2.gameX;
-            this.ball.y = this.p2.gameY;
-            this.ball.z = this.p2.gameZ - 100;
+            this.ball.x = this.p2.gameX || 0;
+            this.ball.y = this.p2.gameY || -200;
+            this.ball.z = (this.p2.gameZ || CONF.TABLE_L/2 + 200) - 100;
             this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
             this.hitBall('p2', (Math.random()-0.5)*20, 0);
         },
@@ -822,7 +850,7 @@
             const f2 = MathCore.project(2000, CONF.FLOOR_Y, 2000, w, h);
             const f3 = MathCore.project(2000, CONF.FLOOR_Y, -2000, w, h);
             const f4 = MathCore.project(-2000, CONF.FLOOR_Y, -2000, w, h);
-            if(f1.visible) {
+            if(f1.visible && !isNaN(f1.x)) {
                 ctx.beginPath(); ctx.moveTo(f1.x, f1.y); ctx.lineTo(f2.x, f2.y);
                 ctx.lineTo(f3.x, f3.y); ctx.lineTo(f4.x, f4.y); ctx.fill();
             }
@@ -846,7 +874,7 @@
             const pWrist = MathCore.project(this.p1.gameX, this.p1.gameY, wristZ, w, h);
             const pElbow = MathCore.project(this.p1.elbowX, this.p1.elbowY, elbowZ, w, h);
             
-            if (pWrist.visible && pElbow.visible) {
+            if (pWrist.visible && pElbow.visible && !isNaN(pWrist.x) && !isNaN(pElbow.x)) {
                 ctx.strokeStyle = "#e0ac69"; ctx.lineWidth = 18 * pWrist.s; ctx.lineCap = "round";
                 ctx.beginPath(); ctx.moveTo(pElbow.x, pElbow.y); ctx.lineTo(pWrist.x, pWrist.y); ctx.stroke();
                 ctx.fillStyle = "#e0ac69"; ctx.beginPath(); ctx.arc(pWrist.x, pWrist.y, 10*pWrist.s, 0, Math.PI*2); ctx.fill();
@@ -861,7 +889,7 @@
                 const p2 = MathCore.project(x+20, 0, z, w, h);
                 const p3 = MathCore.project(x+20, legH, z, w, h);
                 const p4 = MathCore.project(x-20, legH, z, w, h);
-                if(p1.visible) {
+                if(p1.visible && !isNaN(p1.x)) {
                     ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
                     ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y); ctx.fill();
                 }
@@ -876,7 +904,7 @@
             const c2b = MathCore.project(hw, th, -hl, w, h);
             const c3b = MathCore.project(hw, th, hl, w, h);
 
-            if (!c1.visible) return;
+            if (!c1.visible || isNaN(c1.x)) return;
 
             ctx.fillStyle = "#052040"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c2b.x, c2b.y); ctx.lineTo(c1b.x, c1b.y); ctx.fill();
             ctx.fillStyle = "#052550"; ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c3b.x, c3b.y); ctx.lineTo(c2b.x, c2b.y); ctx.fill();
@@ -893,7 +921,7 @@
 
         drawPaddle: function(ctx, x, y, z, color, w, h) {
             const pos = MathCore.project(x, y, z, w, h);
-            if (!pos.visible) return;
+            if (!pos.visible || isNaN(pos.x)) return;
             const scale = pos.s * CONF.PADDLE_SCALE;
             ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 20;
             ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(pos.x, pos.y, 65*scale, 0, Math.PI*2); ctx.fill();
@@ -911,7 +939,7 @@
                 if (Math.abs(this.ball.x) > CONF.TABLE_W/2 || Math.abs(this.ball.z) > CONF.TABLE_L/2) {
                     MathCore.project(this.ball.x, CONF.FLOOR_Y, this.ball.z, w, h); 
                 }
-                if (shadowPos.visible) {
+                if (shadowPos.visible && !isNaN(shadowPos.x)) {
                     const distToShadow = Math.abs(this.ball.y);
                     const alpha = MathCore.clamp(1 - (distToShadow/1000), 0.1, 0.5);
                     ctx.fillStyle = `rgba(0,0,0,${alpha})`;
@@ -924,7 +952,7 @@
             ctx.beginPath();
             this.ball.trail.forEach((t, i) => {
                 const tp = MathCore.project(t.x, t.y, t.z, w, h);
-                if (tp.visible) {
+                if (tp.visible && !isNaN(tp.x)) {
                     if(i===0) ctx.moveTo(tp.x, tp.y); else ctx.lineTo(tp.x, tp.y);
                 }
                 t.a -= 0.05;
@@ -933,7 +961,7 @@
             this.ball.trail = this.ball.trail.filter(t => t.a > 0);
 
             const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
-            if(pos.visible) {
+            if(pos.visible && !isNaN(pos.x)) {
                 const r = CONF.BALL_R * pos.s;
                 const grad = ctx.createRadialGradient(pos.x-r*0.3, pos.y-r*0.3, r*0.1, pos.x, pos.y, r);
                 grad.addColorStop(0, "#fff"); grad.addColorStop(1, "#f39c12");
@@ -946,7 +974,7 @@
             this.particles.forEach(p => {
                 p.x += p.vx; p.y += p.vy; p.z += p.vz; p.life -= 0.05;
                 const pos = MathCore.project(p.x, p.y, p.z, w, h);
-                if(pos.visible) {
+                if(pos.visible && !isNaN(pos.x)) {
                     ctx.globalAlpha = p.life; ctx.fillStyle = p.c; ctx.fillRect(pos.x, pos.y, 4*pos.s, 4*pos.s);
                 }
             });
@@ -1005,7 +1033,7 @@
             if (this.pose && this.pose.keypoints) {
                 this.drawSkeleton(ctx, w, h);
                 
-                if (this.handedness && this.p1.currRawX) {
+                if (this.handedness && this.p1.currRawX !== undefined && this.p1.currRawX !== null && !isNaN(this.p1.currRawX)) {
                     const cx = (this.p1.currRawX / 640) * w;
                     const cy = (this.p1.currRawY / 480) * h;
                     ctx.translate(cx, cy); ctx.rotate(-0.2);
@@ -1060,7 +1088,7 @@
                 ctx.strokeStyle = color; ctx.lineWidth = 4;
                 ctx.beginPath(); ctx.arc(tx, ty, 50, 0, Math.PI*2); ctx.stroke();
                 
-                if(this.p1.currRawX) {
+                if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !isNaN(this.p1.currRawX)) {
                     const cx = (this.p1.currRawX / 640) * w;
                     const cy = (this.p1.currRawY / 480) * h;
                     ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
@@ -1087,13 +1115,17 @@
                  if(p1 && p2) {
                      const x1 = ((640 - p1.x) / 640) * w; const y1 = (p1.y / 480) * h;
                      const x2 = ((640 - p2.x) / 640) * w; const y2 = (p2.y / 480) * h;
-                     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+                     if(!isNaN(x1) && !isNaN(y1) && !isNaN(x2) && !isNaN(y2)) {
+                        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+                     }
                  }
              });
              kps.forEach(k => {
                  if(k.score > 0.3) {
                      const x = ((640 - k.x) / 640) * w; const y = (k.y / 480) * h;
-                     ctx.fillStyle = "#0f0"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+                     if(!isNaN(x) && !isNaN(y)) {
+                        ctx.fillStyle = "#0f0"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+                     }
                  }
              });
         },
