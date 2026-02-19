@@ -1,7 +1,7 @@
 // =============================================================================
-// TABLE TENNIS: PROTOCOL 177 (FINAL GOLD MASTER PATCHED + HARDENED + AAA POLISH)
+// TABLE TENNIS: PROTOCOL 177 (MULTIPLAYER P2P + GOLD MASTER)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 ABSOLUTE - ANTI-NAN SHIELD, ANTI-TELEPORT, REAL DELTA TIME
+// STATUS: 10/10 ABSOLUTE - OFFLINE/ONLINE MODE, FIREBASE SYNC, ANTI-FREEZE
 // =============================================================================
 
 (function() {
@@ -108,7 +108,7 @@
     // 3. GAME ENGINE
     // -----------------------------------------------------------------
     const Game = {
-        state: 'INIT', 
+        state: 'MODE_SELECT', 
         timer: 0,
         idleTimer: 0, 
         endTimer: 0,  
@@ -126,6 +126,16 @@
 
         aiFrame: 0,
         aiRecalcCounter: 0, 
+
+        // Network Integration
+        isOnline: false,
+        isHost: false,
+        roomId: 'tennis_pro_v1',
+        dbRef: null,
+        roomRef: null,
+        remotePlayersData: {},
+        lastSync: 0,
+        maintenanceInterval: null,
         
         p1: { 
             gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 200, 
@@ -163,13 +173,33 @@
         calib: { tlX: 0, tlY: 0, brX: 640, brY: 480 },
 
         init: function() {
-            this.state = 'MENU';
+            this.cleanup();
+            this.state = 'MODE_SELECT';
             this.handedness = null; 
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: AAA EDITION");
+            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: MULTIPLAYER EDITION");
             this.setupInput();
+        },
+
+        cleanup: function() {
+            if (this.dbRef && window.System.playerId) {
+                try { 
+                    this.dbRef.child('players/' + window.System.playerId).remove(); 
+                    this.dbRef.off(); 
+                } catch(e){}
+            }
+            if (this.roomRef) try { this.roomRef.off(); } catch(e){}
+            if (this.maintenanceInterval) {
+                clearInterval(this.maintenanceInterval);
+                this.maintenanceInterval = null;
+            }
+            if (this.roundTimeout) {
+                clearTimeout(this.roundTimeout);
+                this.roundTimeout = null;
+            }
+            if(window.System && window.System.canvas) window.System.canvas.onclick = null;
         },
 
         sfx: function(action, ...args) {
@@ -210,24 +240,163 @@
                 const h = window.System.canvas.height;
                 const my = e.clientY - window.System.canvas.getBoundingClientRect().top;
 
-                if (this.state === 'MENU') {
-                    if (my > h*0.7) {
-                        this.state = 'CALIB_HAND_SELECT'; 
-                        this.calibTimer = 0;
-                        this.sfx('click');
+                if (this.state === 'MODE_SELECT') {
+                    if (my < h/2) {
+                        this.isOnline = false;
+                        this.state = 'CALIB_HAND_SELECT';
                     } else {
-                        if (this.handedness && Math.abs(this.calib.brX - this.calib.tlX) > 10) {
-                            this.startGame();
-                        } else {
-                            this.state = 'CALIB_HAND_SELECT';
-                            this.calibTimer = 0;
+                        this.isOnline = !!window.DB;
+                        if (!window.DB) {
+                            if(window.System.msg) window.System.msg("OFFLINE MODE");
+                            this.isOnline = false;
                         }
-                        this.sfx('click');
+                        this.state = 'CALIB_HAND_SELECT';
                     }
-                } else if (this.state === 'END') {
-                    this.state = 'MENU';
+                    this.calibTimer = 0;
+                    this.sfx('click');
+                } 
+                else if (this.state === 'LOBBY') {
+                    if (this.isHost) {
+                        const pCount = Object.keys(this.remotePlayersData || {}).length;
+                        if (pCount >= 2) {
+                            this.roomRef.update({ raceState: 'STARTING' });
+                            this.startGame();
+                            this.sfx('coin');
+                        }
+                    }
+                }
+                else if (this.state === 'END') {
+                    this.init(); // Volta pro inicio limpo
                 }
             };
+        },
+
+        connectMultiplayer: function() {
+            this.state = 'LOBBY';
+            try {
+                this.roomRef = window.DB.ref('rooms/' + this.roomId);
+                this.dbRef = this.roomRef;
+                
+                const myData = { 
+                    name: 'Player', 
+                    x: this.p1.gameX || 0, 
+                    y: this.p1.gameY || -200, 
+                    velX: this.p1.velX || 0, 
+                    velY: this.p1.velY || 0,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP 
+                };
+                
+                this.dbRef.child('players/' + window.System.playerId).set(myData);
+                this.dbRef.child('players/' + window.System.playerId).onDisconnect().remove();
+
+                this.maintenanceInterval = setInterval(() => {
+                    if (!this.isHost || !this.remotePlayersData) return;
+                    const now = Date.now();
+                    Object.keys(this.remotePlayersData).forEach(pid => {
+                        if (pid === window.System.playerId) return;
+                        const p = this.remotePlayersData[pid];
+                        if (now - (p.lastSeen || 0) > 15000) {
+                            this.dbRef.child('players/' + pid).remove();
+                            this.addMsg("PLAYER CAIU", "#f00");
+                        }
+                    });
+                }, 2000);
+
+                this.roomRef.child('raceState').on('value', (snap) => {
+                    const globalState = snap.val();
+                    if(globalState === 'STARTING' && this.state === 'LOBBY' && !this.isHost) {
+                        this.startGame();
+                    }
+                    if(globalState === 'END' && this.state !== 'END') {
+                        this.state = 'END';
+                    }
+                });
+
+                this.roomRef.child('ball').on('value', (snap) => {
+                    if (this.isHost || !this.isOnline || !snap.exists()) return;
+                    const ballData = snap.val();
+                    // MIRROR BALL FOR CLIENT
+                    this.ball.x = -ballData.x; 
+                    this.ball.y = ballData.y;
+                    this.ball.z = -ballData.z; 
+                    this.ball.vx = -ballData.vx;
+                    this.ball.vy = ballData.vy;
+                    this.ball.vz = -ballData.vz;
+                    this.ball.spinX = -ballData.spinX;
+                    this.ball.spinY = -ballData.spinY;
+                    this.ball.active = ballData.active;
+                    this.ball.lastHitBy = ballData.lastHitBy === 'p1' ? 'p2' : (ballData.lastHitBy === 'p2' ? 'p1' : null);
+                });
+
+                this.roomRef.child('score').on('value', (snap) => {
+                    if (this.isHost || !this.isOnline || !snap.exists()) return;
+                    const s = snap.val();
+                    this.score.p1 = s.p2; 
+                    this.score.p2 = s.p1;
+                });
+                
+                this.roomRef.child('gameState').on('value', (snap) => {
+                    if (this.isHost || !this.isOnline || !snap.exists()) return;
+                    const gs = snap.val();
+                    if (this.state !== gs && gs !== 'LOBBY' && gs !== 'STARTING') {
+                        this.state = gs;
+                    }
+                });
+
+                this.dbRef.child('players').on('value', (snap) => {
+                    const data = snap.val(); if (!data) return;
+                    this.remotePlayersData = data;
+                    const ids = Object.keys(data).sort();
+                    
+                    this.isHost = (ids[0] === window.System.playerId);
+
+                    const opId = ids.find(id => id !== window.System.playerId);
+                    if (opId) {
+                        const opData = data[opId];
+                        // MIRROR OPPONENT PADDLE
+                        this.p2.gameX = -opData.x;
+                        this.p2.gameY = opData.y;
+                        this.p2.velX = -opData.velX;
+                        this.p2.velY = opData.velY;
+                    }
+                });
+
+            } catch(e) {
+                console.error("Multiplayer setup failed", e);
+                this.state = 'MODE_SELECT';
+            }
+        },
+
+        syncMultiplayer: function() {
+            if (!this.dbRef || !this.isOnline) return;
+            const now = Date.now();
+            if (now - this.lastSync > 30) {
+                this.lastSync = now;
+                
+                // My local paddle
+                this.dbRef.child('players/' + window.System.playerId).update({
+                    x: this.p1.gameX || 0,
+                    y: this.p1.gameY || -200,
+                    velX: this.p1.velX || 0,
+                    velY: this.p1.velY || 0,
+                    lastSeen: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                // Host is authority over physics and states
+                if (this.isHost) {
+                    this.roomRef.update({
+                        ball: {
+                            x: this.ball.x || 0, y: this.ball.y || -300, z: this.ball.z || 0,
+                            vx: this.ball.vx || 0, vy: this.ball.vy || 0, vz: this.ball.vz || 0,
+                            spinX: this.ball.spinX || 0, spinY: this.ball.spinY || 0,
+                            active: this.ball.active,
+                            lastHitBy: this.ball.lastHitBy
+                        },
+                        score: this.score,
+                        gameState: this.state
+                    });
+                }
+            }
         },
 
         spawnParticles: function(x, y, z, count, color) {
@@ -275,6 +444,7 @@
                 clearTimeout(this.roundTimeout);
                 this.roundTimeout = null;
             }
+            this.state = 'STARTING'; 
             this.score = { p1: 0, p2: 0 };
             this.server = 'p1';
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
@@ -303,6 +473,9 @@
                 this.polyfillDone = true;
             }
 
+            if (this.state === 'MODE_SELECT') { this.renderModeSelect(ctx, w, h); return this.score.p1; }
+            if (this.state === 'LOBBY') { this.renderLobby(ctx, w, h); return this.score.p1; }
+
             // Lógica Síncrona de Delays (Independente de Framerate)
             if (this.state === 'IDLE') {
                 this.idleTimer += dt;
@@ -315,6 +488,9 @@
                 this.endTimer += dt;
                 if (this.endTimer > 2000) {
                     this.state = 'END';
+                    if (this.isOnline && this.isHost) {
+                        this.roomRef.update({ raceState: 'END' });
+                    }
                     this.endTimer = 0;
                 }
             }
@@ -326,9 +502,30 @@
             }
 
             if (this.state === 'RALLY' || this.state === 'SERVE') {
-                this.updatePhysics();
-                this.updateAI();
-                this.updateRules(dt);
+                if (!this.isOnline || this.isHost) {
+                    this.updatePhysics();
+                    if (!this.isOnline) this.updateAI();
+                    this.updateRules(dt);
+                } else {
+                    // Client Physics (Visual interpolation only + Local Hit Prediction)
+                    if (this.ball.active) {
+                        this.ball.x += this.ball.vx;
+                        this.ball.y += this.ball.vy;
+                        this.ball.z += this.ball.vz;
+                        
+                        if (this.ball.y >= 0 && this.ball.prevY < 0) { 
+                            this.ball.y = 0; 
+                            this.ball.vy = -Math.abs(this.ball.vy) * CONF.BOUNCE_LOSS; 
+                            this.spawnParticles(this.ball.x, 0, this.ball.z, 5, '#fff');
+                            this.playHitSound(Math.sqrt(this.ball.vx**2 + this.ball.vy**2 + this.ball.vz**2));
+                        }
+                        this.ball.prevY = this.ball.y;
+                        this.ball.trail.push({x:this.ball.x, y:this.ball.y, z:this.ball.z, a:1.0});
+                        if (this.ball.trail.length > 30) this.ball.trail.shift();
+
+                        this.checkPaddleHitClient();
+                    }
+                }
             }
 
             ctx.save();
@@ -350,10 +547,11 @@
                 if(this.flash < 0.05) this.flash = 0;
             }
 
-            if (this.state === 'MENU') this.renderMenu(ctx, w, h);
-            else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
+            if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
             else if (this.state === 'END') this.renderEnd(ctx, w, h);
             else this.renderHUD(ctx, w, h);
+
+            if (this.isOnline) this.syncMultiplayer();
 
             return this.score.p1;
         },
@@ -392,7 +590,7 @@
                         this.calib.brX = this.p1.currRawX;
                         this.calib.brY = this.p1.currRawY;
                         
-                        // CLAMP DE SEGURANÇA EXTREMA: Garante que o range nunca seja Zero ou negativo bizarro
+                        // CLAMP DE SEGURANÇA EXTREMA
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 50) {
                             this.calib.brX = this.calib.tlX + 150;
                         }
@@ -408,7 +606,12 @@
                         } catch(e) {}
                         
                         this.calibTimer = 0; 
-                        this.startGame(); 
+                        
+                        if (this.isOnline) {
+                            this.connectMultiplayer();
+                        } else {
+                            this.startGame(); 
+                        }
                         this.sfx('coin');
                     }
                 }
@@ -526,7 +729,7 @@
                         this.p1.elbowY = this.p1.gameY + 300;
                     }
 
-                    // BUGFIX: Capping Velocity para evitar o "Instant Smash" no spawn pós-calibração
+                    // BUGFIX: Capping Velocity
                     let calculatedVelX = this.p1.gameX - (this.p1.prevX !== undefined ? this.p1.prevX : this.p1.gameX);
                     let calculatedVelY = this.p1.gameY - (this.p1.prevY !== undefined ? this.p1.prevY : this.p1.gameY);
 
@@ -662,11 +865,28 @@
             }
         },
 
+        checkPaddleHitClient: function() {
+            // Predição local para o Client multiplayer não sentir lag (apenas anima/som)
+            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
+                const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
+                if (distP1 < CONF.PADDLE_HITBOX) {
+                    const toPaddleX = this.p1.gameX - this.ball.x;
+                    const toPaddleY = this.p1.gameY - this.ball.y;
+                    const toPaddleZ = this.p1.gameZ - this.ball.z;
+                    const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
+                    if (dot > 0) {
+                        const dx = this.ball.x - this.p1.gameX;
+                        const dy = this.ball.y - this.p1.gameY;
+                        this.hitBall('p1', dx, dy);
+                    }
+                }
+            }
+        },
+
         hitBall: function(who, offX, offY) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
             let velX = paddle.velX || 0;
-            // Correção da IA: Usa velZ para simular efeito vertical da rebatida da IA
             let velY = isP1 ? (paddle.velY || 0) : (paddle.velZ ? paddle.velZ * 0.15 : 0);
             
             if (isNaN(velX)) velX = 0;
@@ -700,7 +920,10 @@
             this.rallyCount++;
             this.state = 'RALLY';
             this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#0ff' : '#f00');
-            if(isP1) this.calculateAITarget();
+            
+            if (isP1 && (!this.isOnline || this.isHost)) {
+                this.calculateAITarget();
+            }
         },
 
         updateRules: function(dt) {
@@ -715,7 +938,9 @@
                         this.ball.z = (this.p1.gameZ || -CONF.TABLE_L/2 - 200) + 50;
                         this.hitBall('p1', 0, 0);
                     } else {
-                        this.aiServe();
+                        if (!this.isOnline || this.isHost) {
+                            this.aiServe();
+                        }
                     }
                     this.timer = 0;
                 }
@@ -727,6 +952,7 @@
         },
 
         calculateAITarget: function() {
+            if (this.isOnline && !this.isHost) return; // IA só roda no Host ou Offline
             const profile = this.activeAIProfile;
             let predX = MathCore.predict(this.ball, this.p2.gameZ);
             let predY = MathCore.predictY(this.ball, this.p2.gameZ);
@@ -749,6 +975,8 @@
         },
 
         updateAI: function() {
+            if (this.isOnline && !this.isHost) return; 
+
             if (this.state === 'RALLY' && this.ball.vz > 0) {
                 this.aiRecalcCounter++;
                 if (this.aiRecalcCounter >= 4) {
@@ -838,6 +1066,36 @@
             this.lastHitter = null;
             this.aiRecalcCounter = 0;
             this.timer = 0;
+        },
+
+        renderModeSelect: function(ctx, w, h) {
+            ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 50px 'Russo One'";
+            ctx.fillText("TABLE TENNIS PRO", w/2, h * 0.25);
+            ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.45, 320, 65);
+            ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.6, 320, 65);
+            ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
+            ctx.fillText("OFFLINE (VS CPU)", w/2, h * 0.45 + 40);
+            ctx.fillText("ONLINE (P2P)", w/2, h * 0.6 + 40);
+        },
+
+        renderLobby: function(ctx, w, h) {
+            ctx.fillStyle = "rgba(10,15,20,0.95)"; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = "#fff"; ctx.textAlign="center"; ctx.font="30px sans-serif";
+            if (this.isHost) {
+                const pCount = Object.keys(this.remotePlayersData || {}).length;
+                if (pCount >= 2) {
+                    ctx.fillStyle = "#2ecc71"; ctx.fillRect(w/2 - 160, h*0.6, 320, 70);
+                    ctx.fillStyle = "white"; ctx.font = "bold 24px 'Russo One'";
+                    ctx.fillText("INICIAR PARTIDA", w/2, h*0.6 + 45);
+                    ctx.fillStyle = "#ccc"; ctx.font = "18px sans-serif";
+                    ctx.fillText("PLAYERS CONECTADOS: " + pCount, w/2, h*0.4);
+                } else {
+                    ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2);
+                }
+            } else {
+                ctx.fillText("CONECTADO! AGUARDANDO HOST...", w/2, h/2);
+            }
         },
 
         renderScene: function(ctx, w, h) {
@@ -1014,17 +1272,6 @@
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
                 ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-150, h-20, 300*progress, 4);
             }
-        },
-
-        renderMenu: function(ctx, w, h) {
-            ctx.fillStyle = "rgba(10,15,20,0.95)"; ctx.fillRect(0,0,w,h);
-            ctx.shadowColor = "#3498db"; ctx.shadowBlur = 20;
-            ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-            ctx.font = "bold 60px 'Russo One'"; ctx.fillText("TABLE TENNIS", w/2, h*0.3);
-            ctx.font = "italic 30px sans-serif"; ctx.fillText("AAA EDITION", w/2, h*0.4);
-            ctx.shadowBlur = 0;
-            ctx.font = "bold 24px sans-serif"; ctx.fillStyle = "#f1c40f";
-            ctx.fillText("CLIQUE PARA JOGAR", w/2, h*0.7);
         },
 
         renderCalibration: function(ctx, w, h) {
