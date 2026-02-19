@@ -30,9 +30,9 @@
         SWING_FORCE: 3.6,    
         SMASH_THRESH: 30,    
 
-        CAM_Y: -450,        // Altura da câmara ajustada para o nível dos olhos
-        CAM_Z: -2400,       // Distância da câmara para enquadrar a mesa toda
-        FOV: 800,           // Ajuste de perspetiva para ecrãs de telemóvel
+        CAM_Y: -450,        // Altura da câmera ajustada para o nível dos olhos
+        CAM_Z: -2400,       // Distância da câmera para enquadrar a mesa toda
+        FOV: 800,           // Ajuste de perspectiva para telas de celular
 
         // Calibração
         CALIB_TIME: 1500,      
@@ -267,7 +267,7 @@
             window.System.canvas.ontouchstart = handlePointer;
             window.System.canvas.ontouchmove = (e) => {
                 handlePointer(e);
-                // Evita que o ecrã role para baixo enquanto jogas
+                // Evita que a tela role para baixo enquanto você joga
                 if (this.useMouse && e.cancelable) e.preventDefault();
             };
 
@@ -292,7 +292,7 @@
                         this.isOnline = !!window.DB;
                         this.useMouse = false;
                         if (!window.DB) {
-                            if(window.System.msg) window.System.msg("OFFLINE MODE");
+                            if(window.System.msg) window.System.msg("MODO OFFLINE");
                             this.isOnline = false;
                         }
                         this.state = 'CALIB_HAND_SELECT';
@@ -659,7 +659,7 @@
         processPose: function(pose) {
             this.pose = pose; 
 
-            // Controlos por Toque e Mouse
+            // Controles por Toque e Mouse
             if (this.useMouse) {
                 const w = window.System?.canvas?.width || 640;
                 const h = window.System?.canvas?.height || 480;
@@ -704,7 +704,7 @@
                 return;
             }
 
-            // Lógica de Calibração da Câmara
+            // Lógica de Calibração da Câmera
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) {
                     this.calibHandCandidate = null;
@@ -899,7 +899,7 @@
                         if (this.lastHitter === side) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES");
                         else {
                             this.ball.bounceCount = Math.min(this.ball.bounceCount + 1, 2);
-                            if(this.ball.bounceCount >= 2) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS RESSALTOS");
+                            if(this.ball.bounceCount >= 2) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS QUIQUES");
                         }
                     }
                 }
@@ -1023,7 +1023,7 @@
                 this.timer += delta;
                 if (this.timer > CONF.AUTO_SERVE_DELAY) {
                     if (this.server === 'p1') {
-                        this.addMsg("SERVIÇO AUTOMÁTICO", "#fff");
+                        this.addMsg("SAQUE AUTOMÁTICO", "#fff");
                         this.ball.x = this.p1.gameX || 0; 
                         this.ball.y = -200; 
                         this.ball.z = (this.p1.gameZ || -CONF.TABLE_L/2 - 200) + 50;
@@ -1169,7 +1169,7 @@
             ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.65, 320, 55);
             
             ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
-            ctx.fillText("OFFLINE (CÂMARA)", w/2, h * 0.35 + 35);
+            ctx.fillText("OFFLINE (CÂMERA)", w/2, h * 0.35 + 35);
             ctx.fillText("OFFLINE (TOQUE/DEDO) 👆", w/2, h * 0.50 + 35);
             ctx.fillText("ONLINE (P2P)", w/2, h * 0.65 + 35);
         },
@@ -1184,12 +1184,12 @@
                     ctx.fillStyle = "white"; ctx.font = "bold 24px 'Russo One'";
                     ctx.fillText("INICIAR PARTIDA", w/2, h*0.6 + 45);
                     ctx.fillStyle = "#ccc"; ctx.font = "18px sans-serif";
-                    ctx.fillText("JOGADORES LIGADOS: " + pCount, w/2, h*0.4);
+                    ctx.fillText("JOGADORES CONECTADOS: " + pCount, w/2, h*0.4);
                 } else {
-                    ctx.fillText("A AGUARDAR OPONENTE...", w/2, h/2);
+                    ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2);
                 }
             } else {
-                ctx.fillText("LIGADO! A AGUARDAR ANFITRIÃO...", w/2, h/2);
+                ctx.fillText("CONECTADO! AGUARDANDO HOST...", w/2, h/2);
             }
         },
 
@@ -1363,7 +1363,7 @@
 
             if (this.state === 'SERVE' && this.server === 'p1') {
                 ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx-150, h-60, 300, 40);
-                ctx.fillStyle = "#fff"; ctx.font = "18px sans-serif"; ctx.fillText("LEVANTE A RAQUETE PARA SERVIR", cx, h-33);
+                ctx.fillStyle = "#fff"; ctx.font = "18px sans-serif"; ctx.fillText("LEVANTE A RAQUETE PARA SACAR", cx, h-33);
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
                 ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-150, h-20, 300*progress, 4);
             }
@@ -1402,17 +1402,17 @@
                 }
             } else {
                 ctx.fillStyle = "#fff"; ctx.font = "30px sans-serif"; ctx.textAlign = "center";
-                ctx.fillText("A PROCURAR JOGADOR...", w/2, h*0.5);
+                ctx.fillText("PROCURANDO JOGADOR...", w/2, h*0.5);
                 ctx.font = "20px sans-serif"; ctx.fillStyle = "#aaa";
-                ctx.fillText("Fique em frente à câmara e certifique-se de que há luz.", w/2, h*0.6);
+                ctx.fillText("Fique em frente à câmera e certifique-se de que há luz.", w/2, h*0.6);
             }
 
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
 
             if (this.state === 'CALIB_HAND_SELECT') {
-                ctx.font = "bold 40px sans-serif"; ctx.fillText("ESCOLHA A SUA MÃO", w/2, h*0.15);
+                ctx.font = "bold 40px sans-serif"; ctx.fillText("ESCOLHA SUA MÃO", w/2, h*0.15);
                 ctx.font = "24px sans-serif"; ctx.fillStyle = "#aaa";
-                ctx.fillText("Levante a mão para selecionar (Mantenha)", w/2, h*0.22);
+                ctx.fillText("Levante a mão para selecionar (Segure)", w/2, h*0.22);
                 
                 ctx.font = "50px sans-serif";
                 
@@ -1432,7 +1432,7 @@
             } else {
                 const isTL = this.state === 'CALIB_TL';
                 ctx.font = "bold 30px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText(isTL ? "MANTENHA A MÃO NO ALVO VERDE" : "MANTENHA A MÃO NO ALVO VERMELHO", w/2, h*0.15);
+                ctx.fillText(isTL ? "SEGURE A MÃO NO ALVO VERDE" : "SEGURE A MÃO NO ALVO VERMELHO", w/2, h*0.15);
                 
                 const tx = isTL ? 100 : w-100;
                 const ty = isTL ? 100 : h-100;
