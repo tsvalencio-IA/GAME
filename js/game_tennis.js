@@ -1211,4 +1211,4 @@
         window.System.registerGame('tennis', 'Ping Pong', '🏓', Game, { camOpacity: 0.1 });
     }
 
-})();l
+})();
