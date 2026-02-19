@@ -184,7 +184,7 @@
         },
 
         cleanup: function() {
-            if (this.dbRef && window.System.playerId) {
+            if (this.dbRef && window.System && window.System.playerId) {
                 try { 
                     this.dbRef.child('players/' + window.System.playerId).remove(); 
                     this.dbRef.off(); 
@@ -211,6 +211,8 @@
                         window.Sfx.play(1200, 'sine', 0.1);
                     } else if (action === 'click' && typeof window.Sfx.play === 'function') {
                         window.Sfx.play(1000, 'sine', 0.1, 0.08);
+                    } else if (action === 'hit' && typeof window.Sfx.play === 'function') {
+                        window.Sfx.play(300, 'sine', 0.1, 0.1);
                     }
                 }
             } catch (e) {
@@ -259,14 +261,14 @@
                     if (this.isHost) {
                         const pCount = Object.keys(this.remotePlayersData || {}).length;
                         if (pCount >= 2) {
-                            this.roomRef.update({ raceState: 'STARTING' });
+                            this.roomRef.update({ gameState: 'STARTING' });
                             this.startGame();
                             this.sfx('coin');
                         }
                     }
                 }
                 else if (this.state === 'END') {
-                    this.init(); // Volta pro inicio limpo
+                    this.init(); 
                 }
             };
         },
@@ -302,7 +304,7 @@
                     });
                 }, 2000);
 
-                this.roomRef.child('raceState').on('value', (snap) => {
+                this.roomRef.child('gameState').on('value', (snap) => {
                     const globalState = snap.val();
                     if(globalState === 'STARTING' && this.state === 'LOBBY' && !this.isHost) {
                         this.startGame();
@@ -333,14 +335,6 @@
                     const s = snap.val();
                     this.score.p1 = s.p2; 
                     this.score.p2 = s.p1;
-                });
-                
-                this.roomRef.child('gameState').on('value', (snap) => {
-                    if (this.isHost || !this.isOnline || !snap.exists()) return;
-                    const gs = snap.val();
-                    if (this.state !== gs && gs !== 'LOBBY' && gs !== 'STARTING') {
-                        this.state = gs;
-                    }
                 });
 
                 this.dbRef.child('players').on('value', (snap) => {
@@ -373,7 +367,6 @@
             if (now - this.lastSync > 30) {
                 this.lastSync = now;
                 
-                // My local paddle
                 this.dbRef.child('players/' + window.System.playerId).update({
                     x: this.p1.gameX || 0,
                     y: this.p1.gameY || -200,
@@ -382,7 +375,6 @@
                     lastSeen: firebase.database.ServerValue.TIMESTAMP
                 });
 
-                // Host is authority over physics and states
                 if (this.isHost) {
                     this.roomRef.update({
                         ball: {
@@ -489,7 +481,7 @@
                 if (this.endTimer > 2000) {
                     this.state = 'END';
                     if (this.isOnline && this.isHost) {
-                        this.roomRef.update({ raceState: 'END' });
+                        this.roomRef.update({ gameState: 'END' });
                     }
                     this.endTimer = 0;
                 }
@@ -507,24 +499,7 @@
                     if (!this.isOnline) this.updateAI();
                     this.updateRules(dt);
                 } else {
-                    // Client Physics (Visual interpolation only + Local Hit Prediction)
-                    if (this.ball.active) {
-                        this.ball.x += this.ball.vx;
-                        this.ball.y += this.ball.vy;
-                        this.ball.z += this.ball.vz;
-                        
-                        if (this.ball.y >= 0 && this.ball.prevY < 0) { 
-                            this.ball.y = 0; 
-                            this.ball.vy = -Math.abs(this.ball.vy) * CONF.BOUNCE_LOSS; 
-                            this.spawnParticles(this.ball.x, 0, this.ball.z, 5, '#fff');
-                            this.playHitSound(Math.sqrt(this.ball.vx**2 + this.ball.vy**2 + this.ball.vz**2));
-                        }
-                        this.ball.prevY = this.ball.y;
-                        this.ball.trail.push({x:this.ball.x, y:this.ball.y, z:this.ball.z, a:1.0});
-                        if (this.ball.trail.length > 30) this.ball.trail.shift();
-
-                        this.checkPaddleHitClient();
-                    }
+                    this.updatePhysicsClient(dt);
                 }
             }
 
@@ -590,7 +565,6 @@
                         this.calib.brX = this.p1.currRawX;
                         this.calib.brY = this.p1.currRawY;
                         
-                        // CLAMP DE SEGURANÇA EXTREMA
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 50) {
                             this.calib.brX = this.calib.tlX + 150;
                         }
@@ -729,7 +703,6 @@
                         this.p1.elbowY = this.p1.gameY + 300;
                     }
 
-                    // BUGFIX: Capping Velocity
                     let calculatedVelX = this.p1.gameX - (this.p1.prevX !== undefined ? this.p1.prevX : this.p1.gameX);
                     let calculatedVelY = this.p1.gameY - (this.p1.prevY !== undefined ? this.p1.prevY : this.p1.gameY);
 
@@ -757,6 +730,30 @@
             } else {
                 this.handleLostTracking();
             }
+        },
+
+        updatePhysicsClient: function(dt) {
+            if (!this.ball.active) return;
+            const b = this.ball;
+            b.prevY = b.y;
+            
+            b.x += b.vx; 
+            b.y += b.vy; 
+            b.z += b.vz;
+
+            if (b.y >= 0 && b.prevY < 0) {
+                b.y = 0; 
+                b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
+                this.spawnParticles(b.x, 0, b.z, 5, '#fff');
+                this.playHitSound(Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2));
+            }
+
+            if (Math.abs(b.vz) > 30) {
+                this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
+                if (this.ball.trail.length > 30) this.ball.trail.shift();
+            }
+
+            this.checkPaddleHitClient();
         },
 
         updatePhysics: function() {
@@ -838,6 +835,23 @@
             }
         },
 
+        checkPaddleHitClient: function() {
+            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
+                const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
+                if (distP1 < CONF.PADDLE_HITBOX) {
+                    const toPaddleX = this.p1.gameX - this.ball.x;
+                    const toPaddleY = this.p1.gameY - this.ball.y;
+                    const toPaddleZ = this.p1.gameZ - this.ball.z;
+                    const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
+                    if (dot > 0) {
+                        this.sfx('hit');
+                        this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#0ff');
+                        this.ball.lastHitBy = 'p1'; 
+                    }
+                }
+            }
+        },
+
         checkPaddleHit: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
@@ -861,24 +875,6 @@
                     const toPaddleZ = this.p2.gameZ - this.ball.z;
                     const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
                     if (dot > 0) this.hitBall('p2', 0, 0);
-                }
-            }
-        },
-
-        checkPaddleHitClient: function() {
-            // Predição local para o Client multiplayer não sentir lag (apenas anima/som)
-            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
-                if (distP1 < CONF.PADDLE_HITBOX) {
-                    const toPaddleX = this.p1.gameX - this.ball.x;
-                    const toPaddleY = this.p1.gameY - this.ball.y;
-                    const toPaddleZ = this.p1.gameZ - this.ball.z;
-                    const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
-                    if (dot > 0) {
-                        const dx = this.ball.x - this.p1.gameX;
-                        const dy = this.ball.y - this.p1.gameY;
-                        this.hitBall('p1', dx, dy);
-                    }
                 }
             }
         },
@@ -952,7 +948,7 @@
         },
 
         calculateAITarget: function() {
-            if (this.isOnline && !this.isHost) return; // IA só roda no Host ou Offline
+            if (this.isOnline && !this.isHost) return; 
             const profile = this.activeAIProfile;
             let predX = MathCore.predict(this.ball, this.p2.gameZ);
             let predY = MathCore.predictY(this.ball, this.p2.gameZ);
@@ -975,7 +971,7 @@
         },
 
         updateAI: function() {
-            if (this.isOnline && !this.isHost) return; 
+            if (this.isOnline) return; 
 
             if (this.state === 'RALLY' && this.ball.vz > 0) {
                 this.aiRecalcCounter++;
@@ -1272,6 +1268,17 @@
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
                 ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-150, h-20, 300*progress, 4);
             }
+        },
+
+        renderMenu: function(ctx, w, h) {
+            ctx.fillStyle = "rgba(10,15,20,0.95)"; ctx.fillRect(0,0,w,h);
+            ctx.shadowColor = "#3498db"; ctx.shadowBlur = 20;
+            ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+            ctx.font = "bold 60px 'Russo One'"; ctx.fillText("TABLE TENNIS", w/2, h*0.3);
+            ctx.font = "italic 30px sans-serif"; ctx.fillText("AAA EDITION", w/2, h*0.4);
+            ctx.shadowBlur = 0;
+            ctx.font = "bold 24px sans-serif"; ctx.fillStyle = "#f1c40f";
+            ctx.fillText("CLIQUE PARA JOGAR", w/2, h*0.7);
         },
 
         renderCalibration: function(ctx, w, h) {
