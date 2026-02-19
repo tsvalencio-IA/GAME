@@ -3,6 +3,7 @@
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
 // STATUS: 10/10 ABSOLUTE - DYNAMIC AUDIO, PRO AI, PROGRESSIVE DIFF, STABLE
 // BUGFIX: TIMER REAL (DT), AUTO-SAQUE GARANTIDO, FALLBACK TRACKING, ANTI-FREEZE
+// BUGFIX CRÍTICO: SAFE AUDIO WRAPPER PARA PREVENIR TRAVAMENTO NA CALIBRAÇÃO
 // =============================================================================
 
 (function() {
@@ -173,6 +174,23 @@
             this.setupInput();
         },
 
+        // Wrapper de segurança para impedir travamento se o core.js falhar
+        sfx: function(action, ...args) {
+            try {
+                if (window.Sfx) {
+                    if (typeof window.Sfx[action] === 'function') {
+                        window.Sfx[action](...args);
+                    } else if (action === 'coin' && typeof window.Sfx.play === 'function') {
+                        window.Sfx.play(1200, 'sine', 0.1);
+                    } else if (action === 'click' && typeof window.Sfx.play === 'function') {
+                        window.Sfx.play(1000, 'sine', 0.1, 0.08);
+                    }
+                }
+            } catch (e) {
+                console.error("SFX Exception:", e);
+            }
+        },
+
         loadCalib: function() {
             try {
                 const s = localStorage.getItem('tennis_calib_auto');
@@ -194,7 +212,7 @@
                     if (my > h*0.7) {
                         this.state = 'CALIB_HAND_SELECT'; 
                         this.calibTimer = 0;
-                        window.Sfx.click();
+                        this.sfx('click');
                     } else {
                         if (this.handedness && this.calib.brX !== 640) {
                             this.startGame();
@@ -202,7 +220,7 @@
                             this.state = 'CALIB_HAND_SELECT';
                             this.calibTimer = 0;
                         }
-                        window.Sfx.click();
+                        this.sfx('click');
                     }
                 } else if (this.state === 'END') {
                     this.state = 'MENU';
@@ -220,6 +238,9 @@
                     life: 1,
                     c: color
                 });
+            }
+            if (this.particles.length > 150) {
+                this.particles = this.particles.slice(this.particles.length - 150);
             }
         },
 
@@ -347,7 +368,7 @@
                         this.handedness = this.calibHandCandidate;
                         this.state = 'CALIB_TL';
                         this.calibTimer = 0;
-                        window.Sfx.coin();
+                        this.sfx('coin');
                     }
                 }
             } 
@@ -359,7 +380,7 @@
                         this.calib.tlY = this.p1.currRawY;
                         this.state = 'CALIB_BR';
                         this.calibTimer = 0;
-                        window.Sfx.coin();
+                        this.sfx('coin');
                     }
                 }
             } 
@@ -377,7 +398,7 @@
                         
                         this.calibTimer = 0; 
                         this.startGame();
-                        window.Sfx.coin();
+                        this.sfx('coin');
                     }
                 }
             }
@@ -789,11 +810,6 @@
             this.lastHitter = null;
             this.aiRecalcCounter = 0;
             this.timer = 0;
-            
-            if (this.roundTimeout) {
-                clearTimeout(this.roundTimeout);
-                this.roundTimeout = null;
-            }
         },
 
         renderScene: function(ctx, w, h) {
