@@ -1,14 +1,14 @@
 // =============================================================================
-// TABLE TENNIS: PROTOCOL 177 (MULTIPLAYER P2P + GOLD MASTER)
+// TABLE TENNIS: PROTOCOL 177 (MULTIPLAYER P2P + GOLD MASTER FINAL)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 ABSOLUTE - VISÃO PANORÂMICA + TRACKING 1:1 (ZERO LAG)
+// STATUS: 10/10 ABSOLUTE - VISÃO 3ª PESSOA REAL, TRACKING CÂMERA 1:1 AAA
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS (VISÃO PANORÂMICA WII)
+    // 1. CONFIGURAÇÕES FÍSICAS (VISÃO WII SPORTS)
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,  
@@ -17,24 +17,24 @@
         NET_H: 152,     
         FLOOR_Y: 760,        
         
-        BALL_R: 36,          // Bolinha bem maior para ser vista de longe
+        BALL_R: 35,          // Bolinha perfeitamente visível de longe
         GRAVITY: 0.65,       
         AIR_DRAG: 0.994,     
         BOUNCE_LOSS: 0.78,   
         MAGNUS_FORCE: 0.16,
-        MAX_TOTAL_SPEED: 55, // Velocidade máxima da bolinha aumentada
+        MAX_TOTAL_SPEED: 65, // Jogo bem mais rápido
         
         AUTO_SERVE_DELAY: 2000,
-        PADDLE_SCALE: 2.8,   // Raquete gigante para compensar a câmera longe
-        PADDLE_HITBOX: 220,  // Hitbox mais generosa para não furar a bola
-        SWING_FORCE: 4.0,    // Força da raquetada mais intensa
+        PADDLE_SCALE: 2.5,   // Raquete ampliada
+        PADDLE_HITBOX: 250,  // Hitbox grande para você não "furar" a bola com o braço
+        SWING_FORCE: 4.5,    // Força bruta dos seus movimentos
         SMASH_THRESH: 35,    
 
-        // === CÂMERA DE JOGO PROFISSIONAL ===
-        CAM_Y: -1500,       // Bem mais alto
-        CAM_Z: -5800,       // Muito mais longe (3ª pessoa real)
-        CAM_TILT: 250,      // Inclinada olhando para a mesa
-        FOV: 1000,          // Campo de visão expandido para ver as laterais
+        // === CÂMERA DE JOGO VERDADEIRO (MATRIZ 3D REAL) ===
+        CAM_Y: -1400,       // Altura da câmera (Visão superior)
+        CAM_Z: -3800,       // Distância da mesa (Para trás)
+        CAM_PITCH: 0.25,    // Inclinação real da lente para baixo (em radianos)
+        FOV: 900,           // Campo de visão panorâmico
 
         // Calibração
         CALIB_TIME: 1500,      
@@ -42,24 +42,36 @@
     };
 
     const AI_PROFILES = {
-        'PRO': { speed: 0.14, difficultyFactor: 0.85, baseSpeed: 0.14 } // IA um pouco mais esperta
+        'PRO': { speed: 0.15, difficultyFactor: 0.90, baseSpeed: 0.15 }
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE
+    // 2. MATH CORE (MOTOR GRÁFICO 3D COM ROTAÇÃO DE CÂMERA)
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
-            const depth = (z - CONF.CAM_Z);
-            if (depth <= 1) return { x: -9999, y: -9999, s: 0, visible: false, depth: depth };
+            // Translada para a posição da câmera
+            let cx = x;
+            let cy = y - CONF.CAM_Y;
+            let cz = z - CONF.CAM_Z;
+
+            // Aplica Rotação Pitch (Inclinação real da câmera para ver a mesa)
+            let cosP = Math.cos(CONF.CAM_PITCH);
+            let sinP = Math.sin(CONF.CAM_PITCH);
             
-            const scale = CONF.FOV / depth;
+            let ry = cy * cosP - cz * sinP;
+            let rz = cy * sinP + cz * cosP;
+
+            // Previne renderizar o que está atrás da câmera
+            if (rz <= 10) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
+            
+            const scale = CONF.FOV / rz;
             return {
-                x: (x * scale) + w/2,
-                y: ((y - CONF.CAM_Y) * scale) + (h/2) + CONF.CAM_TILT,
+                x: (cx * scale) + w/2,
+                y: (ry * scale) + h/2,
                 s: scale,
                 visible: true,
-                depth: depth
+                depth: rz
             };
         },
         lerp: (a, b, t) => a + (b - a) * t,
@@ -107,7 +119,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 3. GAME ENGINE
+    // 3. GAME ENGINE PRINCIPAL
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -124,7 +136,7 @@
         audioCtx: null,
         
         lastFrameTime: 0,
-        activeAIProfile: { speed: 0.12, difficultyFactor: 0.8, baseSpeed: 0.12 },
+        activeAIProfile: { speed: 0.15, difficultyFactor: 0.90, baseSpeed: 0.15 },
 
         aiFrame: 0,
         aiRecalcCounter: 0, 
@@ -144,7 +156,7 @@
         maintenanceInterval: null,
         
         p1: { 
-            gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 400, 
+            gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 200, 
             prevX: 0, prevY: 0, 
             velX: 0, velY: 0,
             currRawX: 0, currRawY: 0,
@@ -186,7 +198,7 @@
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("PING PONG MULTIPLAYER");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - PING PONG");
             this.setupInput();
         },
 
@@ -227,9 +239,7 @@
                         window.Sfx.play(300, 'sine', 0.1, 0.1);
                     }
                 }
-            } catch (e) {
-                console.error("SFX Exception:", e);
-            }
+            } catch (e) { }
         },
 
         loadCalib: function() {
@@ -245,7 +255,7 @@
                     }
                     if(data.hand) this.handedness = data.hand;
                 }
-            } catch(e) { console.error("Calib Load Error", e); }
+            } catch(e) { }
         },
 
         setupInput: function() {
@@ -269,7 +279,6 @@
             window.System.canvas.ontouchstart = handlePointer;
             window.System.canvas.ontouchmove = (e) => {
                 handlePointer(e);
-                // Evita que a tela role para baixo enquanto joga
                 if (this.useMouse && e.cancelable) e.preventDefault();
             };
 
@@ -294,7 +303,7 @@
                         this.isOnline = !!window.DB;
                         this.useMouse = false;
                         if (!window.DB) {
-                            if(window.System.msg) window.System.msg("MODO OFFLINE");
+                            if(window.System.msg) window.System.msg("MODO OFFLINE (Sem conexão)");
                             this.isOnline = false;
                         }
                         this.state = 'CALIB_HAND_SELECT';
@@ -303,7 +312,7 @@
                     this.sfx('click');
                 } 
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
-                    this.hitBall('p1', 0, -20);
+                    this.hitBall('p1', 0, -25);
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -645,7 +654,7 @@
             if(this.state.startsWith('CALIB')) {
                 this.calibHandCandidate = null;
             } else if (this.state === 'SERVE' || this.state === 'RALLY' || this.state === 'IDLE') {
-                // Se perder a mão, volta suave pro centro
+                // Se perder o braço da câmera, volta suave pro centro
                 this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, 0, 0.1);
                 this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, -200, 0.1);
                 
@@ -660,9 +669,9 @@
         processPose: function(pose) {
             this.pose = pose; 
 
-            // ==========================================
-            // CONTROLES POR TOQUE NA TELA (RÁPIDO)
-            // ==========================================
+            // ==============================================================
+            // MODO SECUNDÁRIO: CONTROLE POR TOQUE NA TELA
+            // ==============================================================
             if (this.useMouse) {
                 const w = window.System?.canvas?.width || 640;
                 const h = window.System?.canvas?.height || 480;
@@ -672,22 +681,20 @@
                 nx = MathCore.clamp(nx, 0, 1);
                 ny = MathCore.clamp(ny, 0, 1);
 
-                // Alcance maior (pode ir até as pontas da mesa com facilidade)
-                const targetX = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nx); 
-                const targetY = MathCore.lerp(-900, 200, ny); 
+                const targetX = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nx); 
+                const targetY = MathCore.lerp(-1000, 200, ny); 
 
-                // Resposta rápida (0.85 = quase instantâneo)
-                this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.85);
-                this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.85);
-                this.p1.gameZ = -CONF.TABLE_L/2 - 400; // Posição fixa de defesa
+                this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.90);
+                this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.90);
+                this.p1.gameZ = -CONF.TABLE_L/2 - 200; 
                 this.p1.elbowX = this.p1.gameX + 100;
                 this.p1.elbowY = this.p1.gameY + 300;
 
                 let calcVX = this.p1.gameX - (this.p1.prevX !== undefined ? this.p1.prevX : this.p1.gameX);
                 let calcVY = this.p1.gameY - (this.p1.prevY !== undefined ? this.p1.prevY : this.p1.gameY);
 
-                if (Math.abs(calcVX) > 200) calcVX = 0;
-                if (Math.abs(calcVY) > 200) calcVY = 0;
+                if (Math.abs(calcVX) > 300) calcVX = 0;
+                if (Math.abs(calcVY) > 300) calcVY = 0;
 
                 this.p1.velX = calcVX;
                 this.p1.velY = calcVY;
@@ -709,9 +716,9 @@
                 return;
             }
 
-            // ==========================================
-            // CÂMERA INTELIGENTE E CAPTURA DE CORPO (1:1 FIDELIDADE)
-            // ==========================================
+            // ==============================================================
+            // MODO PRINCIPAL: CÂMERA INTELIGENTE E TRACKING DE CORPO
+            // ==============================================================
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) {
                     this.calibHandCandidate = null;
@@ -771,34 +778,37 @@
                     
                     let nx = (rawX - (this.calib.tlX || 0)) / safeRangeX;
                     let ny = (rawY - (this.calib.tlY || 0)) / safeRangeY;
+
+                    // Multiplicador de Sensibilidade! Deixa o controle do braço SUPER rápido.
+                    // Isso amplifica seus movimentos para chegar nos cantos sem esforço.
+                    nx = (nx - 0.5) * 1.5 + 0.5;
+                    ny = (ny - 0.5) * 1.5 + 0.5;
                     
-                    if (isNaN(nx)) nx = 0.5;
-                    if (isNaN(ny)) ny = 0.5;
+                    nx = MathCore.clamp(nx, -0.2, 1.2);
+                    ny = MathCore.clamp(ny, -0.2, 1.2);
 
-                    nx = MathCore.clamp(nx, 0, 1);
-                    ny = MathCore.clamp(ny, 0, 1);
+                    const targetX = MathCore.lerp(-CONF.TABLE_W*0.9, CONF.TABLE_W*0.9, nx); 
+                    const targetY = MathCore.lerp(-1000, 200, ny); 
 
-                    // ALCANCE AMPLIADO: O jogador agora consegue defender cantos distantes facilmente
-                    const targetX = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nx); 
-                    const targetY = MathCore.lerp(-900, 200, ny); 
-
-                    // MOVIMENTO 1:1 ZERO LAG (0.85 segue a mão perfeitamente)
+                    // Lerp 0.85 = Movimento 1:1, quase sem atraso (Zero Lag)
                     this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.85);
                     this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.85);
-                    this.p1.gameZ = -CONF.TABLE_L/2 - 400; // Recuado para trás da mesa
+                    this.p1.gameZ = -CONF.TABLE_L/2 - 200;
 
                     if (elbow) {
                         const rawEx = 640 - elbow.x;
                         const rawEy = elbow.y;
                         let nex = (rawEx - (this.calib.tlX||0)) / safeRangeX;
                         let ney = (rawEy - (this.calib.tlY||0)) / safeRangeY;
-                        if(isNaN(nex)) nex = 0.5;
-                        if(isNaN(ney)) ney = 0.5;
-                        nex = MathCore.clamp(nex, 0, 1);
-                        ney = MathCore.clamp(ney, 0, 1);
                         
-                        const targetEx = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nex);
-                        const targetEy = MathCore.lerp(-900, 200, ney);
+                        nex = (nex - 0.5) * 1.5 + 0.5;
+                        ney = (ney - 0.5) * 1.5 + 0.5;
+                        
+                        nex = MathCore.clamp(nex, -0.2, 1.2);
+                        ney = MathCore.clamp(ney, -0.2, 1.2);
+                        
+                        const targetEx = MathCore.lerp(-CONF.TABLE_W*0.9, CONF.TABLE_W*0.9, nex);
+                        const targetEy = MathCore.lerp(-1000, 200, ney);
                         
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
                         this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.85);
@@ -810,9 +820,9 @@
                     let calculatedVelX = this.p1.gameX - (this.p1.prevX !== undefined ? this.p1.prevX : this.p1.gameX);
                     let calculatedVelY = this.p1.gameY - (this.p1.prevY !== undefined ? this.p1.prevY : this.p1.gameY);
 
-                    // Impede pulos bruscos de tracking
-                    if (Math.abs(calculatedVelX) > 200) calculatedVelX = 0;
-                    if (Math.abs(calculatedVelY) > 200) calculatedVelY = 0;
+                    // Prevenção de glitches da câmera (se perder o braço de repente)
+                    if (Math.abs(calculatedVelX) > 400) calculatedVelX = 0;
+                    if (Math.abs(calculatedVelY) > 400) calculatedVelY = 0;
 
                     this.p1.velX = calculatedVelX;
                     this.p1.velY = calculatedVelY;
@@ -820,6 +830,7 @@
                     this.p1.prevX = this.p1.gameX;
                     this.p1.prevY = this.p1.gameY;
 
+                    // Lógica de Saque
                     if (this.state === 'SERVE' && this.server === 'p1') {
                         this.ball.x = this.p1.gameX;
                         this.ball.y = this.p1.gameY - 50; 
@@ -827,6 +838,7 @@
                         this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
                         this.ball.active = false;
 
+                        // Se você levantar o braço bruscamente, ele saca!
                         if (this.p1.velY < -15) {
                             this.hitBall('p1', 0, 0);
                         }
@@ -994,7 +1006,6 @@
             if (isNaN(velY)) velY = 0;
 
             const speed = Math.sqrt(velX**2 + velY**2);
-            // NOVA FÓRMULA DE FORÇA: Jogo rápido e dinâmico
             let force = 55 + (speed * CONF.SWING_FORCE);
             let isSmash = speed > CONF.SMASH_THRESH;
 
@@ -1002,7 +1013,7 @@
                 force *= 1.45;
                 this.shake = 15;
                 this.flash = 0.3;
-                if(isP1) this.addMsg("SMASH!", "#0ff");
+                if(isP1) this.addMsg("CORTADA!", "#0ff");
             } else {
                 this.shake = 3;
             }
@@ -1181,7 +1192,7 @@
             
             ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
             ctx.fillText("OFFLINE (CÂMERA)", w/2, h * 0.35 + 35);
-            ctx.fillText("OFFLINE (TOQUE/DEDO) 👆", w/2, h * 0.50 + 35);
+            ctx.fillText("OFFLINE (TOQUE/DEDO)", w/2, h * 0.50 + 35);
             ctx.fillText("ONLINE (P2P)", w/2, h * 0.65 + 35);
         },
 
@@ -1210,13 +1221,13 @@
             ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
 
             // ==========================================
-            // GRID NO CHÃO PARA NOÇÃO DE PROFUNDIDADE
+            // CHÃO 3D COM LINHAS (PROFUNDIDADE)
             // ==========================================
             ctx.fillStyle = "rgba(0,0,0,0.3)";
-            const f1 = MathCore.project(-3000, CONF.FLOOR_Y, 3000, w, h);
-            const f2 = MathCore.project(3000, CONF.FLOOR_Y, 3000, w, h);
-            const f3 = MathCore.project(3000, CONF.FLOOR_Y, -3000, w, h);
-            const f4 = MathCore.project(-3000, CONF.FLOOR_Y, -3000, w, h);
+            const f1 = MathCore.project(-4000, CONF.FLOOR_Y, 4000, w, h);
+            const f2 = MathCore.project(4000, CONF.FLOOR_Y, 4000, w, h);
+            const f3 = MathCore.project(4000, CONF.FLOOR_Y, -4000, w, h);
+            const f4 = MathCore.project(-4000, CONF.FLOOR_Y, -4000, w, h);
             if(f1.visible && !isNaN(f1.x)) {
                 ctx.beginPath(); ctx.moveTo(f1.x, f1.y); ctx.lineTo(f2.x, f2.y);
                 ctx.lineTo(f3.x, f3.y); ctx.lineTo(f4.x, f4.y); ctx.fill();
@@ -1225,14 +1236,14 @@
             ctx.strokeStyle = "rgba(255,255,255,0.06)";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            for(let z = -3000; z <= 3000; z += 400) {
-                let p1 = MathCore.project(-3000, CONF.FLOOR_Y, z, w, h);
-                let p2 = MathCore.project(3000, CONF.FLOOR_Y, z, w, h);
+            for(let z = -4000; z <= 4000; z += 500) {
+                let p1 = MathCore.project(-4000, CONF.FLOOR_Y, z, w, h);
+                let p2 = MathCore.project(4000, CONF.FLOOR_Y, z, w, h);
                 if(p1.visible && p2.visible) { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
             }
-            for(let x = -3000; x <= 3000; x += 400) {
-                let p1 = MathCore.project(x, CONF.FLOOR_Y, -3000, w, h);
-                let p2 = MathCore.project(x, CONF.FLOOR_Y, 3000, w, h);
+            for(let x = -4000; x <= 4000; x += 500) {
+                let p1 = MathCore.project(x, CONF.FLOOR_Y, -4000, w, h);
+                let p2 = MathCore.project(x, CONF.FLOOR_Y, 4000, w, h);
                 if(p1.visible && p2.visible) { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
             }
             ctx.stroke();
@@ -1288,17 +1299,18 @@
 
             if (!c1.visible || isNaN(c1.x)) return;
 
-            // Laterais da mesa
+            // Laterais
             ctx.fillStyle = "#052040"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c2b.x, c2b.y); ctx.lineTo(c1b.x, c1b.y); ctx.fill();
             ctx.fillStyle = "#052550"; ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c3b.x, c3b.y); ctx.lineTo(c2b.x, c2b.y); ctx.fill();
             
-            // Tampo azul da mesa
+            // Tampo da mesa (Aquele azul bonito de ping pong)
             ctx.fillStyle = "#1e6091"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.fill();
             
-            // Linhas brancas de marcação da mesa
+            // Linhas brancas ao redor
             ctx.strokeStyle = "#fff"; ctx.lineWidth = 4 * c1.s;
             ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.closePath(); ctx.stroke(); 
             
+            // Linha central
             const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
             ctx.lineWidth = 2 * c1.s;
             ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
@@ -1314,6 +1326,14 @@
             const pos = MathCore.project(x, y, z, w, h);
             if (!pos.visible || isNaN(pos.x)) return;
             const scale = pos.s * CONF.PADDLE_SCALE;
+            
+            // Sombra da raquete no chão (Ajuda na imersão)
+            ctx.fillStyle = "rgba(0,0,0,0.4)";
+            const sPos = MathCore.project(x, CONF.FLOOR_Y, z, w, h);
+            if (sPos.visible && !isNaN(sPos.x)) {
+                ctx.beginPath(); ctx.ellipse(sPos.x, sPos.y, 40*sPos.s, 15*sPos.s, 0, 0, Math.PI*2); ctx.fill();
+            }
+
             ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 20;
             ctx.fillStyle = "#333"; ctx.beginPath(); ctx.arc(pos.x, pos.y, 65*scale, 0, Math.PI*2); ctx.fill();
             ctx.fillStyle = color; ctx.beginPath(); ctx.arc(pos.x, pos.y, 60*scale, 0, Math.PI*2); ctx.fill();
@@ -1325,7 +1345,7 @@
         drawBall: function(ctx, w, h) {
             if (!this.ball.active && !['SERVE', 'IDLE', 'END_WAIT'].includes(this.state)) return;
 
-            // Sombra exata para noçao de profundidade na hora do quique
+            // Sombra exata
             if (this.ball.y < CONF.FLOOR_Y) {
                 const shadowPos = MathCore.project(this.ball.x, 0, this.ball.z, w, h); 
                 if (Math.abs(this.ball.x) > CONF.TABLE_W/2 || Math.abs(this.ball.z) > CONF.TABLE_L/2) {
@@ -1340,6 +1360,7 @@
                 }
             }
 
+            // Rastro da bolinha no ar
             ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 10;
             ctx.beginPath();
             this.ball.trail.forEach((t, i) => {
@@ -1352,6 +1373,7 @@
             ctx.stroke();
             this.ball.trail = this.ball.trail.filter(t => t.a > 0);
 
+            // A própria bolinha
             const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
             if(pos.visible && !isNaN(pos.x)) {
                 const r = CONF.BALL_R * pos.s;
@@ -1403,7 +1425,7 @@
             if (this.state === 'SERVE' && this.server === 'p1') {
                 ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx-150, h-60, 300, 40);
                 
-                let textoSaque = this.useMouse ? "TOQUE NA TELA PARA SACAR" : "LEVANTE A RAQUETE PARA SACAR";
+                let textoSaque = this.useMouse ? "TOQUE NA TELA PARA SACAR" : "LEVANTE O BRAÇO PARA SACAR";
                 ctx.fillStyle = "#fff"; ctx.font = "16px sans-serif"; ctx.fillText(textoSaque, cx, h-33);
                 
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
