@@ -30,9 +30,9 @@
         SWING_FORCE: 3.6,    
         SMASH_THRESH: 30,    
 
-        CAM_Y: -1400,        
-        CAM_Z: -1800,        
-        FOV: 900,
+        CAM_Y: -450,        // Altura da câmara ajustada para o nível dos olhos
+        CAM_Z: -2400,       // Distância da câmara para enquadrar a mesa toda
+        FOV: 800,           // Ajuste de perspetiva para ecrãs de telemóvel
 
         // Calibração
         CALIB_TIME: 1500,      
@@ -127,6 +127,10 @@
         aiFrame: 0,
         aiRecalcCounter: 0, 
 
+        useMouse: false,
+        mouseX: 320,
+        mouseY: 240,
+
         // Network Integration
         isOnline: false,
         isHost: false,
@@ -176,6 +180,7 @@
             this.cleanup();
             this.state = 'MODE_SELECT';
             this.handedness = null; 
+            this.useMouse = false;
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
@@ -199,7 +204,12 @@
                 clearTimeout(this.roundTimeout);
                 this.roundTimeout = null;
             }
-            if(window.System && window.System.canvas) window.System.canvas.onclick = null;
+            if(window.System && window.System.canvas) {
+                window.System.canvas.onclick = null;
+                window.System.canvas.onmousemove = null;
+                window.System.canvas.ontouchstart = null;
+                window.System.canvas.ontouchmove = null;
+            }
         },
 
         sfx: function(action, ...args) {
@@ -238,16 +248,49 @@
 
         setupInput: function() {
             if(!window.System.canvas) return;
+            
+            const handlePointer = (e) => {
+                const rect = window.System.canvas.getBoundingClientRect();
+                let cx = e.clientX;
+                let cy = e.clientY;
+                if (e.touches && e.touches.length > 0) {
+                    cx = e.touches[0].clientX;
+                    cy = e.touches[0].clientY;
+                }
+                if (cx !== undefined && cy !== undefined) {
+                    this.mouseX = cx - rect.left;
+                    this.mouseY = cy - rect.top;
+                }
+            };
+
+            window.System.canvas.onmousemove = handlePointer;
+            window.System.canvas.ontouchstart = handlePointer;
+            window.System.canvas.ontouchmove = (e) => {
+                handlePointer(e);
+                // Evita que o ecrã role para baixo enquanto jogas
+                if (this.useMouse && e.cancelable) e.preventDefault();
+            };
+
             window.System.canvas.onclick = (e) => {
                 const h = window.System.canvas.height;
-                const my = e.clientY - window.System.canvas.getBoundingClientRect().top;
+                const rect = window.System.canvas.getBoundingClientRect();
+                let cy = e.clientY;
+                if (e.touches && e.touches.length > 0) cy = e.touches[0].clientY;
+                const my = cy - rect.top;
 
                 if (this.state === 'MODE_SELECT') {
-                    if (my < h/2) {
+                    if (my < h * 0.45) {
                         this.isOnline = false;
+                        this.useMouse = false;
                         this.state = 'CALIB_HAND_SELECT';
+                    } else if (my < h * 0.60) {
+                        this.isOnline = false;
+                        this.useMouse = true;
+                        this.handedness = 'right';
+                        this.startGame();
                     } else {
                         this.isOnline = !!window.DB;
+                        this.useMouse = false;
                         if (!window.DB) {
                             if(window.System.msg) window.System.msg("OFFLINE MODE");
                             this.isOnline = false;
@@ -257,6 +300,9 @@
                     this.calibTimer = 0;
                     this.sfx('click');
                 } 
+                else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
+                    this.hitBall('p1', 0, -20);
+                }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
                         const pCount = Object.keys(this.remotePlayersData || {}).length;
@@ -299,7 +345,7 @@
                         const p = this.remotePlayersData[pid];
                         if (now - (p.lastSeen || 0) > 15000) {
                             this.dbRef.child('players/' + pid).remove();
-                            this.addMsg("PLAYER CAIU", "#f00");
+                            this.addMsg("JOGADOR CAIU", "#f00");
                         }
                     });
                 }, 2000);
@@ -465,41 +511,42 @@
                 this.polyfillDone = true;
             }
 
-            if (this.state === 'MODE_SELECT') { this.renderModeSelect(ctx, w, h); return this.score.p1; }
-            if (this.state === 'LOBBY') { this.renderLobby(ctx, w, h); return this.score.p1; }
-
-            // Lógica Síncrona de Delays (Independente de Framerate)
-            if (this.state === 'IDLE') {
-                this.idleTimer += dt;
-                if (this.idleTimer > 1000) {
-                    this.state = 'SERVE';
-                    this.idleTimer = 0;
-                    this.timer = 0;
-                }
-            } else if (this.state === 'END_WAIT') {
-                this.endTimer += dt;
-                if (this.endTimer > 2000) {
-                    this.state = 'END';
-                    if (this.isOnline && this.isHost) {
-                        this.roomRef.update({ gameState: 'END' });
+            if (this.state === 'MODE_SELECT') {
+                this.p1.gameX = Math.sin(now * 0.002) * 200;
+                this.p2.gameX = Math.cos(now * 0.002) * 200;
+            } else if (this.state !== 'LOBBY' && this.state !== 'END') {
+                if (this.state === 'IDLE') {
+                    this.idleTimer += dt;
+                    if (this.idleTimer > 1000) {
+                        this.state = 'SERVE';
+                        this.idleTimer = 0;
+                        this.timer = 0;
                     }
-                    this.endTimer = 0;
+                } else if (this.state === 'END_WAIT') {
+                    this.endTimer += dt;
+                    if (this.endTimer > 2000) {
+                        this.state = 'END';
+                        if (this.isOnline && this.isHost) {
+                            this.roomRef.update({ gameState: 'END' });
+                        }
+                        this.endTimer = 0;
+                    }
                 }
-            }
 
-            this.processPose(pose);
+                this.processPose(pose);
 
-            if (this.state.startsWith('CALIB')) {
-                this.updateAutoCalibration(dt);
-            }
+                if (this.state.startsWith('CALIB')) {
+                    this.updateAutoCalibration(dt);
+                }
 
-            if (this.state === 'RALLY' || this.state === 'SERVE') {
-                if (!this.isOnline || this.isHost) {
-                    this.updatePhysics();
-                    if (!this.isOnline) this.updateAI();
-                    this.updateRules(dt);
-                } else {
-                    this.updatePhysicsClient(dt);
+                if (this.state === 'RALLY' || this.state === 'SERVE') {
+                    if (!this.isOnline || this.isHost) {
+                        this.updatePhysics();
+                        if (!this.isOnline) this.updateAI();
+                        this.updateRules(dt);
+                    } else {
+                        this.updatePhysicsClient(dt);
+                    }
                 }
             }
 
@@ -522,7 +569,9 @@
                 if(this.flash < 0.05) this.flash = 0;
             }
 
-            if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
+            if (this.state === 'MODE_SELECT') this.renderModeSelect(ctx, w, h);
+            else if (this.state === 'LOBBY') this.renderLobby(ctx, w, h);
+            else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
             else if (this.state === 'END') this.renderEnd(ctx, w, h);
             else this.renderHUD(ctx, w, h);
 
@@ -610,6 +659,52 @@
         processPose: function(pose) {
             this.pose = pose; 
 
+            // Controlos por Toque e Mouse
+            if (this.useMouse) {
+                const w = window.System?.canvas?.width || 640;
+                const h = window.System?.canvas?.height || 480;
+                let nx = this.mouseX / w;
+                let ny = this.mouseY / h;
+                
+                nx = MathCore.clamp(nx, 0, 1);
+                ny = MathCore.clamp(ny, 0, 1);
+
+                const targetX = MathCore.lerp(-CONF.TABLE_W*0.6, CONF.TABLE_W*0.6, nx); 
+                const targetY = MathCore.lerp(-800, 100, ny); 
+
+                this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.4);
+                this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.4);
+                this.p1.gameZ = -CONF.TABLE_L/2 - 200;
+                this.p1.elbowX = this.p1.gameX + 100;
+                this.p1.elbowY = this.p1.gameY + 300;
+
+                let calcVX = this.p1.gameX - (this.p1.prevX !== undefined ? this.p1.prevX : this.p1.gameX);
+                let calcVY = this.p1.gameY - (this.p1.prevY !== undefined ? this.p1.prevY : this.p1.gameY);
+
+                if (Math.abs(calcVX) > 150) calcVX = 0;
+                if (Math.abs(calcVY) > 150) calcVY = 0;
+
+                this.p1.velX = calcVX;
+                this.p1.velY = calcVY;
+
+                this.p1.prevX = this.p1.gameX;
+                this.p1.prevY = this.p1.gameY;
+
+                if (this.state === 'SERVE' && this.server === 'p1') {
+                    this.ball.x = this.p1.gameX;
+                    this.ball.y = this.p1.gameY - 50; 
+                    this.ball.z = this.p1.gameZ + 50; 
+                    this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
+                    this.ball.active = false;
+                    
+                    if (this.p1.velY < -20) {
+                        this.hitBall('p1', 0, 0);
+                    }
+                }
+                return;
+            }
+
+            // Lógica de Calibração da Câmara
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) {
                     this.calibHandCandidate = null;
@@ -804,7 +899,7 @@
                         if (this.lastHitter === side) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES");
                         else {
                             this.ball.bounceCount = Math.min(this.ball.bounceCount + 1, 2);
-                            if(this.ball.bounceCount >= 2) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS QUIQUES");
+                            if(this.ball.bounceCount >= 2) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS RESSALTOS");
                         }
                     }
                 }
@@ -928,7 +1023,7 @@
                 this.timer += delta;
                 if (this.timer > CONF.AUTO_SERVE_DELAY) {
                     if (this.server === 'p1') {
-                        this.addMsg("AUTO-SAQUE", "#fff");
+                        this.addMsg("SERVIÇO AUTOMÁTICO", "#fff");
                         this.ball.x = this.p1.gameX || 0; 
                         this.ball.y = -200; 
                         this.ball.z = (this.p1.gameZ || -CONF.TABLE_L/2 - 200) + 50;
@@ -1065,14 +1160,18 @@
         },
 
         renderModeSelect: function(ctx, w, h) {
-            ctx.fillStyle = "#2c3e50"; ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 50px 'Russo One'";
-            ctx.fillText("TABLE TENNIS PRO", w/2, h * 0.25);
-            ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.45, 320, 65);
-            ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.6, 320, 65);
+            ctx.fillText("TABLE TENNIS PRO", w/2, h * 0.20);
+            
+            ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.35, 320, 55);
+            ctx.fillStyle = "#f39c12"; ctx.fillRect(w/2 - 160, h * 0.50, 320, 55);
+            ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.65, 320, 55);
+            
             ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
-            ctx.fillText("OFFLINE (VS CPU)", w/2, h * 0.45 + 40);
-            ctx.fillText("ONLINE (P2P)", w/2, h * 0.6 + 40);
+            ctx.fillText("OFFLINE (CÂMARA)", w/2, h * 0.35 + 35);
+            ctx.fillText("OFFLINE (TOQUE/DEDO) 👆", w/2, h * 0.50 + 35);
+            ctx.fillText("ONLINE (P2P)", w/2, h * 0.65 + 35);
         },
 
         renderLobby: function(ctx, w, h) {
@@ -1085,12 +1184,12 @@
                     ctx.fillStyle = "white"; ctx.font = "bold 24px 'Russo One'";
                     ctx.fillText("INICIAR PARTIDA", w/2, h*0.6 + 45);
                     ctx.fillStyle = "#ccc"; ctx.font = "18px sans-serif";
-                    ctx.fillText("PLAYERS CONECTADOS: " + pCount, w/2, h*0.4);
+                    ctx.fillText("JOGADORES LIGADOS: " + pCount, w/2, h*0.4);
                 } else {
-                    ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2);
+                    ctx.fillText("A AGUARDAR OPONENTE...", w/2, h/2);
                 }
             } else {
-                ctx.fillText("CONECTADO! AGUARDANDO HOST...", w/2, h/2);
+                ctx.fillText("LIGADO! A AGUARDAR ANFITRIÃO...", w/2, h/2);
             }
         },
 
@@ -1264,7 +1363,7 @@
 
             if (this.state === 'SERVE' && this.server === 'p1') {
                 ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx-150, h-60, 300, 40);
-                ctx.fillStyle = "#fff"; ctx.font = "18px sans-serif"; ctx.fillText("ERGUER RAQUETE PARA SACAR", cx, h-33);
+                ctx.fillStyle = "#fff"; ctx.font = "18px sans-serif"; ctx.fillText("LEVANTE A RAQUETE PARA SERVIR", cx, h-33);
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
                 ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-150, h-20, 300*progress, 4);
             }
@@ -1303,17 +1402,17 @@
                 }
             } else {
                 ctx.fillStyle = "#fff"; ctx.font = "30px sans-serif"; ctx.textAlign = "center";
-                ctx.fillText("PROCURANDO JOGADOR...", w/2, h*0.5);
+                ctx.fillText("A PROCURAR JOGADOR...", w/2, h*0.5);
                 ctx.font = "20px sans-serif"; ctx.fillStyle = "#aaa";
-                ctx.fillText("Fique em frente à câmera e certifique-se de que há luz.", w/2, h*0.6);
+                ctx.fillText("Fique em frente à câmara e certifique-se de que há luz.", w/2, h*0.6);
             }
 
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
 
             if (this.state === 'CALIB_HAND_SELECT') {
-                ctx.font = "bold 40px sans-serif"; ctx.fillText("ESCOLHA SUA MÃO", w/2, h*0.15);
+                ctx.font = "bold 40px sans-serif"; ctx.fillText("ESCOLHA A SUA MÃO", w/2, h*0.15);
                 ctx.font = "24px sans-serif"; ctx.fillStyle = "#aaa";
-                ctx.fillText("Levante a mão para selecionar (Segure)", w/2, h*0.22);
+                ctx.fillText("Levante a mão para selecionar (Mantenha)", w/2, h*0.22);
                 
                 ctx.font = "50px sans-serif";
                 
@@ -1333,7 +1432,7 @@
             } else {
                 const isTL = this.state === 'CALIB_TL';
                 ctx.font = "bold 30px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText(isTL ? "SEGURE A MÃO NO ALVO VERDE" : "SEGURE A MÃO NO ALVO VERMELHO", w/2, h*0.15);
+                ctx.fillText(isTL ? "MANTENHA A MÃO NO ALVO VERDE" : "MANTENHA A MÃO NO ALVO VERMELHO", w/2, h*0.15);
                 
                 const tx = isTL ? 100 : w-100;
                 const ty = isTL ? 100 : h-100;
