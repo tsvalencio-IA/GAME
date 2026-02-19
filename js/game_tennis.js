@@ -2,13 +2,14 @@
 // TABLE TENNIS: PROTOCOL 177 (MULTIPLAYER P2P + GOLD MASTER)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
 // STATUS: 10/10 ABSOLUTE - OFFLINE/ONLINE MODE, FIREBASE SYNC, ANTI-FREEZE
+// NOVIDADE: CÂMERA EM 3ª PESSOA, GRID DE PROFUNDIDADE, CONTROLES TOUCH 100%
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS
+    // 1. CONFIGURAÇÕES FÍSICAS (NOVA CÂMERA WII SPORTS)
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,  
@@ -17,7 +18,7 @@
         NET_H: 152,     
         FLOOR_Y: 760,        
         
-        BALL_R: 24,          
+        BALL_R: 28,          // Bolinha um pouco maior para ver de longe
         GRAVITY: 0.65,       
         AIR_DRAG: 0.994,     
         BOUNCE_LOSS: 0.78,   
@@ -25,14 +26,16 @@
         MAX_TOTAL_SPEED: 45, 
         
         AUTO_SERVE_DELAY: 2000,
-        PADDLE_SCALE: 1.8,   
-        PADDLE_HITBOX: 160,  
+        PADDLE_SCALE: 2.2,   // Raquete ampliada para compensar a distância
+        PADDLE_HITBOX: 180,  // Área de acerto mais generosa para o toque
         SWING_FORCE: 3.6,    
         SMASH_THRESH: 30,    
 
-        CAM_Y: -450,        // Altura da câmera ajustada para o nível dos olhos
-        CAM_Z: -2400,       // Distância da câmera para enquadrar a mesa toda
-        FOV: 800,           // Ajuste de perspectiva para telas de celular
+        // === O SEGREDO DO "JOGO VERDADEIRO" ESTÁ AQUI ===
+        CAM_Y: -1100,       // Câmera muito mais alta (visão por cima)
+        CAM_Z: -4500,       // Câmera bem distante da mesa (3ª pessoa real)
+        CAM_TILT: 100,      // Inclina a câmera um pouco para baixo
+        FOV: 800,           // Mantém a perspectiva sem distorcer as bordas
 
         // Calibração
         CALIB_TIME: 1500,      
@@ -54,7 +57,7 @@
             const scale = CONF.FOV / depth;
             return {
                 x: (x * scale) + w/2,
-                y: ((y - CONF.CAM_Y) * scale) + h/2,
+                y: ((y - CONF.CAM_Y) * scale) + (h/2) + CONF.CAM_TILT,
                 s: scale,
                 visible: true,
                 depth: depth
@@ -184,7 +187,7 @@
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: MULTIPLAYER EDITION");
+            if(window.System && window.System.msg) window.System.msg("PING PONG MULTIPLAYER");
             this.setupInput();
         },
 
@@ -267,7 +270,7 @@
             window.System.canvas.ontouchstart = handlePointer;
             window.System.canvas.ontouchmove = (e) => {
                 handlePointer(e);
-                // Evita que a tela role para baixo enquanto você joga
+                // Evita que a tela role para baixo enquanto você joga com o dedo
                 if (this.useMouse && e.cancelable) e.preventDefault();
             };
 
@@ -363,7 +366,7 @@
                 this.roomRef.child('ball').on('value', (snap) => {
                     if (this.isHost || !this.isOnline || !snap.exists()) return;
                     const ballData = snap.val();
-                    // MIRROR BALL FOR CLIENT
+                    // ESPELHAMENTO DE BOLA PARA MULTIPLAYER
                     this.ball.x = -ballData.x; 
                     this.ball.y = ballData.y;
                     this.ball.z = -ballData.z; 
@@ -393,7 +396,6 @@
                     const opId = ids.find(id => id !== window.System.playerId);
                     if (opId) {
                         const opData = data[opId];
-                        // MIRROR OPPONENT PADDLE
                         this.p2.gameX = -opData.x;
                         this.p2.gameY = opData.y;
                         this.p2.velX = -opData.velX;
@@ -402,7 +404,7 @@
                 });
 
             } catch(e) {
-                console.error("Multiplayer setup failed", e);
+                console.error("Erro no Multiplayer", e);
                 this.state = 'MODE_SELECT';
             }
         },
@@ -659,7 +661,9 @@
         processPose: function(pose) {
             this.pose = pose; 
 
-            // Controles por Toque e Mouse
+            // ==========================================
+            // CONTROLES POR TOQUE NA TELA (MUITO FLUIDO)
+            // ==========================================
             if (this.useMouse) {
                 const w = window.System?.canvas?.width || 640;
                 const h = window.System?.canvas?.height || 480;
@@ -704,7 +708,9 @@
                 return;
             }
 
-            // Lógica de Calibração da Câmera
+            // ==========================================
+            // CÂMERA INTELIGENTE E CAPTURA DE CORPO
+            // ==========================================
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) {
                     this.calibHandCandidate = null;
@@ -1162,7 +1168,7 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 50px 'Russo One'";
-            ctx.fillText("TABLE TENNIS PRO", w/2, h * 0.20);
+            ctx.fillText("PING PONG WII", w/2, h * 0.20);
             
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.35, 320, 55);
             ctx.fillStyle = "#f39c12"; ctx.fillRect(w/2 - 160, h * 0.50, 320, 55);
@@ -1198,15 +1204,33 @@
             grad.addColorStop(0, "#2c3e50"); grad.addColorStop(1, "#1a1a1a");
             ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
 
+            // ==========================================
+            // NOVO: GRID NO CHÃO PARA NOÇÃO DE PROFUNDIDADE
+            // ==========================================
             ctx.fillStyle = "rgba(0,0,0,0.3)";
-            const f1 = MathCore.project(-2000, CONF.FLOOR_Y, 2000, w, h);
-            const f2 = MathCore.project(2000, CONF.FLOOR_Y, 2000, w, h);
-            const f3 = MathCore.project(2000, CONF.FLOOR_Y, -2000, w, h);
-            const f4 = MathCore.project(-2000, CONF.FLOOR_Y, -2000, w, h);
+            const f1 = MathCore.project(-3000, CONF.FLOOR_Y, 3000, w, h);
+            const f2 = MathCore.project(3000, CONF.FLOOR_Y, 3000, w, h);
+            const f3 = MathCore.project(3000, CONF.FLOOR_Y, -3000, w, h);
+            const f4 = MathCore.project(-3000, CONF.FLOOR_Y, -3000, w, h);
             if(f1.visible && !isNaN(f1.x)) {
                 ctx.beginPath(); ctx.moveTo(f1.x, f1.y); ctx.lineTo(f2.x, f2.y);
                 ctx.lineTo(f3.x, f3.y); ctx.lineTo(f4.x, f4.y); ctx.fill();
             }
+
+            ctx.strokeStyle = "rgba(255,255,255,0.06)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for(let z = -3000; z <= 3000; z += 400) {
+                let p1 = MathCore.project(-3000, CONF.FLOOR_Y, z, w, h);
+                let p2 = MathCore.project(3000, CONF.FLOOR_Y, z, w, h);
+                if(p1.visible && p2.visible) { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
+            }
+            for(let x = -3000; x <= 3000; x += 400) {
+                let p1 = MathCore.project(x, CONF.FLOOR_Y, -3000, w, h);
+                let p2 = MathCore.project(x, CONF.FLOOR_Y, 3000, w, h);
+                if(p1.visible && p2.visible) { ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); }
+            }
+            ctx.stroke();
 
             this.drawTable(ctx, w, h);
             this.drawPaddle(ctx, this.p2.gameX, this.p2.gameY, this.p2.gameZ, '#e74c3c', w, h);
@@ -1221,7 +1245,7 @@
         },
         
         drawPlayerArm: function(ctx, w, h) {
-            if(!this.handedness) return; 
+            if(!this.handedness || this.useMouse) return; // Não desenha o braço no modo toque/mouse
             const wristZ = this.p1.gameZ;
             const elbowZ = this.p1.gameZ + 400; 
             const pWrist = MathCore.project(this.p1.gameX, this.p1.gameY, wristZ, w, h);
@@ -1259,17 +1283,26 @@
 
             if (!c1.visible || isNaN(c1.x)) return;
 
+            // Laterais da mesa
             ctx.fillStyle = "#052040"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c2b.x, c2b.y); ctx.lineTo(c1b.x, c1b.y); ctx.fill();
             ctx.fillStyle = "#052550"; ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c3b.x, c3b.y); ctx.lineTo(c2b.x, c2b.y); ctx.fill();
+            
+            // Tampo azul da mesa
             ctx.fillStyle = "#1e6091"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.fill();
-            ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 2 * c1.s; ctx.stroke(); 
+            
+            // Linhas brancas de marcação da mesa
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 4 * c1.s;
+            ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.closePath(); ctx.stroke(); 
+            
             const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
+            ctx.lineWidth = 2 * c1.s;
             ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
 
+            // Rede
             const n1 = MathCore.project(-hw-50, 0, 0, w, h); const n2 = MathCore.project(hw+50, 0, 0, w, h);
             const n1t = MathCore.project(-hw-50, -CONF.NET_H, 0, w, h); const n2t = MathCore.project(hw+50, -CONF.NET_H, 0, w, h);
             ctx.fillStyle = "rgba(240,240,240,0.3)"; ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y); ctx.lineTo(n2t.x, n2t.y); ctx.lineTo(n1t.x, n1t.y); ctx.fill();
-            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * c1.s; ctx.beginPath(); ctx.moveTo(n1t.x, n1t.y); ctx.lineTo(n2t.x, n2t.y); ctx.stroke();
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 3 * c1.s; ctx.beginPath(); ctx.moveTo(n1t.x, n1t.y); ctx.lineTo(n2t.x, n2t.y); ctx.stroke();
         },
 
         drawPaddle: function(ctx, x, y, z, color, w, h) {
@@ -1287,6 +1320,7 @@
         drawBall: function(ctx, w, h) {
             if (!this.ball.active && !['SERVE', 'IDLE', 'END_WAIT'].includes(this.state)) return;
 
+            // Sombra exata para noçao de profundidade na hora do quique
             if (this.ball.y < CONF.FLOOR_Y) {
                 const shadowPos = MathCore.project(this.ball.x, 0, this.ball.z, w, h); 
                 if (Math.abs(this.ball.x) > CONF.TABLE_W/2 || Math.abs(this.ball.z) > CONF.TABLE_L/2) {
@@ -1294,7 +1328,7 @@
                 }
                 if (shadowPos.visible && !isNaN(shadowPos.x)) {
                     const distToShadow = Math.abs(this.ball.y);
-                    const alpha = MathCore.clamp(1 - (distToShadow/1000), 0.1, 0.5);
+                    const alpha = MathCore.clamp(1 - (distToShadow/1000), 0.1, 0.6);
                     ctx.fillStyle = `rgba(0,0,0,${alpha})`;
                     const sr = CONF.BALL_R * shadowPos.s * (1 + distToShadow/2000);
                     ctx.beginPath(); ctx.ellipse(shadowPos.x, shadowPos.y, sr*1.5, sr*0.5, 0, 0, Math.PI*2); ctx.fill();
@@ -1363,7 +1397,11 @@
 
             if (this.state === 'SERVE' && this.server === 'p1') {
                 ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx-150, h-60, 300, 40);
-                ctx.fillStyle = "#fff"; ctx.font = "18px sans-serif"; ctx.fillText("LEVANTE A RAQUETE PARA SACAR", cx, h-33);
+                
+                // Texto se for mouse/toque vs câmera
+                let textoSaque = this.useMouse ? "TOQUE NA TELA PARA SACAR" : "LEVANTE A RAQUETE PARA SACAR";
+                ctx.fillStyle = "#fff"; ctx.font = "16px sans-serif"; ctx.fillText(textoSaque, cx, h-33);
+                
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
                 ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-150, h-20, 300*progress, 4);
             }
