@@ -2,7 +2,7 @@
 // TABLE TENNIS: PROTOCOL 177 (FINAL GOLD MASTER PATCHED + HARDENED + AAA POLISH)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
 // STATUS: 10/10 ABSOLUTE - DYNAMIC AUDIO, PRO AI, PROGRESSIVE DIFF, STABLE
-// BUGFIX: CALIBRATION FREEZE LOOP CORRECTED
+// BUGFIX: TIMER REAL (DT), AUTO-SAQUE GARANTIDO, FALLBACK TRACKING, ANTI-FREEZE
 // =============================================================================
 
 (function() {
@@ -111,6 +111,8 @@
     const Game = {
         state: 'INIT', 
         timer: 0,
+        idleTimer: 0, 
+        endTimer: 0,  
         pose: null, 
         handedness: null, 
         polyfillDone: false,
@@ -120,6 +122,9 @@
         calibHandCandidate: null,
         audioCtx: null,
         
+        lastFrameTime: 0,
+        activeAIProfile: { speed: 0.12, difficultyFactor: 0.8, baseSpeed: 0.12 },
+
         aiFrame: 0,
         aiRecalcCounter: 0, 
         
@@ -161,6 +166,8 @@
         init: function() {
             this.state = 'MENU';
             this.handedness = null; 
+            this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
+            this.lastFrameTime = performance.now();
             this.loadCalib();
             if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: AAA EDITION");
             this.setupInput();
@@ -241,13 +248,22 @@
         },
 
         startGame: function() {
-            this.state = 'STARTING'; // BUGFIX: Força a saída do estado atual imediatamente
+            if (this.roundTimeout) {
+                clearTimeout(this.roundTimeout);
+                this.roundTimeout = null;
+            }
+            this.state = 'STARTING'; 
             this.score = { p1: 0, p2: 0 };
             this.server = 'p1';
+            this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.resetRound();
         },
 
         update: function(ctx, w, h, pose) {
+            const now = performance.now();
+            const dt = this.lastFrameTime ? (now - this.lastFrameTime) : 16;
+            this.lastFrameTime = now;
+
             if (!this.polyfillDone) {
                 if (!ctx.roundRect) {
                     ctx.roundRect = function(x, y, w, h, r) {
@@ -265,16 +281,32 @@
                 this.polyfillDone = true;
             }
 
+            // Lógica Síncrona de Delays (Independente de Framerate)
+            if (this.state === 'IDLE') {
+                this.idleTimer += dt;
+                if (this.idleTimer > 1000) {
+                    this.state = 'SERVE';
+                    this.idleTimer = 0;
+                    this.timer = 0;
+                }
+            } else if (this.state === 'END_WAIT') {
+                this.endTimer += dt;
+                if (this.endTimer > 2000) {
+                    this.state = 'END';
+                    this.endTimer = 0;
+                }
+            }
+
             this.processPose(pose);
 
             if (this.state.startsWith('CALIB')) {
-                this.updateAutoCalibration();
+                this.updateAutoCalibration(dt);
             }
 
             if (this.state === 'RALLY' || this.state === 'SERVE') {
                 this.updatePhysics();
                 this.updateAI();
-                this.updateRules();
+                this.updateRules(dt);
             }
 
             ctx.save();
@@ -304,12 +336,13 @@
             return this.score.p1;
         },
 
-        updateAutoCalibration: function() {
-            this.calibTimer = Math.max(0, this.calibTimer - 10);
+        updateAutoCalibration: function(dt) {
+            const deltaFactor = dt / 16;
+            this.calibTimer = Math.max(0, this.calibTimer - (10 * deltaFactor));
 
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (this.calibHandCandidate) {
-                    this.calibTimer += 25; 
+                    this.calibTimer += 25 * deltaFactor; 
                     if (this.calibTimer > CONF.HAND_SELECT_TIME) {
                         this.handedness = this.calibHandCandidate;
                         this.state = 'CALIB_TL';
@@ -320,7 +353,7 @@
             } 
             else if (this.state === 'CALIB_TL') {
                 if (this.p1.currRawX) {
-                    this.calibTimer += 25;
+                    this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.tlX = this.p1.currRawX;
                         this.calib.tlY = this.p1.currRawY;
@@ -332,7 +365,7 @@
             } 
             else if (this.state === 'CALIB_BR') {
                 if (this.p1.currRawX) {
-                    this.calibTimer += 25;
+                    this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.currRawX;
                         this.calib.brY = this.p1.currRawY;
@@ -342,19 +375,37 @@
                             hand: this.handedness
                         }));
                         
-                        this.calibTimer = 0; // BUGFIX: Zera o contador de segurança
-                        this.startGame();    // Inicia o fluxo de jogo
+                        this.calibTimer = 0; 
+                        this.startGame();
                         window.Sfx.coin();
                     }
                 }
             }
         },
 
+        handleLostTracking: function() {
+            if(this.state.startsWith('CALIB')) {
+                this.calibHandCandidate = null;
+            } else if (this.state === 'SERVE' || this.state === 'RALLY' || this.state === 'IDLE') {
+                this.p1.gameX = MathCore.lerp(this.p1.gameX, 0, 0.05);
+                this.p1.gameY = MathCore.lerp(this.p1.gameY, -200, 0.05);
+                
+                if (this.state === 'SERVE' && this.server === 'p1') {
+                    this.ball.x = this.p1.gameX;
+                    this.ball.y = this.p1.gameY - 50; 
+                    this.ball.z = this.p1.gameZ + 50; 
+                }
+            }
+        },
+
         processPose: function(pose) {
             this.pose = pose; 
-            if (!pose || !pose.keypoints) return;
 
             if (this.state === 'CALIB_HAND_SELECT') {
+                if (!pose || !pose.keypoints) {
+                    this.calibHandCandidate = null;
+                    return;
+                }
                 const nose = pose.keypoints.find(k => k.name === 'nose');
                 const leftW = pose.keypoints.find(k => k.name === 'left_wrist');
                 const rightW = pose.keypoints.find(k => k.name === 'right_wrist');
@@ -381,6 +432,11 @@
 
             if (!this.handedness) return; 
 
+            if (!pose || !pose.keypoints) {
+                this.handleLostTracking();
+                return;
+            }
+
             const wristName = this.handedness + '_wrist';
             const elbowName = this.handedness + '_elbow';
 
@@ -396,8 +452,11 @@
                     this.p1.currRawY = rawY;
                 } 
                 else {
-                    const safeRangeX = Math.max(1, this.calib.brX - this.calib.tlX);
-                    const safeRangeY = Math.max(1, this.calib.brY - this.calib.tlY);
+                    let safeRangeX = this.calib.brX - this.calib.tlX;
+                    let safeRangeY = this.calib.brY - this.calib.tlY;
+                    
+                    if (Math.abs(safeRangeX) < 1) safeRangeX = safeRangeX >= 0 ? 1 : -1;
+                    if (Math.abs(safeRangeY) < 1) safeRangeY = safeRangeY >= 0 ? 1 : -1;
                     
                     let nx = (rawX - this.calib.tlX) / safeRangeX;
                     let ny = (rawY - this.calib.tlY) / safeRangeY;
@@ -448,9 +507,7 @@
                     }
                 }
             } else {
-                if(this.state.startsWith('CALIB')) {
-                    this.calibHandCandidate = null;
-                }
+                this.handleLostTracking();
             }
         },
 
@@ -458,6 +515,12 @@
             if (!this.ball.active) return;
             
             const b = this.ball;
+
+            if (isNaN(b.x) || isNaN(b.y) || isNaN(b.z)) {
+                this.resetRound();
+                return;
+            }
+
             b.prevY = b.y;
 
             const magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
@@ -559,6 +622,10 @@
             const paddle = isP1 ? this.p1 : this.p2;
             let velX = isP1 ? paddle.velX : paddle.velX;
             let velY = isP1 ? paddle.velY : 0;
+            
+            if (isNaN(velX)) velX = 0;
+            if (isNaN(velY)) velY = 0;
+
             const speed = Math.sqrt(velX**2 + velY**2);
             let force = 45 + (speed * CONF.SWING_FORCE);
             let isSmash = speed > CONF.SMASH_THRESH;
@@ -590,17 +657,21 @@
             if(isP1) this.calculateAITarget();
         },
 
-        updateRules: function() {
+        updateRules: function(dt) {
+            const delta = dt || 16;
             if (this.state === 'SERVE') {
-                this.timer += 16;
+                this.timer += delta;
                 if (this.timer > CONF.AUTO_SERVE_DELAY) {
                     if (this.server === 'p1') {
                         this.addMsg("AUTO-SAQUE", "#fff");
-                        this.ball.x = 0; this.ball.y = -200; this.ball.z = this.p1.gameZ + 50;
+                        this.ball.x = this.p1.gameX || 0; 
+                        this.ball.y = -200; 
+                        this.ball.z = (this.p1.gameZ || -CONF.TABLE_L/2 - 200) + 50;
                         this.hitBall('p1', 0, 0);
                     } else {
                         this.aiServe();
                     }
+                    this.timer = 0;
                 }
             } else if (this.state === 'RALLY') {
                 if (!this.ball.active || (Math.abs(this.ball.vx) < 0.1 && Math.abs(this.ball.vz) < 0.1)) {
@@ -610,7 +681,7 @@
         },
 
         calculateAITarget: function() {
-            const profile = AI_PROFILES.PRO;
+            const profile = this.activeAIProfile;
             const predX = MathCore.predict(this.ball, this.p2.gameZ);
             const predY = MathCore.predictY(this.ball, this.p2.gameZ);
             
@@ -641,7 +712,7 @@
             if (this.aiFrame % 2 !== 0) return;
 
             const ai = this.p2;
-            const profile = AI_PROFILES.PRO;
+            const profile = this.activeAIProfile;
             const dx = ai.targetX - ai.gameX;
             
             ai.velX += dx * profile.speed;
@@ -681,7 +752,7 @@
             this.ball.active = false;
             this.rallyCount = 0;
             
-            const profile = AI_PROFILES['PRO'];
+            const profile = this.activeAIProfile;
             if (winner === 'p2') {
                 profile.speed = Math.min(profile.speed * 1.02, profile.baseSpeed * 1.5);
             } else {
@@ -691,9 +762,8 @@
             const s1 = this.score.p1;
             const s2 = this.score.p2;
             if ((s1 >= 11 || s2 >= 11) && Math.abs(s1 - s2) >= 2) {
-                this.state = 'IDLE'; // BUGFIX: Sincronia limpa
-                if (this.roundTimeout) clearTimeout(this.roundTimeout);
-                this.roundTimeout = setTimeout(() => this.state = 'END', 2000);
+                this.state = 'END_WAIT';
+                this.endTimer = 0;
             } else {
                 this.server = winner;
                 this.resetRound();
@@ -701,7 +771,10 @@
         },
 
         resetRound: function() {
-            this.state = 'IDLE'; // BUGFIX: Força o bloqueio de lógicas residuais durante delay
+            this.state = 'IDLE'; 
+            this.idleTimer = 0;
+            this.endTimer = 0;
+
             this.ball.active = false;
             this.ball.vx = 0;
             this.ball.vy = 0;
@@ -717,11 +790,10 @@
             this.aiRecalcCounter = 0;
             this.timer = 0;
             
-            if (this.roundTimeout) clearTimeout(this.roundTimeout);
-            this.roundTimeout = setTimeout(() => { 
-                this.state = 'SERVE'; 
+            if (this.roundTimeout) {
+                clearTimeout(this.roundTimeout);
                 this.roundTimeout = null;
-            }, 1000);
+            }
         },
 
         renderScene: function(ctx, w, h) {
@@ -816,7 +888,7 @@
         },
 
         drawBall: function(ctx, w, h) {
-            if (!this.ball.active && this.state !== 'SERVE') return;
+            if (!this.ball.active && !['SERVE', 'IDLE', 'END_WAIT'].includes(this.state)) return;
 
             if (this.ball.y < CONF.FLOOR_Y) {
                 const shadowPos = MathCore.project(this.ball.x, 0, this.ball.z, w, h); 
