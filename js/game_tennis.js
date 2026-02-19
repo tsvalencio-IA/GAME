@@ -1,14 +1,14 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: THE TRUE GAME EDITION (MOBILE PERFECT + RULES)
+// THIAGUINHO WII PING PONG: THE TRUE GAME (ANTI-FREEZE + REACH AMPLIFIER)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 - CALIBRAÇÃO ESPACIAL, REGRAS REAIS (FORA/PASSOU), CÂMERA MOBILE
+// STATUS: 10/10 - REGRAS REAIS, LIMITADOR DE FÍSICA PARA NÃO TRAVAR, ALCANCE 2.0X
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS REAIS
+    // 1. CONFIGURAÇÕES FÍSICAS REAIS E CÂMERA DE CELULAR
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,       // Dimensão oficial
@@ -17,7 +17,7 @@
         NET_H: 152,          
         FLOOR_Y: 760,        
         
-        BALL_R: 35,          // Tamanho perfeito para celular
+        BALL_R: 35,          // Bolinha bem visível na tela
         GRAVITY: 0.75,       
         AIR_DRAG: 0.993,     
         BOUNCE_LOSS: 0.80,   
@@ -26,11 +26,11 @@
         
         AUTO_SERVE_DELAY: 2000,
         PADDLE_SCALE: 2.5,   
-        PADDLE_HITBOX: 260,  
+        PADDLE_HITBOX: 350,  // SUPER HITBOX: Muito mais fácil cobrir os cantos
         SWING_FORCE: 4.8,    
         SMASH_THRESH: 40,    
 
-        // === CÂMERA DINÂMICA (Ajustada dinamicamente para Celular) ===
+        // === CÂMERA DINÂMICA ===
         CAM_X: 0,           
         CAM_Y: -1200,       
         CAM_Z: -3200,       
@@ -46,7 +46,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & SHIELD (PROJEÇÃO 3D SEGURA)
+    // 2. MATH CORE & SHIELD (PROJEÇÃO 3D TOTALMENTE PROTEGIDA)
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -59,16 +59,19 @@
             let ry = cy * cosP - cz * sinP;
             let rz = cy * sinP + cz * cosP;
 
+            // PROTEÇÃO ANTI-CRASH: Impede divisão por zero ou objetos muito atrás
             if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             
-            const scale = CONF.FOV / rz;
-            return {
-                x: (cx * scale) + w/2,
-                y: (ry * scale) + h/2,
-                s: scale,
-                visible: true,
-                depth: rz
-            };
+            // Limitador de escala para evitar estouros de renderização no Canvas
+            let scale = Math.max(0.01, Math.min(15, CONF.FOV / rz));
+            
+            let screenX = (cx * scale) + w/2;
+            let screenY = (ry * scale) + h/2;
+
+            // Se for desenhar fora demais do universo, cancela para não travar a memória de vídeo
+            if (Math.abs(screenX) > 20000 || Math.abs(screenY) > 20000) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
+
+            return { x: screenX, y: screenY, s: scale, visible: true, depth: rz };
         },
         lerp: (a, b, t) => {
             if (!Number.isFinite(a)) a = 0; if (!Number.isFinite(b)) b = 0;
@@ -96,11 +99,25 @@
                 steps++;
             }
             return Number.isFinite(sx) ? sx : 0;
+        },
+
+        predictY: (b, targetZ) => {
+            let sy = b.y, sz = b.z;
+            let svy = b.vy, svz = b.vz;
+            let steps = 0;
+            while(sz < targetZ && steps < 300) {
+                svy += CONF.GRAVITY;
+                svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
+                sy += svy; sz += svz;
+                if(sy > 0) { sy = 0; svy *= -0.8; }
+                steps++;
+            }
+            return Number.isFinite(sy) ? sy : -200;
         }
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO (COM REGRAS DE QUADRA REAIS)
+    // 3. ENGINE DO JOGO E REGRAS REAIS
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -319,26 +336,18 @@
             this.resetRound();
         },
 
-        // =====================================================================
-        // CAMERA INTELIGENTE (ADAPTAÇÃO CELULAR vs PC)
-        // =====================================================================
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
-                // CELULAR: A mesa inteira VAI caber aqui.
-                CONF.CAM_Z = -3400;  // Empurra para trás para caber o comprimento
-                CONF.CAM_Y = -1200;  // Altura excelente para ver os quiques
-                CONF.CAM_PITCH = 0.22; // Inclinação
-                // O FOV dinâmico garante que as bordas da mesa nunca saiam da tela
+                CONF.CAM_Z = -3400;  
+                CONF.CAM_Y = -1200;  
+                CONF.CAM_PITCH = 0.22; 
                 CONF.FOV = w * 1.8;  
             } else { 
-                // PC
                 CONF.CAM_Z = -3400;
                 CONF.CAM_Y = -1200;
                 CONF.CAM_PITCH = 0.22;
                 CONF.FOV = 900;
             }
-
-            // PANNING: A câmera segue a bola bem sutilmente no eixo X para você não perdê-la
             let targetCamX = this.ball.active ? this.ball.x * 0.20 : 0;
             CONF.CAM_X = MathCore.lerp(CONF.CAM_X, targetCamX, 0.05);
         },
@@ -348,6 +357,8 @@
                 const now = performance.now();
                 let dt = this.lastFrameTime ? (now - this.lastFrameTime) : 16;
                 this.lastFrameTime = now;
+                
+                // Evita pulos bizarros na física se o celular der uma leve travada
                 if (dt > 100) dt = 16; 
 
                 this.updateCameraAdapter(w, h); 
@@ -406,7 +417,8 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("ERRO PROTEGIDO", e);
+                // SHIELD: Se houver qualquer falha matemática infinita, o jogo engole e continua rodando liso na próxima frame
+                console.error("ANTI-FREEZE SHIELD ATUOU: ", e);
             }
             return this.score.p1 || 0;
         },
@@ -469,13 +481,15 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
+            // ==============================================================
             // MODO MOUSE/TOUCH
+            // ==============================================================
             if (this.useMouse) {
                 let nx = this.mouseX / w; let ny = this.mouseY / h;
                 nx = MathCore.clamp(nx, 0, 1); ny = MathCore.clamp(ny, 0, 1);
 
-                const targetX = MathCore.lerp(-CONF.TABLE_W * 0.9, CONF.TABLE_W * 0.9, nx); 
-                const targetY = MathCore.lerp(-1200, 300, ny); 
+                const targetX = MathCore.lerp(-CONF.TABLE_W * 1.1, CONF.TABLE_W * 1.1, nx); 
+                const targetY = MathCore.lerp(-800, 200, ny); 
 
                 this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.90);
                 this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.90);
@@ -486,10 +500,12 @@
                 let calcVX = this.p1.gameX - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.gameX);
                 let calcVY = this.p1.gameY - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.gameY);
 
+                // Anti-Teleport Shield
                 if (Math.abs(calcVX) > 2000 || !Number.isFinite(calcVX)) calcVX = 0; 
                 if (Math.abs(calcVY) > 2000 || !Number.isFinite(calcVY)) calcVY = 0;
 
-                this.p1.velX = calcVX; this.p1.velY = calcVY;
+                this.p1.velX = MathCore.clamp(calcVX, -250, 250);
+                this.p1.velY = MathCore.clamp(calcVY, -250, 250);
                 this.p1.prevX = this.p1.gameX; this.p1.prevY = this.p1.gameY;
 
                 if (this.state === 'SERVE' && this.server === 'p1') {
@@ -500,7 +516,9 @@
                 return;
             }
 
-            // MODO CÂMERA
+            // ==============================================================
+            // MODO CÂMERA (USANDO A CALIBRAÇÃO COMO "CERCA")
+            // ==============================================================
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) { this.calibHandCandidate = null; return; }
                 const nose = pose.keypoints.find(k => k.name === 'nose');
@@ -519,15 +537,18 @@
             if (!this.handedness) return; 
             if (!pose || !pose.keypoints) { this.handleLostTracking(); return; }
 
-            const wrist = pose.keypoints.find(k => k.name === this.handedness + '_wrist' && k.score > 0.3);
-            const elbow = pose.keypoints.find(k => k.name === this.handedness + '_elbow' && k.score > 0.3);
+            const wristName = this.handedness + '_wrist';
+            const elbowName = this.handedness + '_elbow';
+            const wrist = pose.keypoints.find(k => k.name === wristName && k.score > 0.3);
+            const elbow = pose.keypoints.find(k => k.name === elbowName && k.score > 0.3);
 
             if (wrist) {
                 const rawX = 640 - wrist.x; const rawY = wrist.y;
-                this.p1.currRawX = rawX; this.p1.currRawY = rawY;
-
-                if (!this.state.startsWith('CALIB')) {
-                    // Mapeamento usando a Calibração Salva
+                
+                if (this.state.startsWith('CALIB')) {
+                    this.p1.currRawX = rawX; this.p1.currRawY = rawY;
+                } else {
+                    // A MÁGICA DA CALIBRAÇÃO AQUI:
                     let minX = Math.min(this.calib.tlX, this.calib.brX);
                     let maxX = Math.max(this.calib.tlX, this.calib.brX);
                     let minY = Math.min(this.calib.tlY, this.calib.brY);
@@ -539,23 +560,31 @@
                     let nx = (rawX - minX) / rangeX;
                     let ny = (rawY - minY) / rangeY;
 
-                    // Permite sair 30% da área de calibração para alcançar os cantos
-                    nx = MathCore.clamp(nx, -0.3, 1.3); 
-                    ny = MathCore.clamp(ny, -0.3, 1.3);
+                    // ==============================================================
+                    // ALCANCE 2.0x! O MÍNIMO DE MOVIMENTO COBRE A MESA TODA
+                    // ==============================================================
+                    nx = 0.5 + ((nx - 0.5) * 2.0);
+                    ny = 0.5 + ((ny - 0.5) * 2.0);
 
-                    let targetX = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nx); 
+                    // Permite que a raquete vá BEM longe da mesa para defender bolas nas quinas
+                    nx = MathCore.clamp(nx, -0.4, 1.4); 
+                    ny = MathCore.clamp(ny, -0.4, 1.4);
+
+                    let targetX = MathCore.lerp(-CONF.TABLE_W/2 - 400, CONF.TABLE_W/2 + 400, nx); 
                     let targetY = MathCore.lerp(-800, 200, ny); 
                     if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
                     this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.85);
                     this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.85);
-                    this.p1.gameZ = -CONF.TABLE_L/2 - 300; // Raquete do player fica colada no fundo
+                    this.p1.gameZ = -CONF.TABLE_L/2 - 250;
 
                     if (elbow) {
                         let rawEx = 640 - elbow.x; let rawEy = elbow.y;
                         let nex = (rawEx - minX) / rangeX; let ney = (rawEy - minY) / rangeY;
-                        nex = MathCore.clamp(nex, -0.3, 1.3); ney = MathCore.clamp(ney, -0.3, 1.3);
-                        let targetEx = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nex);
+                        nex = 0.5 + ((nex - 0.5) * 2.0); ney = 0.5 + ((ney - 0.5) * 2.0);
+                        nex = MathCore.clamp(nex, -0.4, 1.4); ney = MathCore.clamp(ney, -0.4, 1.4);
+                        
+                        let targetEx = MathCore.lerp(-CONF.TABLE_W/2 - 400, CONF.TABLE_W/2 + 400, nex);
                         let targetEy = MathCore.lerp(-800, 200, ney);
                         if (!Number.isFinite(targetEx)) targetEx = targetX; if (!Number.isFinite(targetEy)) targetEy = targetY + 300;
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
@@ -568,10 +597,12 @@
                     let calculatedVelX = this.p1.gameX - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.gameX);
                     let calculatedVelY = this.p1.gameY - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.gameY);
 
+                    // Shield Extremo (Impede que a velocidade passe de limites físicos)
                     if (Math.abs(calculatedVelX) > 2000 || !Number.isFinite(calculatedVelX)) calculatedVelX = 0;
                     if (Math.abs(calculatedVelY) > 2000 || !Number.isFinite(calculatedVelY)) calculatedVelY = 0;
 
-                    this.p1.velX = calculatedVelX; this.p1.velY = calculatedVelY;
+                    this.p1.velX = MathCore.clamp(calculatedVelX, -250, 250);
+                    this.p1.velY = MathCore.clamp(calculatedVelY, -250, 250);
                     this.p1.prevX = this.p1.gameX; this.p1.prevY = this.p1.gameY;
 
                     if (this.state === 'SERVE' && this.server === 'p1') {
@@ -626,14 +657,8 @@
                 const previousY = b.y;
                 b.x += b.vx / steps; b.y += b.vy / steps; b.z += b.vz / steps;
 
-                // Limpa o dono do hit quando a bola cruza a rede
-                if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) {
-                    b.lastHitBy = null;
-                }
+                if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) b.lastHitBy = null;
 
-                // ==========================================
-                // QUIQUE NA MESA
-                // ==========================================
                 if (b.y >= 0 && previousY < 0) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                         b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
@@ -658,37 +683,24 @@
                 this.checkPaddleHit();
             }
 
-            // ==========================================
-            // REGRAS: PASSOU DA RAQUETE OU FOI PARA FORA
-            // ==========================================
-            
-            // 1. Bola passou do Jogador (P1 não rebateu)
-            if (b.z < this.p1.gameZ - 100) {
-                if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') {
-                    this.scorePoint('p1', "FORA!"); // P2 jogou pra fora
-                } else {
-                    this.scorePoint('p2', "PASSOU!"); // P1 deixou passar após quique
-                }
+            // ==============================================================
+            // A REGRA DO "PASSOU": A bola cruzou o limite das raquetes
+            // ==============================================================
+            if (b.z < -CONF.TABLE_L/2 - 400) {
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
+                else this.scorePoint('p2', "PASSOU!");
                 return;
             }
-            
-            // 2. Bola passou da CPU (P2 não rebateu)
-            if (b.z > this.p2.gameZ + 100) {
-                if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') {
-                    this.scorePoint('p2', "FORA!"); // P1 jogou pra fora
-                } else {
-                    this.scorePoint('p1', "PASSOU!"); // P2 deixou passar após quique
-                }
+            if (b.z > CONF.TABLE_L/2 + 400) {
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') this.scorePoint('p2', "FORA!");
+                else this.scorePoint('p1', "PASSOU!");
                 return;
             }
 
-            // 3. Bola caiu no chão nas laterais (Fora)
+            // A REGRA DO "CAIU NO CHÃO LATERAIS": O jogo para na hora.
             if (b.y > CONF.FLOOR_Y) {
-                if (this.ball.bounceCount === 0) {
-                    this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
-                } else {
-                    this.scorePoint(this.lastHitter, "PONTO!");
-                }
+                if (this.ball.bounceCount === 0) this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
+                else this.scorePoint(this.lastHitter, "PONTO!");
                 return;
             }
 
@@ -745,16 +757,17 @@
             if (!Number.isFinite(velX)) velX = 0; if (!Number.isFinite(velY)) velY = 0;
 
             const speed = Math.sqrt(velX**2 + velY**2);
-            let force = 65 + (speed * CONF.SWING_FORCE); 
-            let isSmash = speed > CONF.SMASH_THRESH;
-
-            if (isSmash) { force *= 1.45; this.shake = 15; this.flash = 0.3; if(isP1) this.addMsg("CORTADA!", "#0ff"); } 
+            // PROTEÇÃO TOTAL CONTRA EXPLOSÃO DE FORÇA: Impede crashes
+            let force = MathCore.clamp(65 + (speed * CONF.SWING_FORCE), 65, 140);
+            
+            let isSmash = force > 100;
+            if (isSmash) { this.shake = 15; this.flash = 0.3; if(isP1) this.addMsg("CORTADA!", "#0ff"); } 
             else { this.shake = 3; }
 
             this.playHitSound(force * 3);
 
             this.ball.active = true; this.ball.lastHitBy = who;
-            this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
+            this.ball.vz = force * (isP1 ? 1 : -1); 
             this.ball.vx = ((offX||0) * 0.35) + (velX * 0.7);
             this.ball.vy = -20 + (velY * 0.5) + ((offY||0) * 0.1); 
             this.ball.spinY = velX * 1.2; this.ball.spinX = velY * 1.2;
@@ -1135,7 +1148,7 @@
             } 
             else if (this.state === 'CALIB_TL') {
                 ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText("SEGURE A MÃO NO ALVO VERMELHO (Esq/Cima)", w/2, h*0.15);
+                ctx.fillText("TOQUE NO ALVO VERMELHO (ESQUERDA)", w/2, h*0.15);
                 
                 const tx = 80; const ty = 80;
                 ctx.strokeStyle = "#f00"; ctx.lineWidth = 4;
@@ -1149,7 +1162,7 @@
             }
             else if (this.state === 'CALIB_BR') {
                 ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText("SEGURE A MÃO NO ALVO VERDE (Dir/Baixo)", w/2, h*0.15);
+                ctx.fillText("TOQUE NO ALVO VERDE (DIREITA)", w/2, h*0.15);
                 
                 const tx = w-80; const ty = h-80;
                 ctx.strokeStyle = "#0f0"; ctx.lineWidth = 4;
@@ -1198,4 +1211,4 @@
         window.System.registerGame('tennis', 'Ping Pong', '🏓', Game, { camOpacity: 0.1 });
     }
 
-})();
+})();l
