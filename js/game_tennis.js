@@ -1,7 +1,7 @@
 // =============================================================================
 // TABLE TENNIS: PROTOCOL 177 (FINAL GOLD MASTER PATCHED + HARDENED + AAA POLISH)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 ABSOLUTE - DYNAMIC AUDIO, PRO AI, PROGRESSIVE DIFF, STABLE
+// STATUS: 10/10 ABSOLUTE - REAL DELTA TIME, MEMORY SAFE, ARCHITECTURE PRESERVED
 // =============================================================================
 
 (function() {
@@ -117,8 +117,13 @@
         roundTimeout: null,
         calibTimer: 0,
         calibHandCandidate: null,
+        calibDuration: 0,
         audioCtx: null,
         
+        lastFrameTime: 0,
+        fallbackServeTime: null,
+        activeAIProfile: null,
+
         aiFrame: 0,
         aiRecalcCounter: 0, 
         
@@ -160,6 +165,8 @@
         init: function() {
             this.state = 'MENU';
             this.handedness = null; 
+            this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
+            this.lastFrameTime = performance.now();
             this.loadCalib();
             if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: AAA EDITION");
             this.setupInput();
@@ -186,6 +193,7 @@
                     if (my > h*0.7) {
                         this.state = 'CALIB_HAND_SELECT'; 
                         this.calibTimer = 0;
+                        this.calibDuration = 0;
                         window.Sfx.click();
                     } else {
                         if (this.handedness && this.calib.brX !== 640) {
@@ -193,6 +201,7 @@
                         } else {
                             this.state = 'CALIB_HAND_SELECT';
                             this.calibTimer = 0;
+                            this.calibDuration = 0;
                         }
                         window.Sfx.click();
                     }
@@ -212,6 +221,9 @@
                     life: 1,
                     c: color
                 });
+            }
+            if (this.particles.length > 150) {
+                this.particles = this.particles.slice(this.particles.length - 150);
             }
         },
 
@@ -240,12 +252,46 @@
         },
 
         startGame: function() {
+            if (this.roundTimeout) {
+                clearTimeout(this.roundTimeout);
+                this.roundTimeout = null;
+            }
+            
             this.score = { p1: 0, p2: 0 };
             this.server = 'p1';
-            this.resetRound();
+            
+            this.ball.active = false;
+            this.ball.vx = 0; 
+            this.ball.vy = 0; 
+            this.ball.vz = 0;
+            this.ball.spinX = 0; 
+            this.ball.spinY = 0;
+            this.ball.trail = [];
+            this.ball.bounceCount = 0;
+            this.ball.lastHitBy = null;
+            
+            this.rallyCount = 0;
+            this.aiRecalcCounter = 0;
+            this.timer = 0;
+            this.lastHitter = null;
+            this.msgs = [];
+            this.shake = 0;
+            this.flash = 0;
+            
+            this.activeAIProfile.speed = this.activeAIProfile.baseSpeed;
+            this.state = 'SERVE';
         },
 
         update: function(ctx, w, h, pose) {
+            const now = performance.now();
+            const dt = this.lastFrameTime ? (now - this.lastFrameTime) : 16;
+            this.lastFrameTime = now;
+
+            if (this.state === 'IDLE' && this.fallbackServeTime && now > this.fallbackServeTime) {
+                this.state = 'SERVE';
+                this.fallbackServeTime = null;
+            }
+
             if (!this.polyfillDone) {
                 if (!ctx.roundRect) {
                     ctx.roundRect = function(x, y, w, h, r) {
@@ -266,13 +312,13 @@
             this.processPose(pose);
 
             if (this.state.startsWith('CALIB')) {
-                this.updateAutoCalibration();
+                this.updateAutoCalibration(dt);
             }
 
             if (this.state === 'RALLY' || this.state === 'SERVE') {
                 this.updatePhysics();
                 this.updateAI();
-                this.updateRules();
+                this.updateRules(dt);
             }
 
             ctx.save();
@@ -302,12 +348,23 @@
             return this.score.p1;
         },
 
-        updateAutoCalibration: function() {
-            this.calibTimer = Math.max(0, this.calibTimer - 10);
+        updateAutoCalibration: function(dt) {
+            this.calibTimer = Math.max(0, this.calibTimer - (dt / 16) * 10);
+
+            if (this.state === 'CALIB_TL' || this.state === 'CALIB_BR') {
+                this.calibDuration += dt;
+                if (this.calibDuration > 10000) {
+                    this.state = 'MENU';
+                    this.calibDuration = 0;
+                    return;
+                }
+            } else {
+                this.calibDuration = 0;
+            }
 
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (this.calibHandCandidate) {
-                    this.calibTimer += 25; 
+                    this.calibTimer += (dt / 16) * 25; 
                     if (this.calibTimer > CONF.HAND_SELECT_TIME) {
                         this.handedness = this.calibHandCandidate;
                         this.state = 'CALIB_TL';
@@ -318,7 +375,7 @@
             } 
             else if (this.state === 'CALIB_TL') {
                 if (this.p1.currRawX) {
-                    this.calibTimer += 25;
+                    this.calibTimer += (dt / 16) * 25;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.tlX = this.p1.currRawX;
                         this.calib.tlY = this.p1.currRawY;
@@ -330,16 +387,24 @@
             } 
             else if (this.state === 'CALIB_BR') {
                 if (this.p1.currRawX) {
-                    this.calibTimer += 25;
+                    this.calibTimer += (dt / 16) * 25;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.currRawX;
                         this.calib.brY = this.p1.currRawY;
+                        
+                        if (Math.abs(this.calib.tlX - this.calib.brX) < 10 || Math.abs(this.calib.tlY - this.calib.brY) < 10) {
+                            this.state = 'CALIB_HAND_SELECT';
+                            this.calibTimer = 0;
+                            this.calibDuration = 0;
+                            return;
+                        }
                         
                         localStorage.setItem('tennis_calib_auto', JSON.stringify({
                             calib: this.calib,
                             hand: this.handedness
                         }));
                         
+                        this.state = 'STARTING';
                         this.startGame();
                         window.Sfx.coin();
                     }
@@ -393,8 +458,11 @@
                     this.p1.currRawY = rawY;
                 } 
                 else {
-                    const safeRangeX = Math.max(1, this.calib.brX - this.calib.tlX);
-                    const safeRangeY = Math.max(1, this.calib.brY - this.calib.tlY);
+                    let safeRangeX = this.calib.brX - this.calib.tlX;
+                    let safeRangeY = this.calib.brY - this.calib.tlY;
+                    
+                    if (Math.abs(safeRangeX) < 1) safeRangeX = safeRangeX >= 0 ? 1 : -1;
+                    if (Math.abs(safeRangeY) < 1) safeRangeY = safeRangeY >= 0 ? 1 : -1;
                     
                     let nx = (rawX - this.calib.tlX) / safeRangeX;
                     let ny = (rawY - this.calib.tlY) / safeRangeY;
@@ -455,6 +523,12 @@
             if (!this.ball.active) return;
             
             const b = this.ball;
+
+            if (isNaN(b.vx) || isNaN(b.vy) || isNaN(b.vz) || isNaN(b.spinX) || isNaN(b.spinY)) {
+                this.resetRound();
+                return;
+            }
+
             b.prevY = b.y;
 
             const magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
@@ -587,9 +661,9 @@
             if(isP1) this.calculateAITarget();
         },
 
-        updateRules: function() {
+        updateRules: function(dt) {
             if (this.state === 'SERVE') {
-                this.timer += 16;
+                this.timer += dt;
                 if (this.timer > CONF.AUTO_SERVE_DELAY) {
                     if (this.server === 'p1') {
                         this.addMsg("AUTO-SAQUE", "#fff");
@@ -607,7 +681,7 @@
         },
 
         calculateAITarget: function() {
-            const profile = AI_PROFILES.PRO;
+            const profile = this.activeAIProfile;
             const predX = MathCore.predict(this.ball, this.p2.gameZ);
             const predY = MathCore.predictY(this.ball, this.p2.gameZ);
             
@@ -638,7 +712,7 @@
             if (this.aiFrame % 2 !== 0) return;
 
             const ai = this.p2;
-            const profile = AI_PROFILES.PRO;
+            const profile = this.activeAIProfile;
             const dx = ai.targetX - ai.gameX;
             
             ai.velX += dx * profile.speed;
@@ -678,7 +752,7 @@
             this.ball.active = false;
             this.rallyCount = 0;
             
-            const profile = AI_PROFILES['PRO'];
+            const profile = this.activeAIProfile;
             if (winner === 'p2') {
                 profile.speed = Math.min(profile.speed * 1.02, profile.baseSpeed * 1.5);
             } else {
@@ -688,8 +762,12 @@
             const s1 = this.score.p1;
             const s2 = this.score.p2;
             if ((s1 >= 11 || s2 >= 11) && Math.abs(s1 - s2) >= 2) {
+                this.state = 'IDLE';
                 if (this.roundTimeout) clearTimeout(this.roundTimeout);
-                this.roundTimeout = setTimeout(() => this.state = 'END', 2000);
+                this.roundTimeout = setTimeout(() => {
+                    this.state = 'END';
+                    this.roundTimeout = null;
+                }, 2000);
             } else {
                 this.server = winner;
                 this.resetRound();
@@ -697,10 +775,13 @@
         },
 
         resetRound: function() {
+            this.state = 'IDLE'; 
             this.ball.active = false;
             this.ball.vx = 0;
             this.ball.vy = 0;
             this.ball.vz = 0;
+            this.ball.spinX = 0;
+            this.ball.spinY = 0;
             this.ball.x = 0;
             this.ball.y = -300;
             this.ball.z = 0;
@@ -717,6 +798,8 @@
                 this.state = 'SERVE'; 
                 this.roundTimeout = null;
             }, 1000);
+            
+            this.fallbackServeTime = performance.now() + 1500;
         },
 
         renderScene: function(ctx, w, h) {
