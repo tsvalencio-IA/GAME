@@ -1,7 +1,7 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: MASTER EDITION (MOBILE CALIBRATED)
+// THIAGUINHO WII PING PONG: THE TRUE GAME EDITION (MOBILE PERFECT + RULES)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 - CÂMERA NA ALTURA DOS OLHOS, CALIBRAÇÃO RESTAURADA, REGRAS REAIS
+// STATUS: 10/10 - CALIBRAÇÃO ESPACIAL, REGRAS REAIS (FORA/PASSOU), CÂMERA MOBILE
 // =============================================================================
 
 (function() {
@@ -11,30 +11,30 @@
     // 1. CONFIGURAÇÕES FÍSICAS REAIS
     // -----------------------------------------------------------------
     const CONF = {
-        TABLE_W: 1525,       // Largura oficial da mesa
-        TABLE_L: 2740,       // Comprimento oficial
+        TABLE_W: 1525,       // Dimensão oficial
+        TABLE_L: 2740,       
         TABLE_Y: 0,          
         NET_H: 152,          
         FLOOR_Y: 760,        
         
-        BALL_R: 35,          // Bolinha bem visível na tela
-        GRAVITY: 0.70,       
+        BALL_R: 35,          // Tamanho perfeito para celular
+        GRAVITY: 0.75,       
         AIR_DRAG: 0.993,     
         BOUNCE_LOSS: 0.80,   
         MAGNUS_FORCE: 0.18,
-        MAX_TOTAL_SPEED: 70, 
+        MAX_TOTAL_SPEED: 75, 
         
         AUTO_SERVE_DELAY: 2000,
         PADDLE_SCALE: 2.5,   
-        PADDLE_HITBOX: 250,  // Hitbox grande para não falhar a rebatida
-        SWING_FORCE: 4.0,    
-        SMASH_THRESH: 35,    
+        PADDLE_HITBOX: 260,  
+        SWING_FORCE: 4.8,    
+        SMASH_THRESH: 40,    
 
-        // === CÂMERA "ALTURA DOS OLHOS" PARA CELULAR ===
+        // === CÂMERA DINÂMICA (Ajustada dinamicamente para Celular) ===
         CAM_X: 0,           
-        CAM_Y: -800,        // Altura de uma pessoa jogando (antes estava -1800, muito alto)
-        CAM_Z: -2800,       // Distância ideal para ver a ponta da sua mesa e a rede
-        CAM_PITCH: 0.15,    // Olha só um pouquinho para baixo
+        CAM_Y: -1200,       
+        CAM_Z: -3200,       
+        CAM_PITCH: 0.22,    
         FOV: 900,           
 
         CALIB_TIME: 1500,      
@@ -96,25 +96,11 @@
                 steps++;
             }
             return Number.isFinite(sx) ? sx : 0;
-        },
-
-        predictY: (b, targetZ) => {
-            let sy = b.y, sz = b.z;
-            let svy = b.vy, svz = b.vz;
-            let steps = 0;
-            while(sz < targetZ && steps < 300) {
-                svy += CONF.GRAVITY;
-                svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
-                sy += svy; sz += svz;
-                if(sy > 0) { sy = 0; svy *= -0.8; }
-                steps++;
-            }
-            return Number.isFinite(sy) ? sy : -200;
         }
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO E REGRAS REAIS
+    // 3. ENGINE DO JOGO (COM REGRAS DE QUADRA REAIS)
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -122,7 +108,7 @@
         pose: null, handedness: null,
         
         calibTimer: 0, calibHandCandidate: null,
-        lastFrameTime: 0, activeAIProfile: { speed: 0.16, difficultyFactor: 0.90, baseSpeed: 0.16 },
+        lastFrameTime: 0, activeAIProfile: JSON.parse(JSON.stringify(AI_PROFILES.PRO)),
         aiFrame: 0, aiRecalcCounter: 0, 
 
         useMouse: false, mouseX: 320, mouseY: 240,
@@ -130,8 +116,8 @@
         isOnline: false, isHost: false, roomId: 'thiaguinhowii_pingpong',
         dbRef: null, roomRef: null, remotePlayersData: {}, lastSync: 0, maintenanceInterval: null,
         
-        p1: { gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 250, prevX: 0, prevY: 0, velX: 0, velY: 0, elbowX: 0, elbowY: 0, currRawX: 0, currRawY: 0 },
-        p2: { gameX: 0, gameY: -200, gameZ: CONF.TABLE_L/2 + 250, targetX: 0, targetZ: 0, targetY: -200, velX: 0, velZ: 0 },
+        p1: { gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 300, prevX: 0, prevY: 0, velX: 0, velY: 0, elbowX: 0, elbowY: 0, currRawX: 0, currRawY: 0 },
+        p2: { gameX: 0, gameY: -200, gameZ: CONF.TABLE_L/2 + 300, targetX: 0, targetZ: 0, targetY: -200, velX: 0, velZ: 0 },
         ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, prevY: -300, spinX: 0, spinY: 0, active: false, lastHitBy: null, bounceCount: 0, trail: [] },
 
         score: { p1: 0, p2: 0 }, server: 'p1', lastHitter: null, rallyCount: 0,
@@ -145,7 +131,7 @@
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("PING PONG WII INICIADO");
+            if(window.System && window.System.msg) window.System.msg("PING PONG CARREGADO");
             this.setupInput();
         },
 
@@ -180,9 +166,8 @@
                 const s = localStorage.getItem('tennis_calib_auto');
                 if(s) {
                     const data = JSON.parse(s);
-                    if(data.calib) {
-                        this.calib.tlX = Number(data.calib.tlX) || 0; this.calib.tlY = Number(data.calib.tlY) || 0;
-                        this.calib.brX = Number(data.calib.brX) || 640; this.calib.brY = Number(data.calib.brY) || 480;
+                    if(data.calib && Number.isFinite(data.calib.tlX)) {
+                        this.calib = data.calib;
                     }
                     if(data.hand) this.handedness = data.hand;
                 }
@@ -335,22 +320,27 @@
         },
 
         // =====================================================================
-        // CAMERA RESPONSIVA (CELULAR E PC)
+        // CAMERA INTELIGENTE (ADAPTAÇÃO CELULAR vs PC)
         // =====================================================================
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
-                // MODO MOBILE: Aumenta o FOV para enxergar as laterais da mesa
-                CONF.CAM_Z = -2800;  
-                CONF.CAM_Y = -800;   // Altura dos olhos
-                CONF.CAM_PITCH = 0.15; 
-                CONF.FOV = w * 1.6;  // FOV baseado na largura garante que a bolinha nunca saia da tela!
+                // CELULAR: A mesa inteira VAI caber aqui.
+                CONF.CAM_Z = -3400;  // Empurra para trás para caber o comprimento
+                CONF.CAM_Y = -1200;  // Altura excelente para ver os quiques
+                CONF.CAM_PITCH = 0.22; // Inclinação
+                // O FOV dinâmico garante que as bordas da mesa nunca saiam da tela
+                CONF.FOV = w * 1.8;  
             } else { 
-                // MODO PC
+                // PC
                 CONF.CAM_Z = -3400;
                 CONF.CAM_Y = -1200;
-                CONF.CAM_PITCH = 0.20;
+                CONF.CAM_PITCH = 0.22;
                 CONF.FOV = 900;
             }
+
+            // PANNING: A câmera segue a bola bem sutilmente no eixo X para você não perdê-la
+            let targetCamX = this.ball.active ? this.ball.x * 0.20 : 0;
+            CONF.CAM_X = MathCore.lerp(CONF.CAM_X, targetCamX, 0.05);
         },
 
         update: function(ctx, w, h, pose) {
@@ -416,13 +406,13 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("ERRO IGNORADO: ", e);
+                console.error("ERRO PROTEGIDO", e);
             }
             return this.score.p1 || 0;
         },
 
         // =================================================================
-        // A CALIBRAÇÃO VOLTOU! MAPEANDO O TAMANHO DO BRAÇO DO JOGADOR
+        // A CALIBRAÇÃO (A "CERCA" DO JOGADOR)
         // =================================================================
         updateAutoCalibration: function(dt) {
             const deltaFactor = dt / 16;
@@ -436,7 +426,7 @@
                     }
                 }
             } 
-            else if (this.state === 'CALIB_TL') { // ALVO VERMELHO
+            else if (this.state === 'CALIB_TL') { // Canto Superior Esquerdo
                 if (Number.isFinite(this.p1.currRawX)) {
                     this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
@@ -445,13 +435,13 @@
                     }
                 }
             } 
-            else if (this.state === 'CALIB_BR') { // ALVO VERDE
+            else if (this.state === 'CALIB_BR') { // Canto Inferior Direito
                 if (Number.isFinite(this.p1.currRawX)) {
                     this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.currRawX; this.calib.brY = this.p1.currRawY;
                         
-                        // Garante que haja uma distância mínima entre os pontos
+                        // Proteção: Se a calibração foi muito pequena, define um tamanho mínimo
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 100) this.calib.brX = this.calib.tlX + 200;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 100) this.calib.brY = this.calib.tlY + 200;
                         
@@ -479,16 +469,17 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
+            // MODO MOUSE/TOUCH
             if (this.useMouse) {
                 let nx = this.mouseX / w; let ny = this.mouseY / h;
                 nx = MathCore.clamp(nx, 0, 1); ny = MathCore.clamp(ny, 0, 1);
 
-                const targetX = MathCore.lerp(-CONF.TABLE_W * 1.1, CONF.TABLE_W * 1.1, nx); 
-                const targetY = MathCore.lerp(-800, 200, ny); 
+                const targetX = MathCore.lerp(-CONF.TABLE_W * 0.9, CONF.TABLE_W * 0.9, nx); 
+                const targetY = MathCore.lerp(-1200, 300, ny); 
 
                 this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.90);
                 this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.90);
-                this.p1.gameZ = -CONF.TABLE_L/2 - 250; 
+                this.p1.gameZ = -CONF.TABLE_L/2 - 300; 
                 this.p1.elbowX = this.p1.gameX + 100;
                 this.p1.elbowY = this.p1.gameY + 300;
 
@@ -509,9 +500,7 @@
                 return;
             }
 
-            // ==============================================================
-            // MODO CÂMERA (USANDO A CALIBRAÇÃO COMO "CERCA")
-            // ==============================================================
+            // MODO CÂMERA
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) { this.calibHandCandidate = null; return; }
                 const nose = pose.keypoints.find(k => k.name === 'nose');
@@ -530,43 +519,43 @@
             if (!this.handedness) return; 
             if (!pose || !pose.keypoints) { this.handleLostTracking(); return; }
 
-            const wristName = this.handedness + '_wrist';
-            const elbowName = this.handedness + '_elbow';
-            const wrist = pose.keypoints.find(k => k.name === wristName && k.score > 0.3);
-            const elbow = pose.keypoints.find(k => k.name === elbowName && k.score > 0.3);
+            const wrist = pose.keypoints.find(k => k.name === this.handedness + '_wrist' && k.score > 0.3);
+            const elbow = pose.keypoints.find(k => k.name === this.handedness + '_elbow' && k.score > 0.3);
 
             if (wrist) {
                 const rawX = 640 - wrist.x; const rawY = wrist.y;
-                
-                if (this.state.startsWith('CALIB')) {
-                    this.p1.currRawX = rawX; this.p1.currRawY = rawY;
-                } else {
-                    // A MÁGICA DA CALIBRAÇÃO AQUI:
-                    let safeRangeX = (this.calib.brX || 640) - (this.calib.tlX || 0);
-                    let safeRangeY = (this.calib.brY || 480) - (this.calib.tlY || 0);
-                    if (Math.abs(safeRangeX) < 1) safeRangeX = 640;
-                    if (Math.abs(safeRangeY) < 1) safeRangeY = 480;
+                this.p1.currRawX = rawX; this.p1.currRawY = rawY;
+
+                if (!this.state.startsWith('CALIB')) {
+                    // Mapeamento usando a Calibração Salva
+                    let minX = Math.min(this.calib.tlX, this.calib.brX);
+                    let maxX = Math.max(this.calib.tlX, this.calib.brX);
+                    let minY = Math.min(this.calib.tlY, this.calib.brY);
+                    let maxY = Math.max(this.calib.tlY, this.calib.brY);
                     
-                    let nx = (rawX - (this.calib.tlX || 0)) / safeRangeX;
-                    let ny = (rawY - (this.calib.tlY || 0)) / safeRangeY;
+                    let rangeX = maxX - minX; if(rangeX < 10) rangeX = 640;
+                    let rangeY = maxY - minY; if(rangeY < 10) rangeY = 480;
 
-                    // Permite que o braço saia 20% da calibração para alcançar bolas difíceis
-                    nx = MathCore.clamp(nx, -0.2, 1.2); 
-                    ny = MathCore.clamp(ny, -0.2, 1.2);
+                    let nx = (rawX - minX) / rangeX;
+                    let ny = (rawY - minY) / rangeY;
 
-                    let targetX = MathCore.lerp(-CONF.TABLE_W/2 - 300, CONF.TABLE_W/2 + 300, nx); 
+                    // Permite sair 30% da área de calibração para alcançar os cantos
+                    nx = MathCore.clamp(nx, -0.3, 1.3); 
+                    ny = MathCore.clamp(ny, -0.3, 1.3);
+
+                    let targetX = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nx); 
                     let targetY = MathCore.lerp(-800, 200, ny); 
                     if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
                     this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.85);
                     this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.85);
-                    this.p1.gameZ = -CONF.TABLE_L/2 - 250;
+                    this.p1.gameZ = -CONF.TABLE_L/2 - 300; // Raquete do player fica colada no fundo
 
                     if (elbow) {
-                        const rawEx = 640 - elbow.x; const rawEy = elbow.y;
-                        let nex = (rawEx - (this.calib.tlX||0)) / safeRangeX; let ney = (rawEy - (this.calib.tlY||0)) / safeRangeY;
-                        nex = MathCore.clamp(nex, -0.2, 1.2); ney = MathCore.clamp(ney, -0.2, 1.2);
-                        let targetEx = MathCore.lerp(-CONF.TABLE_W/2 - 300, CONF.TABLE_W/2 + 300, nex);
+                        let rawEx = 640 - elbow.x; let rawEy = elbow.y;
+                        let nex = (rawEx - minX) / rangeX; let ney = (rawEy - minY) / rangeY;
+                        nex = MathCore.clamp(nex, -0.3, 1.3); ney = MathCore.clamp(ney, -0.3, 1.3);
+                        let targetEx = MathCore.lerp(-CONF.TABLE_W*0.8, CONF.TABLE_W*0.8, nex);
                         let targetEy = MathCore.lerp(-800, 200, ney);
                         if (!Number.isFinite(targetEx)) targetEx = targetX; if (!Number.isFinite(targetEy)) targetEy = targetY + 300;
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
@@ -637,8 +626,14 @@
                 const previousY = b.y;
                 b.x += b.vx / steps; b.y += b.vy / steps; b.z += b.vz / steps;
 
-                if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) b.lastHitBy = null;
+                // Limpa o dono do hit quando a bola cruza a rede
+                if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) {
+                    b.lastHitBy = null;
+                }
 
+                // ==========================================
+                // QUIQUE NA MESA
+                // ==========================================
                 if (b.y >= 0 && previousY < 0) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                         b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
@@ -651,11 +646,10 @@
                         if (this.lastHitter === side) {
                             this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES");
                             return;
-                        }
-                        else {
+                        } else {
                             this.ball.bounceCount++;
                             if(this.ball.bounceCount >= 2) {
-                                this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS QUIQUES");
+                                this.scorePoint(side === 'p1' ? 'p2' : 'p1', "PONTO!");
                                 return;
                             }
                         }
@@ -664,18 +658,43 @@
                 this.checkPaddleHit();
             }
 
-            // ==============================================================
-            // A REGRA DO "FOI EMBORA": Se passar do jogador ou da IA, o ponto acaba.
-            // ==============================================================
-            if (b.z < -CONF.TABLE_L/2 - 400) {
-                // Passou do Player (Player errou)
-                this.scorePoint('p2', "PONTO CPU!");
+            // ==========================================
+            // REGRAS: PASSOU DA RAQUETE OU FOI PARA FORA
+            // ==========================================
+            
+            // 1. Bola passou do Jogador (P1 não rebateu)
+            if (b.z < this.p1.gameZ - 100) {
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') {
+                    this.scorePoint('p1', "FORA!"); // P2 jogou pra fora
+                } else {
+                    this.scorePoint('p2', "PASSOU!"); // P1 deixou passar após quique
+                }
                 return;
             }
-            if (b.z > CONF.TABLE_L/2 + 400) {
-                // Passou da CPU (CPU errou)
-                this.scorePoint('p1', "PONTO P1!");
+            
+            // 2. Bola passou da CPU (P2 não rebateu)
+            if (b.z > this.p2.gameZ + 100) {
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') {
+                    this.scorePoint('p2', "FORA!"); // P1 jogou pra fora
+                } else {
+                    this.scorePoint('p1', "PASSOU!"); // P2 deixou passar após quique
+                }
                 return;
+            }
+
+            // 3. Bola caiu no chão nas laterais (Fora)
+            if (b.y > CONF.FLOOR_Y) {
+                if (this.ball.bounceCount === 0) {
+                    this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
+                } else {
+                    this.scorePoint(this.lastHitter, "PONTO!");
+                }
+                return;
+            }
+
+            // Bateu na rede
+            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
+                b.vz *= -0.2; b.vx *= 0.5; this.shake = 5; this.playHitSound(currentSpeed * 0.5); b.lastHitBy = null;
             }
 
             const totalSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
@@ -689,13 +708,6 @@
             if (Math.abs(b.vz) > 30) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
                 if (this.ball.trail.length > 30) this.ball.trail.shift();
-            }
-
-            // Se bater no chão (fora da mesa)
-            if (b.y > CONF.FLOOR_Y) this.handleOut();
-
-            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
-                b.vz *= -0.2; b.vx *= 0.5; this.shake = 5; this.playHitSound(currentSpeed * 0.5); b.lastHitBy = null;
             }
         },
 
@@ -766,8 +778,6 @@
                     } else { if (!this.isOnline || this.isHost) this.aiServe(); }
                     this.timer = 0;
                 }
-            } else if (this.state === 'RALLY') {
-                if (!this.ball.active || (Math.abs(this.ball.vx) < 0.1 && Math.abs(this.ball.vz) < 0.1)) if (this.ball.y > 0) this.handleOut();
             }
         },
 
@@ -808,11 +818,6 @@
             this.ball.x = this.p2.gameX || 0; this.ball.y = this.p2.gameY || -200; this.ball.z = (this.p2.gameZ || CONF.TABLE_L/2 + 200) - 100;
             this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
             this.hitBall('p2', (Math.random()-0.5)*20, 0);
-        },
-
-        handleOut: function() {
-            if (this.ball.bounceCount === 0) this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA");
-            else this.scorePoint(this.lastHitter, "PONTO");
         },
 
         scorePoint: function(winner, txt) {
@@ -1129,8 +1134,8 @@
                 drawSelectRing(w*0.25, h*0.5, 'left'); drawSelectRing(w*0.75, h*0.5, 'right');
             } 
             else if (this.state === 'CALIB_TL') {
-                ctx.font = "bold 22px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText("SEGURE A MÃO NO ALVO VERMELHO", w/2, h*0.15);
+                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("SEGURE A MÃO NO ALVO VERMELHO (Esq/Cima)", w/2, h*0.15);
                 
                 const tx = 80; const ty = 80;
                 ctx.strokeStyle = "#f00"; ctx.lineWidth = 4;
@@ -1143,8 +1148,8 @@
                 }
             }
             else if (this.state === 'CALIB_BR') {
-                ctx.font = "bold 22px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText("SEGURE A MÃO NO ALVO VERDE", w/2, h*0.15);
+                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("SEGURE A MÃO NO ALVO VERDE (Dir/Baixo)", w/2, h*0.15);
                 
                 const tx = w-80; const ty = h-80;
                 ctx.strokeStyle = "#0f0"; ctx.lineWidth = 4;
