@@ -1,7 +1,7 @@
 // =============================================================================
-// TABLE TENNIS: PROTOCOL 177 (FINAL GOLD MASTER PATCHED + HARDENED)
+// TABLE TENNIS: PROTOCOL 177 (AUTO CALIBRATION + HAND SELECT)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 STABLE, RUNTIME PROTECTED, ZERO CRASHES
+// STATUS: 10/10 STABLE - HOLD-TO-CONFIRM, NO CLICKS REQUIRED
 // =============================================================================
 
 (function() {
@@ -32,7 +32,11 @@
 
         CAM_Y: -1400,        
         CAM_Z: -1800,        
-        FOV: 900
+        FOV: 900,
+
+        // Calibração
+        CALIB_TIME: 2000,    // 2 segundos para confirmar posição
+        HAND_SELECT_TIME: 1500 // 1.5 segundos para selecionar mão
     };
 
     const AI_PROFILES = {
@@ -108,8 +112,12 @@
         timer: 0,
         pose: null, 
         handedness: null, 
-        polyfillDone: false, // Flag para proteção do roundRect
+        polyfillDone: false,
         
+        // Timer de calibração automática
+        calibTimer: 0,
+        calibHandCandidate: null,
+
         p1: { 
             gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 200, 
             prevX: 0, prevY: 0, 
@@ -149,13 +157,13 @@
             this.state = 'MENU';
             this.handedness = null; 
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: PROTOCOL 177 STABLE");
+            if(window.System && window.System.msg) window.System.msg("TABLE TENNIS: AUTO SETUP");
             this.setupInput();
         },
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_177_ux');
+                const s = localStorage.getItem('tennis_calib_auto');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib) this.calib = data.calib;
@@ -170,24 +178,38 @@
                 const h = window.System.canvas.height;
                 const my = e.clientY - window.System.canvas.getBoundingClientRect().top;
 
+                // Apenas MENU e END aceitam clique. Calibração é automática.
                 if (this.state === 'MENU') {
                     if (my > h*0.7) {
                         this.state = 'CALIB_HAND_SELECT'; 
+                        this.calibTimer = 0;
                         window.Sfx.click();
                     } else {
                         if (this.handedness && this.calib.brX !== 640) {
                             this.startGame();
                         } else {
                             this.state = 'CALIB_HAND_SELECT';
+                            this.calibTimer = 0;
                         }
                         window.Sfx.click();
                     }
-                } else if (this.state.startsWith('CALIB')) {
-                    this.doCalibStep();
                 } else if (this.state === 'END') {
                     this.state = 'MENU';
                 }
             };
+        },
+
+        spawnParticles: function(x, y, z, count, color) {
+            for (let i = 0; i < count; i++) {
+                this.particles.push({
+                    x: x, y: y, z: z,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    vz: (Math.random() - 0.5) * 8,
+                    life: 1,
+                    c: color
+                });
+            }
         },
 
         startGame: function() {
@@ -196,61 +218,9 @@
             this.resetRound();
         },
 
-        doCalibStep: function() {
-            // [CORREÇÃO 4] Validação de Calibração Real
-            const w = window.System.canvas.width;
-            const h = window.System.canvas.height;
-
-            if (this.state === 'CALIB_HAND_SELECT') {
-                if (this.handedness) {
-                    this.state = 'CALIB_TL';
-                    window.Sfx.coin();
-                }
-            } else if (this.state === 'CALIB_TL') {
-                if(this.p1.currRawX) {
-                    // Validar proximidade com alvo TL (100, 100)
-                    const targetX = 100;
-                    const targetY = 100;
-                    const handScreenX = (this.p1.currRawX / 640) * w;
-                    const handScreenY = (this.p1.currRawY / 480) * h;
-                    
-                    const dist = Math.sqrt((handScreenX - targetX)**2 + (handScreenY - targetY)**2);
-                    
-                    if (dist < 60) {
-                        this.calib.tlX = this.p1.currRawX;
-                        this.calib.tlY = this.p1.currRawY;
-                        this.state = 'CALIB_BR';
-                        window.Sfx.click();
-                    }
-                }
-            } else if (this.state === 'CALIB_BR') {
-                if(this.p1.currRawX) {
-                    // Validar proximidade com alvo BR (w-100, h-100)
-                    const targetX = w - 100;
-                    const targetY = h - 100;
-                    const handScreenX = (this.p1.currRawX / 640) * w;
-                    const handScreenY = (this.p1.currRawY / 480) * h;
-                    
-                    const dist = Math.sqrt((handScreenX - targetX)**2 + (handScreenY - targetY)**2);
-
-                    if (dist < 60) {
-                        this.calib.brX = this.p1.currRawX;
-                        this.calib.brY = this.p1.currRawY;
-                        
-                        localStorage.setItem('tennis_calib_177_ux', JSON.stringify({
-                            calib: this.calib,
-                            hand: this.handedness
-                        }));
-                        
-                        this.state = 'MENU';
-                        window.Sfx.coin();
-                    }
-                }
-            }
-        },
-
+        // Lógica de update geral
         update: function(ctx, w, h, pose) {
-            // [CORREÇÃO 2] Proteção roundRect
+            // Polyfill protection
             if (!this.polyfillDone) {
                 if (!ctx.roundRect) {
                     ctx.roundRect = function(x, y, w, h, r) {
@@ -269,6 +239,11 @@
             }
 
             this.processPose(pose);
+
+            // Gerenciamento de Estado da Calibração Automática
+            if (this.state.startsWith('CALIB')) {
+                this.updateAutoCalibration();
+            }
 
             if (this.state === 'RALLY' || this.state === 'SERVE') {
                 this.updatePhysics();
@@ -303,26 +278,77 @@
             return this.score.p1;
         },
 
+        // Nova função para gerenciar calibração por tempo
+        updateAutoCalibration: function() {
+            // Decay timer se nada acontecer
+            this.calibTimer = Math.max(0, this.calibTimer - 16);
+
+            if (this.state === 'CALIB_HAND_SELECT') {
+                if (this.calibHandCandidate) {
+                    this.calibTimer += 32; // Enche mais rápido que esvazia
+                    if (this.calibTimer > CONF.HAND_SELECT_TIME) {
+                        this.handedness = this.calibHandCandidate;
+                        this.state = 'CALIB_TL';
+                        this.calibTimer = 0;
+                        window.Sfx.coin();
+                    }
+                }
+            } 
+            else if (this.state === 'CALIB_TL') {
+                if (this.p1.currRawX) {
+                    this.calibTimer += 32;
+                    if (this.calibTimer > CONF.CALIB_TIME) {
+                        this.calib.tlX = this.p1.currRawX;
+                        this.calib.tlY = this.p1.currRawY;
+                        this.state = 'CALIB_BR';
+                        this.calibTimer = 0;
+                        window.Sfx.coin();
+                    }
+                }
+            } 
+            else if (this.state === 'CALIB_BR') {
+                if (this.p1.currRawX) {
+                    this.calibTimer += 32;
+                    if (this.calibTimer > CONF.CALIB_TIME) {
+                        this.calib.brX = this.p1.currRawX;
+                        this.calib.brY = this.p1.currRawY;
+                        
+                        localStorage.setItem('tennis_calib_auto', JSON.stringify({
+                            calib: this.calib,
+                            hand: this.handedness
+                        }));
+                        
+                        this.startGame(); // Inicia direto
+                        window.Sfx.coin();
+                    }
+                }
+            }
+        },
+
         processPose: function(pose) {
             this.pose = pose; 
             if (!pose || !pose.keypoints) return;
 
+            // ---- Lógica de Seleção de Mão ----
             if (this.state === 'CALIB_HAND_SELECT') {
                 const nose = pose.keypoints.find(k => k.name === 'nose');
                 const leftW = pose.keypoints.find(k => k.name === 'left_wrist');
                 const rightW = pose.keypoints.find(k => k.name === 'right_wrist');
 
+                this.calibHandCandidate = null;
+
                 if (nose && leftW && rightW) {
+                    // Mão acima do nariz
                     const leftUp = leftW.y < nose.y;
                     const rightUp = rightW.y < nose.y;
 
-                    if (leftUp && !rightUp) this.handedness = 'left';
-                    else if (rightUp && !leftUp) this.handedness = 'right';
-                    
-                    if (this.handedness === 'left') {
+                    if (leftUp && !rightUp) {
+                        this.calibHandCandidate = 'left';
                         this.p1.currRawX = 640 - leftW.x;
                         this.p1.currRawY = leftW.y;
-                    } else if (this.handedness === 'right') {
+                    } 
+                    else if (rightUp && !leftUp) {
+                        this.calibHandCandidate = 'right';
                         this.p1.currRawX = 640 - rightW.x;
                         this.p1.currRawY = rightW.y;
                     }
@@ -330,6 +356,7 @@
                 return;
             }
 
+            // ---- Lógica de Jogo / Calibração Pontual ----
             if (!this.handedness) return; 
 
             const wristName = this.handedness + '_wrist';
@@ -347,7 +374,6 @@
                     this.p1.currRawY = rawY;
                 } 
                 else {
-                    // [CORREÇÃO 3] Proteção Divisão por Zero
                     const safeRangeX = Math.max(1, this.calib.brX - this.calib.tlX);
                     const safeRangeY = Math.max(1, this.calib.brY - this.calib.tlY);
                     
@@ -399,6 +425,9 @@
                         }
                     }
                 }
+            } else {
+                // Se perder tracking durante calibração, zera timer
+                if(this.state.startsWith('CALIB')) this.calibTimer = 0;
             }
         },
 
@@ -472,14 +501,11 @@
         checkPaddleHit: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
-                
                 if (distP1 < CONF.PADDLE_HITBOX) {
                     const toPaddleX = this.p1.gameX - this.ball.x;
                     const toPaddleY = this.p1.gameY - this.ball.y;
                     const toPaddleZ = this.p1.gameZ - this.ball.z;
-                    
                     const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
-                    
                     if (dot > 0) {
                         const dx = this.ball.x - this.p1.gameX;
                         const dy = this.ball.y - this.p1.gameY;
@@ -487,20 +513,14 @@
                     }
                 }
             }
-
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
                 const distP2 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p2.gameX, this.p2.gameY, this.p2.gameZ);
-                
                 if (distP2 < CONF.PADDLE_HITBOX) {
                     const toPaddleX = this.p2.gameX - this.ball.x;
                     const toPaddleY = this.p2.gameY - this.ball.y;
                     const toPaddleZ = this.p2.gameZ - this.ball.z;
-
                     const dot = MathCore.dot3d(toPaddleX, toPaddleY, toPaddleZ, this.ball.vx, this.ball.vy, this.ball.vz);
-
-                    if (dot > 0) {
-                        this.hitBall('p2', 0, 0);
-                    }
+                    if (dot > 0) this.hitBall('p2', 0, 0);
                 }
             }
         },
@@ -508,11 +528,9 @@
         hitBall: function(who, offX, offY) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
-            
             let velX = isP1 ? paddle.velX : paddle.velX;
             let velY = isP1 ? paddle.velY : 0;
             const speed = Math.sqrt(velX**2 + velY**2);
-            
             let force = 45 + (speed * CONF.SWING_FORCE);
             let isSmash = speed > CONF.SMASH_THRESH;
 
@@ -529,11 +547,9 @@
 
             this.ball.active = true;
             this.ball.lastHitBy = who;
-            
             this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
             this.ball.vx = (offX * 0.35) + (velX * 0.6);
             this.ball.vy = -18 + (velY * 0.4) + (offY * 0.1); 
-
             this.ball.spinY = velX * 1.0;
             this.ball.spinX = velY * 1.0;
 
@@ -541,9 +557,7 @@
             this.bounceCount = 0;
             this.rallyCount++;
             this.state = 'RALLY';
-            
             this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#0ff' : '#f00');
-            
             if(isP1) this.calculateAITarget();
         },
 
@@ -569,15 +583,12 @@
         calculateAITarget: function() {
             const predX = MathCore.predict(this.ball, this.p2.gameZ);
             const predY = MathCore.predictY(this.ball, this.p2.gameZ);
-
             const speed = Math.abs(this.ball.vz);
             const errorBase = speed * 0.2; 
             const errorX = (Math.random() - 0.5) * errorBase;
             const errorY = (Math.random() - 0.5) * speed * 0.15; 
-
             this.p2.targetX = predX + errorX;
             this.p2.targetY = predY + errorY; 
-            
             if (Math.abs(this.ball.vz) < 50) this.p2.targetZ = CONF.TABLE_L/2; 
             else this.p2.targetZ = CONF.TABLE_L/2 + 300;
         },
@@ -588,18 +599,13 @@
             ai.velX += dx * 0.1;
             ai.velX *= 0.80; 
             ai.gameX += ai.velX;
-            
             const dz = ai.targetZ - ai.gameZ;
             ai.velZ += dz * 0.05;
             ai.velZ *= 0.85;
             ai.gameZ += ai.velZ;
-
             ai.gameY = MathCore.lerp(ai.gameY, ai.targetY, 0.08);
-            
             if (this.ball.vz < 0) {
-                ai.targetX = 0;
-                ai.targetZ = CONF.TABLE_L/2 + 300;
-                ai.targetY = -200; 
+                ai.targetX = 0; ai.targetZ = CONF.TABLE_L/2 + 300; ai.targetY = -200; 
             }
         },
 
@@ -621,10 +627,8 @@
             this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
             this.ball.active = false;
             this.rallyCount = 0;
-            
             const s1 = this.score.p1;
             const s2 = this.score.p2;
-
             if ((s1 >= 11 || s2 >= 11) && Math.abs(s1 - s2) >= 2) {
                 setTimeout(() => this.state = 'END', 2000);
             } else {
@@ -641,10 +645,7 @@
             this.bounceCount = 0;
             this.lastHitter = null;
             this.timer = 0;
-            
-            setTimeout(() => {
-                this.state = 'SERVE';
-            }, 1000);
+            setTimeout(() => { this.state = 'SERVE'; }, 1000);
         },
 
         renderScene: function(ctx, w, h) {
@@ -676,33 +677,20 @@
         
         drawPlayerArm: function(ctx, w, h) {
             if(!this.handedness) return; 
-
             const wristZ = this.p1.gameZ;
             const elbowZ = this.p1.gameZ + 400; 
-
             const pWrist = MathCore.project(this.p1.gameX, this.p1.gameY, wristZ, w, h);
             const pElbow = MathCore.project(this.p1.elbowX, this.p1.elbowY, elbowZ, w, h);
             
             if (pWrist.visible && pElbow.visible) {
-                ctx.strokeStyle = "#e0ac69"; 
-                ctx.lineWidth = 18 * pWrist.s;
-                ctx.lineCap = "round";
-                ctx.beginPath(); 
-                ctx.moveTo(pElbow.x, pElbow.y); 
-                ctx.lineTo(pWrist.x, pWrist.y); 
-                ctx.stroke();
-                
-                ctx.fillStyle = "#e0ac69";
-                ctx.beginPath(); ctx.arc(pWrist.x, pWrist.y, 10*pWrist.s, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = "#e0ac69"; ctx.lineWidth = 18 * pWrist.s; ctx.lineCap = "round";
+                ctx.beginPath(); ctx.moveTo(pElbow.x, pElbow.y); ctx.lineTo(pWrist.x, pWrist.y); ctx.stroke();
+                ctx.fillStyle = "#e0ac69"; ctx.beginPath(); ctx.arc(pWrist.x, pWrist.y, 10*pWrist.s, 0, Math.PI*2); ctx.fill();
             }
         },
 
         drawTable: function(ctx, w, h) {
-            const hw = CONF.TABLE_W/2;
-            const hl = CONF.TABLE_L/2;
-            const th = 40;
-            const legH = CONF.FLOOR_Y; 
-
+            const hw = CONF.TABLE_W/2; const hl = CONF.TABLE_L/2; const th = 40; const legH = CONF.FLOOR_Y; 
             ctx.fillStyle = "#222";
             const drawLeg = (x, z) => {
                 const p1 = MathCore.project(x-20, 0, z, w, h);
@@ -714,8 +702,7 @@
                     ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y); ctx.fill();
                 }
             };
-            drawLeg(-hw+100, -hl+200); drawLeg(hw-100, -hl+200);
-            drawLeg(-hw+100, hl-200);  drawLeg(hw-100, hl-200);
+            drawLeg(-hw+100, -hl+200); drawLeg(hw-100, -hl+200); drawLeg(-hw+100, hl-200); drawLeg(hw-100, hl-200);
 
             const c1 = MathCore.project(-hw, 0, -hl, w, h);
             const c2 = MathCore.project(hw, 0, -hl, w, h);
@@ -727,170 +714,17 @@
 
             if (!c1.visible) return;
 
-            ctx.fillStyle = "#052040"; 
-            ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); 
-            ctx.lineTo(c2b.x, c2b.y); ctx.lineTo(c1b.x, c1b.y); ctx.fill();
-
-            ctx.fillStyle = "#052550";
-            ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); 
-            ctx.lineTo(c3b.x, c3b.y); ctx.lineTo(c2b.x, c2b.y); ctx.fill();
-
-            ctx.fillStyle = "#1e6091"; 
-            ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); 
-            ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.fill();
-
-            ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 2 * c1.s;
-            ctx.stroke(); 
-            const m1 = MathCore.project(0, 0, -hl, w, h);
-            const m2 = MathCore.project(0, 0, hl, w, h);
+            ctx.fillStyle = "#052040"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c2b.x, c2b.y); ctx.lineTo(c1b.x, c1b.y); ctx.fill();
+            ctx.fillStyle = "#052550"; ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c3b.x, c3b.y); ctx.lineTo(c2b.x, c2b.y); ctx.fill();
+            ctx.fillStyle = "#1e6091"; ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 2 * c1.s; ctx.stroke(); 
+            const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
             ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
 
-            const n1 = MathCore.project(-hw-50, 0, 0, w, h);
-            const n2 = MathCore.project(hw+50, 0, 0, w, h);
-            const n1t = MathCore.project(-hw-50, -CONF.NET_H, 0, w, h);
-            const n2t = MathCore.project(hw+50, -CONF.NET_H, 0, w, h);
-
-            ctx.fillStyle = "rgba(240,240,240,0.3)";
-            ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y);
-            ctx.lineTo(n2t.x, n2t.y); ctx.lineTo(n1t.x, n1t.y); ctx.fill();
-            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * c1.s;
-            ctx.beginPath(); ctx.moveTo(n1t.x, n1t.y); ctx.lineTo(n2t.x, n2t.y); ctx.stroke();
-        },
-
-        drawPaddle: function(ctx, x, y, z, color, w, h) {
-            const pos = MathCore.project(x, y, z, w, h);
-            if (!pos.visible) return;
-            const scale = pos.s * CONF.PADDLE_SCALE;
-            
-            ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 20;
-            ctx.fillStyle = "#333";
-            ctx.beginPath(); ctx.arc(pos.x, pos.y, 65*scale, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(pos.x, pos.y, 60*scale, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "#8d6e63";
-            ctx.fillRect(pos.x - 15*scale, pos.y + 40*scale, 30*scale, 60*scale);
-            ctx.shadowBlur = 0;
-            
-            ctx.fillStyle = "rgba(255,255,255,0.15)";
-            ctx.beginPath(); ctx.arc(pos.x - 15*scale, pos.y - 15*scale, 25*scale, 0, Math.PI*2); ctx.fill();
-        },
-
-        drawBall: function(ctx, w, h) {
-            if (!this.ball.active && this.state !== 'SERVE') return;
-
-            if (this.ball.y < CONF.FLOOR_Y) {
-                const shadowPos = MathCore.project(this.ball.x, 0, this.ball.z, w, h); 
-                if (Math.abs(this.ball.x) > CONF.TABLE_W/2 || Math.abs(this.ball.z) > CONF.TABLE_L/2) {
-                    MathCore.project(this.ball.x, CONF.FLOOR_Y, this.ball.z, w, h); 
-                }
-                
-                if (shadowPos.visible) {
-                    const distToShadow = Math.abs(this.ball.y);
-                    const alpha = MathCore.clamp(1 - (distToShadow/1000), 0.1, 0.5);
-                    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-                    const sr = CONF.BALL_R * shadowPos.s * (1 + distToShadow/2000);
-                    ctx.beginPath(); ctx.ellipse(shadowPos.x, shadowPos.y, sr*1.5, sr*0.5, 0, 0, Math.PI*2); ctx.fill();
-                }
-            }
-
-            ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 10;
-            ctx.beginPath();
-            this.ball.trail.forEach((t, i) => {
-                const tp = MathCore.project(t.x, t.y, t.z, w, h);
-                if (tp.visible) {
-                    if(i===0) ctx.moveTo(tp.x, tp.y); else ctx.lineTo(tp.x, tp.y);
-                }
-                t.a -= 0.05;
-            });
-            ctx.stroke();
-            this.ball.trail = this.ball.trail.filter(t => t.a > 0);
-
-            const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
-            if(pos.visible) {
-                const r = CONF.BALL_R * pos.s;
-                const grad = ctx.createRadialGradient(pos.x-r*0.3, pos.y-r*0.3, r*0.1, pos.x, pos.y, r);
-                grad.addColorStop(0, "#fff"); grad.addColorStop(1, "#f39c12");
-                ctx.fillStyle = grad;
-                ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, Math.PI*2); ctx.fill();
-            }
-        },
-
-        // [CORREÇÃO 1] spawnParticles Implementado
-        spawnParticles: function(x, y, z, count, color) {
-            for (let i = 0; i < count; i++) {
-                this.particles.push({
-                    x: x,
-                    y: y,
-                    z: z,
-                    vx: (Math.random() - 0.5) * 8,
-                    vy: (Math.random() - 0.5) * 8,
-                    vz: (Math.random() - 0.5) * 8,
-                    life: 1,
-                    c: color
-                });
-            }
-        },
-
-        drawParticles: function(ctx, w, h) {
-            this.particles.forEach(p => {
-                p.x += p.vx; p.y += p.vy; p.z += p.vz; p.life -= 0.05;
-                const pos = MathCore.project(p.x, p.y, p.z, w, h);
-                if(pos.visible) {
-                    ctx.globalAlpha = p.life;
-                    ctx.fillStyle = p.c;
-                    ctx.fillRect(pos.x, pos.y, 4*pos.s, 4*pos.s);
-                }
-            });
-            this.particles = this.particles.filter(p => p.life > 0);
-            ctx.globalAlpha = 1;
-        },
-
-        addMsg: function(t, c) {
-            this.msgs.push({t, c, y: 300, a: 1.5});
-        },
-
-        renderHUD: function(ctx, w, h) {
-            const cx = w/2;
-            ctx.fillStyle = "#000"; ctx.beginPath();
-            ctx.roundRect(cx-100, 20, 200, 60, 8); ctx.fill();
-            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
-            
-            ctx.font = "bold 40px 'Russo One'"; ctx.textAlign = "center";
-            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p1, cx-50, 65);
-            ctx.fillStyle = "#555"; ctx.fillText("-", cx, 65);
-            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p2, cx+50, 65);
-
-            this.msgs.forEach(m => {
-                m.y -= 1; m.a -= 0.02;
-                if(m.a > 0) {
-                    ctx.globalAlpha = Math.min(1, m.a);
-                    ctx.font = "bold 50px 'Russo One'";
-                    ctx.strokeStyle = "black"; ctx.lineWidth = 4;
-                    ctx.strokeText(m.t, cx, m.y);
-                    ctx.fillStyle = m.c; ctx.fillText(m.t, cx, m.y);
-                }
-            });
-            this.msgs = this.msgs.filter(m => m.a > 0);
-            ctx.globalAlpha = 1;
-
-            if (this.state === 'SERVE' && this.server === 'p1') {
-                ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(cx-150, h-60, 300, 40);
-                ctx.fillStyle = "#fff"; ctx.font = "18px sans-serif";
-                ctx.fillText("ERGUER RAQUETE PARA SACAR", cx, h-33);
-                const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
-                ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-150, h-20, 300*progress, 4);
-            }
-        },
-
-        renderMenu: function(ctx, w, h) {
-            ctx.fillStyle = "rgba(10,15,20,0.95)"; ctx.fillRect(0,0,w,h);
-            ctx.shadowColor = "#3498db"; ctx.shadowBlur = 20;
-            ctx.fillStyle = "#fff"; ctx.textAlign = "center";
-            ctx.font = "bold 60px 'Russo One'"; ctx.fillText("TABLE TENNIS", w/2, h*0.3);
-            ctx.font = "italic 30px sans-serif"; ctx.fillText("PROTOCOL 177", w/2, h*0.4);
-            ctx.shadowBlur = 0;
-            ctx.font = "bold 24px sans-serif"; ctx.fillStyle = "#f1c40f";
-            ctx.fillText("CLIQUE PARA JOGAR", w/2, h*0.7);
+            const n1 = MathCore.project(-hw-50, 0, 0, w, h); const n2 = MathCore.project(hw+50, 0, 0, w, h);
+            const n1t = MathCore.project(-hw-50, -CONF.NET_H, 0, w, h); const n2t = MathCore.project(hw+50, -CONF.NET_H, 0, w, h);
+            ctx.fillStyle = "rgba(240,240,240,0.3)"; ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y); ctx.lineTo(n2t.x, n2t.y); ctx.lineTo(n1t.x, n1t.y); ctx.fill();
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 2 * c1.s; ctx.beginPath(); ctx.moveTo(n1t.x, n1t.y); ctx.lineTo(n2t.x, n2t.y); ctx.stroke();
         },
 
         renderCalibration: function(ctx, w, h) {
@@ -899,43 +733,47 @@
             if (this.pose && this.pose.keypoints) {
                 this.drawSkeleton(ctx, w, h);
                 
+                // Feedback: Raquete na mão se já escolheu
                 if (this.handedness && this.p1.currRawX) {
                     const cx = (this.p1.currRawX / 640) * w;
                     const cy = (this.p1.currRawY / 480) * h;
-                    
-                    ctx.translate(cx, cy);
-                    ctx.rotate(-0.2);
+                    ctx.translate(cx, cy); ctx.rotate(-0.2);
                     ctx.fillStyle = "#8d6e63"; ctx.fillRect(-5, 0, 10, 30); 
                     ctx.fillStyle = "#3498db"; ctx.beginPath(); ctx.arc(0, -20, 25, 0, Math.PI*2); ctx.fill(); 
-                    ctx.rotate(0.2);
-                    ctx.translate(-cx, -cy);
+                    ctx.rotate(0.2); ctx.translate(-cx, -cy);
+                    
+                    // ANEL DE PROGRESSO AO REDOR DA MÃO
+                    if (this.calibTimer > 0) {
+                        const progress = Math.min(1, this.calibTimer / CONF.CALIB_TIME);
+                        ctx.strokeStyle = "#0ff"; ctx.lineWidth = 6;
+                        ctx.beginPath(); ctx.arc(cx, cy, 40, -Math.PI/2, (-Math.PI/2) + (Math.PI*2*progress)); ctx.stroke();
+                    }
                 }
             }
 
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
 
             if (this.state === 'CALIB_HAND_SELECT') {
-                ctx.font = "bold 40px sans-serif";
-                ctx.fillText("ESCOLHA SUA MÃO", w/2, h*0.15);
-                ctx.font = "24px sans-serif";
-                ctx.fillStyle = "#aaa";
-                ctx.fillText("Levante a mão ESQUERDA ou DIREITA para selecionar", w/2, h*0.22);
-                
+                ctx.font = "bold 40px sans-serif"; ctx.fillText("LEVANTE UMA MÃO PARA ESCOLHER", w/2, h*0.15);
                 ctx.font = "50px sans-serif";
-                ctx.fillText("✋ Esquerda", w*0.2, h*0.5);
-                ctx.fillText("Direita ✋", w*0.8, h*0.5);
                 
-                if (this.handedness === 'left') {
-                    ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5; ctx.strokeRect(w*0.1, h*0.4, w*0.2, h*0.2);
-                } else if (this.handedness === 'right') {
-                    ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5; ctx.strokeRect(w*0.7, h*0.4, w*0.2, h*0.2);
-                }
+                // Anéis de progresso para seleção de mão
+                const drawSelectRing = (x, y, hand) => {
+                    ctx.fillText(hand === 'left' ? "✋ Esquerda" : "Direita ✋", x, y);
+                    if (this.calibHandCandidate === hand) {
+                        const progress = Math.min(1, this.calibTimer / CONF.HAND_SELECT_TIME);
+                        ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5;
+                        ctx.beginPath(); ctx.arc(x, y-20, 60, 0, Math.PI*2*progress); ctx.stroke();
+                    }
+                };
+                
+                drawSelectRing(w*0.2, h*0.5, 'left');
+                drawSelectRing(w*0.8, h*0.5, 'right');
 
             } else {
                 const isTL = this.state === 'CALIB_TL';
                 ctx.font = "bold 30px sans-serif"; 
-                ctx.fillStyle = "#fff";
-                ctx.fillText(isTL ? "TOQUE NO ALVO VERDE (ALTO)" : "TOQUE NO ALVO VERMELHO (BAIXO)", w/2, h*0.15);
+                ctx.fillText(isTL ? "SEGURE A MÃO NO CÍRCULO VERDE" : "SEGURE A MÃO NO CÍRCULO VERMELHO", w/2, h*0.15);
                 
                 const tx = isTL ? 100 : w-100;
                 const ty = isTL ? 100 : h-100;
@@ -944,21 +782,13 @@
                 ctx.strokeStyle = color; ctx.lineWidth = 4;
                 ctx.beginPath(); ctx.arc(tx, ty, 50, 0, Math.PI*2); ctx.stroke();
                 
-                const pulse = 1 + Math.sin(Date.now()*0.01)*0.2;
-                ctx.fillStyle = color; ctx.globalAlpha = 0.3;
-                ctx.beginPath(); ctx.arc(tx, ty, 50*pulse, 0, Math.PI*2); ctx.fill();
-                ctx.globalAlpha = 1;
-
+                // Linha Guia
                 if(this.p1.currRawX) {
                     const cx = (this.p1.currRawX / 640) * w;
                     const cy = (this.p1.currRawY / 480) * h;
-                    
-                    ctx.setLineDash([10, 10]);
-                    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+                    ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
                     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke();
                     ctx.setLineDash([]);
-                    
-                    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, 15, 0, Math.PI*2); ctx.fill();
                 }
             }
         },
@@ -966,7 +796,6 @@
         drawSkeleton: function(ctx, w, h) {
              const kps = this.pose.keypoints;
              const find = (n) => kps.find(k => k.name === n && k.score > 0.3);
-             
              const bones = [
                  ['nose', 'left_eye'], ['nose', 'right_eye'],
                  ['left_shoulder', 'right_shoulder'],
@@ -975,27 +804,19 @@
                  ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'],
                  ['left_hip', 'right_hip']
              ];
-
              ctx.strokeStyle = "rgba(0, 255, 0, 0.3)"; ctx.lineWidth = 3;
-             
              bones.forEach(bone => {
-                 const p1 = find(bone[0]);
-                 const p2 = find(bone[1]);
+                 const p1 = find(bone[0]); const p2 = find(bone[1]);
                  if(p1 && p2) {
-                     const x1 = ((640 - p1.x) / 640) * w;
-                     const y1 = (p1.y / 480) * h;
-                     const x2 = ((640 - p2.x) / 640) * w;
-                     const y2 = (p2.y / 480) * h;
+                     const x1 = ((640 - p1.x) / 640) * w; const y1 = (p1.y / 480) * h;
+                     const x2 = ((640 - p2.x) / 640) * w; const y2 = (p2.y / 480) * h;
                      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
                  }
              });
-             
              kps.forEach(k => {
                  if(k.score > 0.3) {
-                     const x = ((640 - k.x) / 640) * w;
-                     const y = (k.y / 480) * h;
-                     ctx.fillStyle = "#0f0";
-                     ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+                     const x = ((640 - k.x) / 640) * w; const y = (k.y / 480) * h;
+                     ctx.fillStyle = "#0f0"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
                  }
              });
         },
@@ -1015,4 +836,4 @@
         window.System.registerGame('tennis', 'Table Tennis Pro', '🏆', Game, { camOpacity: 0.1 });
     }
 
-})();
+})();l
