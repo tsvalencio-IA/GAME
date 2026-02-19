@@ -1,68 +1,65 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: TITANIUM MASTER EDITION (MOBILE OPTIMIZED)
+// THIAGUINHO WII PING PONG: MASTER EDITION (MOBILE CALIBRATED)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 10/10 - CÂMERA MOBILE INTELIGENTE, TRACKING 1:1 AAA, ANTI-FREEZE
+// STATUS: 10/10 - CÂMERA NA ALTURA DOS OLHOS, CALIBRAÇÃO RESTAURADA, REGRAS REAIS
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS REAIS (MESA MAIOR, BOLA MAIOR)
+    // 1. CONFIGURAÇÕES FÍSICAS REAIS
     // -----------------------------------------------------------------
     const CONF = {
-        TABLE_W: 1800,       // Mesa mais larga para mobile
-        TABLE_L: 3200,       // Mesa mais longa para maior tempo de reação
+        TABLE_W: 1525,       // Largura oficial da mesa
+        TABLE_L: 2740,       // Comprimento oficial
         TABLE_Y: 0,          
-        NET_H: 180,          // Rede adaptada ao novo tamanho
-        FLOOR_Y: 850,        // Chão um pouco mais fundo
+        NET_H: 152,          
+        FLOOR_Y: 760,        
         
-        BALL_R: 45,          // Bolinha GIANTESCA para não sumir na tela do celular
-        GRAVITY: 0.75,       // Gravidade um pouco maior para o jogo ser dinâmico
+        BALL_R: 35,          // Bolinha bem visível na tela
+        GRAVITY: 0.70,       
         AIR_DRAG: 0.993,     
         BOUNCE_LOSS: 0.80,   
         MAGNUS_FORCE: 0.18,
-        MAX_TOTAL_SPEED: 75, // Velocidade máxima muito alta (Smash!)
+        MAX_TOTAL_SPEED: 70, 
         
         AUTO_SERVE_DELAY: 2000,
-        PADDLE_SCALE: 2.8,   // Raquete grandona
-        PADDLE_HITBOX: 300,  // Hitbox massiva para você não "furar" a bola com facilidade
-        SWING_FORCE: 4.5,    
-        SMASH_THRESH: 40,    
+        PADDLE_SCALE: 2.5,   
+        PADDLE_HITBOX: 250,  // Hitbox grande para não falhar a rebatida
+        SWING_FORCE: 4.0,    
+        SMASH_THRESH: 35,    
 
-        // Variáveis Dinâmicas de Câmera (Sobrescritas pelo Mobile Adapter)
-        CAM_Y: -1800,       
-        CAM_Z: -3600,       
-        CAM_PITCH: 0.35,    
+        // === CÂMERA "ALTURA DOS OLHOS" PARA CELULAR ===
+        CAM_X: 0,           
+        CAM_Y: -800,        // Altura de uma pessoa jogando (antes estava -1800, muito alto)
+        CAM_Z: -2800,       // Distância ideal para ver a ponta da sua mesa e a rede
+        CAM_PITCH: 0.15,    // Olha só um pouquinho para baixo
         FOV: 900,           
 
-        // Calibração
         CALIB_TIME: 1500,      
         HAND_SELECT_TIME: 1500 
     };
 
     const AI_PROFILES = {
-        'PRO': { speed: 0.17, difficultyFactor: 0.95, baseSpeed: 0.17 }
+        'PRO': { speed: 0.16, difficultyFactor: 0.90, baseSpeed: 0.16 }
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & SHIELD (PROJEÇÃO 3D SEGURA E ANTI-FREEZE)
+    // 2. MATH CORE & SHIELD (PROJEÇÃO 3D SEGURA)
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
-            // Transladação
-            let cx = x;
+            let cx = x - CONF.CAM_X;
             let cy = y - CONF.CAM_Y;
             let cz = z - CONF.CAM_Z;
 
-            // Rotação Pitch (Inclinação real da câmera)
             let cosP = Math.cos(CONF.CAM_PITCH);
             let sinP = Math.sin(CONF.CAM_PITCH);
             let ry = cy * cosP - cz * sinP;
             let rz = cy * sinP + cz * cosP;
 
-            // Bloqueia objetos atrás da câmera para não inverter valores
-            if (rz <= 10 || isNaN(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
+            if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             
             const scale = CONF.FOV / rz;
             return {
@@ -74,7 +71,7 @@
             };
         },
         lerp: (a, b, t) => {
-            if (!isFinite(a)) a = 0; if (!isFinite(b)) b = 0;
+            if (!Number.isFinite(a)) a = 0; if (!Number.isFinite(b)) b = 0;
             return a + (b - a) * t;
         },
         clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
@@ -98,7 +95,7 @@
                 if(sy > 0) { sy = 0; svy *= -0.8; }
                 steps++;
             }
-            return isFinite(sx) ? sx : 0;
+            return Number.isFinite(sx) ? sx : 0;
         },
 
         predictY: (b, targetZ) => {
@@ -112,20 +109,20 @@
                 if(sy > 0) { sy = 0; svy *= -0.8; }
                 steps++;
             }
-            return isFinite(sy) ? sy : -200;
+            return Number.isFinite(sy) ? sy : -200;
         }
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO (COM PROTEÇÃO CONTRA CRASHES)
+    // 3. ENGINE DO JOGO E REGRAS REAIS
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
         timer: 0, idleTimer: 0, endTimer: 0,  
-        pose: null, handedness: null, polyfillDone: false,
+        pose: null, handedness: null,
         
-        roundTimeout: null, calibTimer: 0, calibHandCandidate: null,
-        lastFrameTime: 0, activeAIProfile: { speed: 0.17, difficultyFactor: 0.95, baseSpeed: 0.17 },
+        calibTimer: 0, calibHandCandidate: null,
+        lastFrameTime: 0, activeAIProfile: { speed: 0.16, difficultyFactor: 0.90, baseSpeed: 0.16 },
         aiFrame: 0, aiRecalcCounter: 0, 
 
         useMouse: false, mouseX: 320, mouseY: 240,
@@ -133,7 +130,7 @@
         isOnline: false, isHost: false, roomId: 'thiaguinhowii_pingpong',
         dbRef: null, roomRef: null, remotePlayersData: {}, lastSync: 0, maintenanceInterval: null,
         
-        p1: { gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 250, prevX: 0, prevY: 0, velX: 0, velY: 0, currRawX: 0, currRawY: 0, elbowX: 0, elbowY: 0 },
+        p1: { gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 250, prevX: 0, prevY: 0, velX: 0, velY: 0, elbowX: 0, elbowY: 0, currRawX: 0, currRawY: 0 },
         p2: { gameX: 0, gameY: -200, gameZ: CONF.TABLE_L/2 + 250, targetX: 0, targetZ: 0, targetY: -200, velX: 0, velZ: 0 },
         ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, prevY: -300, spinX: 0, spinY: 0, active: false, lastHitBy: null, bounceCount: 0, trail: [] },
 
@@ -148,7 +145,7 @@
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - PING PONG");
+            if(window.System && window.System.msg) window.System.msg("PING PONG WII INICIADO");
             this.setupInput();
         },
 
@@ -173,6 +170,7 @@
                     if (typeof window.Sfx[action] === 'function') window.Sfx[action](...args);
                     else if (action === 'coin') window.Sfx.play(1200, 'sine', 0.1);
                     else if (action === 'click') window.Sfx.play(1000, 'sine', 0.1, 0.08);
+                    else if (action === 'hit') window.Sfx.play(300, 'sine', 0.1, 0.1);
                 }
             } catch (e) { }
         },
@@ -219,7 +217,7 @@
                         this.isOnline = false; this.useMouse = true; this.handedness = 'right'; this.startGame();
                     } else {
                         this.isOnline = !!window.DB; this.useMouse = false;
-                        if (!window.DB) { if(window.System.msg) window.System.msg("MODO OFFLINE (Sem conexão)"); this.isOnline = false; }
+                        if (!window.DB) { if(window.System.msg) window.System.msg("MODO OFFLINE"); this.isOnline = false; }
                         this.state = 'CALIB_HAND_SELECT';
                     }
                     this.calibTimer = 0; this.sfx('click');
@@ -337,88 +335,95 @@
         },
 
         // =====================================================================
-        // CAMERA RESPONSIVA (DETECTA TELA EM PÉ E ADAPTA SOZINHO)
+        // CAMERA RESPONSIVA (CELULAR E PC)
         // =====================================================================
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
-                // MODO MOBILE (TELA EM PÉ): Muito espaço nas laterais e visão superior profunda
-                CONF.CAM_Z = -3600;  // Afasta para caber a mesa gigantesca
-                CONF.CAM_Y = -1800;  // Levanta muito a câmera
-                CONF.CAM_PITCH = 0.35; // Inclina forte para baixo
-                CONF.FOV = w * 1.8;  // Super FOV para compensar a largura apertada
+                // MODO MOBILE: Aumenta o FOV para enxergar as laterais da mesa
+                CONF.CAM_Z = -2800;  
+                CONF.CAM_Y = -800;   // Altura dos olhos
+                CONF.CAM_PITCH = 0.15; 
+                CONF.FOV = w * 1.6;  // FOV baseado na largura garante que a bolinha nunca saia da tela!
             } else { 
-                // MODO PC/TABLET (TELA DEITADA)
-                CONF.CAM_Z = -4000;
-                CONF.CAM_Y = -1500;
-                CONF.CAM_PITCH = 0.28;
+                // MODO PC
+                CONF.CAM_Z = -3400;
+                CONF.CAM_Y = -1200;
+                CONF.CAM_PITCH = 0.20;
                 CONF.FOV = 900;
             }
         },
 
         update: function(ctx, w, h, pose) {
-            const now = performance.now();
-            let dt = this.lastFrameTime ? (now - this.lastFrameTime) : 16;
-            this.lastFrameTime = now;
-            
-            // Limitador de DT para evitar saltos (Prevenção de Bug de Pause)
-            if (dt > 100) dt = 16; 
+            try { 
+                const now = performance.now();
+                let dt = this.lastFrameTime ? (now - this.lastFrameTime) : 16;
+                this.lastFrameTime = now;
+                if (dt > 100) dt = 16; 
 
-            this.updateCameraAdapter(w, h); // Aplica a câmera dinâmica
+                this.updateCameraAdapter(w, h); 
 
-            if (!this.polyfillDone) {
-                if (!ctx.roundRect) {
-                    ctx.roundRect = function(x, y, w, h, r) {
-                        if(w<2*r)r=w/2; if(h<2*r)r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
-                    };
-                }
-                this.polyfillDone = true;
-            }
-
-            if (this.state === 'MODE_SELECT') { this.p1.gameX = Math.sin(now * 0.002) * 300; this.p2.gameX = Math.cos(now * 0.002) * 300; } 
-            else if (this.state !== 'LOBBY' && this.state !== 'END') {
-                if (this.state === 'IDLE') {
-                    this.idleTimer += dt;
-                    if (this.idleTimer > 1000) { this.state = 'SERVE'; this.idleTimer = 0; this.timer = 0; }
-                } else if (this.state === 'END_WAIT') {
-                    this.endTimer += dt;
-                    if (this.endTimer > 2000) { this.state = 'END'; if (this.isOnline && this.isHost) this.roomRef.update({ gameState: 'END' }); this.endTimer = 0; }
+                if (!this.polyfillDone) {
+                    if (!ctx.roundRect) {
+                        ctx.roundRect = function(x, y, w, h, r) {
+                            if(w<2*r)r=w/2; if(h<2*r)r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+                        };
+                    }
+                    this.polyfillDone = true;
                 }
 
-                this.processPose(pose, w, h);
+                if (this.state === 'MODE_SELECT') { 
+                    this.p1.gameX = Math.sin(now * 0.002) * 300; 
+                    this.p2.gameX = Math.cos(now * 0.002) * 300; 
+                } 
+                else if (this.state !== 'LOBBY' && this.state !== 'END') {
+                    if (this.state === 'IDLE') {
+                        this.idleTimer += dt;
+                        if (this.idleTimer > 1000) { this.state = 'SERVE'; this.idleTimer = 0; this.timer = 0; }
+                    } else if (this.state === 'END_WAIT') {
+                        this.endTimer += dt;
+                        if (this.endTimer > 2000) { this.state = 'END'; if (this.isOnline && this.isHost) this.roomRef.update({ gameState: 'END' }); this.endTimer = 0; }
+                    }
 
-                if (this.state.startsWith('CALIB')) this.updateAutoCalibration(dt);
+                    this.processPose(pose, w, h);
+                    if (this.state.startsWith('CALIB')) this.updateAutoCalibration(dt);
 
-                if (this.state === 'RALLY' || this.state === 'SERVE') {
-                    if (!this.isOnline || this.isHost) { this.updatePhysics(); if (!this.isOnline) this.updateAI(); this.updateRules(dt); } 
-                    else { this.updatePhysicsClient(dt); }
+                    if (this.state === 'RALLY' || this.state === 'SERVE') {
+                        if (!this.isOnline || this.isHost) { this.updatePhysics(); if (!this.isOnline) this.updateAI(); this.updateRules(dt); } 
+                        else { this.updatePhysicsClient(dt); }
+                    }
                 }
+
+                ctx.save();
+                if(this.shake > 0 && Number.isFinite(this.shake)) {
+                    this.shakeX = (Math.random()-0.5) * this.shake; this.shakeY = (Math.random()-0.5) * this.shake;
+                    ctx.translate(this.shakeX, this.shakeY); this.shake *= 0.9; if(this.shake < 0.5) this.shake = 0;
+                }
+
+                this.renderScene(ctx, w, h);
+                ctx.restore();
+
+                if (this.flash > 0 && Number.isFinite(this.flash)) {
+                    ctx.fillStyle = `rgba(255,255,255,${this.flash})`; ctx.fillRect(0,0,w,h);
+                    this.flash *= 0.8; if(this.flash < 0.05) this.flash = 0;
+                }
+
+                if (this.state === 'MODE_SELECT') this.renderModeSelect(ctx, w, h);
+                else if (this.state === 'LOBBY') this.renderLobby(ctx, w, h);
+                else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
+                else if (this.state === 'END') this.renderEnd(ctx, w, h);
+                else this.renderHUD(ctx, w, h);
+
+                if (this.isOnline) this.syncMultiplayer();
+
+            } catch (e) {
+                console.error("ERRO IGNORADO: ", e);
             }
-
-            ctx.save();
-            if(this.shake > 0 && isFinite(this.shake)) {
-                this.shakeX = (Math.random()-0.5) * this.shake; this.shakeY = (Math.random()-0.5) * this.shake;
-                ctx.translate(this.shakeX, this.shakeY); this.shake *= 0.9; if(this.shake < 0.5) this.shake = 0;
-            }
-
-            this.renderScene(ctx, w, h);
-            ctx.restore();
-
-            if (this.flash > 0 && isFinite(this.flash)) {
-                ctx.fillStyle = `rgba(255,255,255,${this.flash})`; ctx.fillRect(0,0,w,h);
-                this.flash *= 0.8; if(this.flash < 0.05) this.flash = 0;
-            }
-
-            if (this.state === 'MODE_SELECT') this.renderModeSelect(ctx, w, h);
-            else if (this.state === 'LOBBY') this.renderLobby(ctx, w, h);
-            else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
-            else if (this.state === 'END') this.renderEnd(ctx, w, h);
-            else this.renderHUD(ctx, w, h);
-
-            if (this.isOnline) this.syncMultiplayer();
-
-            return this.score.p1;
+            return this.score.p1 || 0;
         },
 
+        // =================================================================
+        // A CALIBRAÇÃO VOLTOU! MAPEANDO O TAMANHO DO BRAÇO DO JOGADOR
+        // =================================================================
         updateAutoCalibration: function(dt) {
             const deltaFactor = dt / 16;
             this.calibTimer = Math.max(0, this.calibTimer - (10 * deltaFactor));
@@ -431,22 +436,27 @@
                     }
                 }
             } 
-            else if (this.state === 'CALIB_TL') {
-                if (isFinite(this.p1.currRawX)) {
+            else if (this.state === 'CALIB_TL') { // ALVO VERMELHO
+                if (Number.isFinite(this.p1.currRawX)) {
                     this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
-                        this.calib.tlX = this.p1.currRawX; this.calib.tlY = this.p1.currRawY; this.state = 'CALIB_BR'; this.calibTimer = 0; this.sfx('coin');
+                        this.calib.tlX = this.p1.currRawX; this.calib.tlY = this.p1.currRawY; 
+                        this.state = 'CALIB_BR'; this.calibTimer = 0; this.sfx('coin');
                     }
                 }
             } 
-            else if (this.state === 'CALIB_BR') {
-                if (isFinite(this.p1.currRawX)) {
+            else if (this.state === 'CALIB_BR') { // ALVO VERDE
+                if (Number.isFinite(this.p1.currRawX)) {
                     this.calibTimer += 25 * deltaFactor;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.currRawX; this.calib.brY = this.p1.currRawY;
-                        if (Math.abs(this.calib.tlX - this.calib.brX) < 50) this.calib.brX = this.calib.tlX + 150;
-                        if (Math.abs(this.calib.tlY - this.calib.brY) < 50) this.calib.brY = this.calib.tlY + 150;
+                        
+                        // Garante que haja uma distância mínima entre os pontos
+                        if (Math.abs(this.calib.tlX - this.calib.brX) < 100) this.calib.brX = this.calib.tlX + 200;
+                        if (Math.abs(this.calib.tlY - this.calib.brY) < 100) this.calib.brY = this.calib.tlY + 200;
+                        
                         try { localStorage.setItem('tennis_calib_auto', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
                         this.sfx('coin');
@@ -469,16 +479,12 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
-            // ==========================================
-            // MODO MOUSE/TOQUE NA TELA (RÁPIDO)
-            // ==========================================
             if (this.useMouse) {
                 let nx = this.mouseX / w; let ny = this.mouseY / h;
                 nx = MathCore.clamp(nx, 0, 1); ny = MathCore.clamp(ny, 0, 1);
 
-                // Multiplicador de Alcance para os cantões
-                const targetX = MathCore.lerp(-CONF.TABLE_W * 0.9, CONF.TABLE_W * 0.9, nx); 
-                const targetY = MathCore.lerp(-1200, 200, ny); 
+                const targetX = MathCore.lerp(-CONF.TABLE_W * 1.1, CONF.TABLE_W * 1.1, nx); 
+                const targetY = MathCore.lerp(-800, 200, ny); 
 
                 this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.90);
                 this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.90);
@@ -486,12 +492,11 @@
                 this.p1.elbowX = this.p1.gameX + 100;
                 this.p1.elbowY = this.p1.gameY + 300;
 
-                let calcVX = this.p1.gameX - (isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.gameX);
-                let calcVY = this.p1.gameY - (isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.gameY);
+                let calcVX = this.p1.gameX - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.gameX);
+                let calcVY = this.p1.gameY - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.gameY);
 
-                // Shield de Teleporte
-                if (Math.abs(calcVX) > 2000 || !isFinite(calcVX)) calcVX = 0; 
-                if (Math.abs(calcVY) > 2000 || !isFinite(calcVY)) calcVY = 0;
+                if (Math.abs(calcVX) > 2000 || !Number.isFinite(calcVX)) calcVX = 0; 
+                if (Math.abs(calcVY) > 2000 || !Number.isFinite(calcVY)) calcVY = 0;
 
                 this.p1.velX = calcVX; this.p1.velY = calcVY;
                 this.p1.prevX = this.p1.gameX; this.p1.prevY = this.p1.gameY;
@@ -504,9 +509,9 @@
                 return;
             }
 
-            // ==========================================
-            // MODO CÂMERA (CORPO INTEIRO - 1:1)
-            // ==========================================
+            // ==============================================================
+            // MODO CÂMERA (USANDO A CALIBRAÇÃO COMO "CERCA")
+            // ==============================================================
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) { this.calibHandCandidate = null; return; }
                 const nose = pose.keypoints.find(k => k.name === 'nose');
@@ -514,7 +519,6 @@
                 const rightW = pose.keypoints.find(k => k.name === 'right_wrist');
 
                 this.calibHandCandidate = null;
-
                 if (nose && leftW && rightW) {
                     const leftUp = leftW.y < nose.y; const rightUp = rightW.y < nose.y;
                     if (leftUp && !rightUp) { this.calibHandCandidate = 'left'; this.p1.currRawX = 640 - leftW.x; this.p1.currRawY = leftW.y; } 
@@ -526,32 +530,34 @@
             if (!this.handedness) return; 
             if (!pose || !pose.keypoints) { this.handleLostTracking(); return; }
 
-            const wrist = pose.keypoints.find(k => k.name === this.handedness + '_wrist' && k.score > 0.3);
-            const elbow = pose.keypoints.find(k => k.name === this.handedness + '_elbow' && k.score > 0.3);
+            const wristName = this.handedness + '_wrist';
+            const elbowName = this.handedness + '_elbow';
+            const wrist = pose.keypoints.find(k => k.name === wristName && k.score > 0.3);
+            const elbow = pose.keypoints.find(k => k.name === elbowName && k.score > 0.3);
 
             if (wrist) {
                 const rawX = 640 - wrist.x; const rawY = wrist.y;
                 
-                if (this.state.startsWith('CALIB')) { this.p1.currRawX = rawX; this.p1.currRawY = rawY; } 
-                else {
+                if (this.state.startsWith('CALIB')) {
+                    this.p1.currRawX = rawX; this.p1.currRawY = rawY;
+                } else {
+                    // A MÁGICA DA CALIBRAÇÃO AQUI:
                     let safeRangeX = (this.calib.brX || 640) - (this.calib.tlX || 0);
                     let safeRangeY = (this.calib.brY || 480) - (this.calib.tlY || 0);
-                    if (Math.abs(safeRangeX) < 1 || isNaN(safeRangeX)) safeRangeX = 640;
-                    if (Math.abs(safeRangeY) < 1 || isNaN(safeRangeY)) safeRangeY = 480;
+                    if (Math.abs(safeRangeX) < 1) safeRangeX = 640;
+                    if (Math.abs(safeRangeY) < 1) safeRangeY = 480;
                     
                     let nx = (rawX - (this.calib.tlX || 0)) / safeRangeX;
                     let ny = (rawY - (this.calib.tlY || 0)) / safeRangeY;
 
-                    // SENSIBILIDADE DO BRAÇO: Muito mais alcance com menos esforço
-                    nx = (nx - 0.5) * 1.5 + 0.5; ny = (ny - 0.5) * 1.5 + 0.5; 
-                    nx = MathCore.clamp(nx, -0.3, 1.3); ny = MathCore.clamp(ny, -0.3, 1.3);
+                    // Permite que o braço saia 20% da calibração para alcançar bolas difíceis
+                    nx = MathCore.clamp(nx, -0.2, 1.2); 
+                    ny = MathCore.clamp(ny, -0.2, 1.2);
 
-                    // Escudo Anti-NaN
-                    let targetX = MathCore.lerp(-CONF.TABLE_W*0.9, CONF.TABLE_W*0.9, nx); 
-                    let targetY = MathCore.lerp(-1200, 300, ny); 
-                    if (!isFinite(targetX)) targetX = 0; if (!isFinite(targetY)) targetY = -200;
+                    let targetX = MathCore.lerp(-CONF.TABLE_W/2 - 300, CONF.TABLE_W/2 + 300, nx); 
+                    let targetY = MathCore.lerp(-800, 200, ny); 
+                    if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
-                    // Movimento Instantâneo (0.85 segue a mão perfeitamente)
                     this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.85);
                     this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.85);
                     this.p1.gameZ = -CONF.TABLE_L/2 - 250;
@@ -559,11 +565,10 @@
                     if (elbow) {
                         const rawEx = 640 - elbow.x; const rawEy = elbow.y;
                         let nex = (rawEx - (this.calib.tlX||0)) / safeRangeX; let ney = (rawEy - (this.calib.tlY||0)) / safeRangeY;
-                        nex = (nex - 0.5) * 1.5 + 0.5; ney = (ney - 0.5) * 1.5 + 0.5;
-                        nex = MathCore.clamp(nex, -0.3, 1.3); ney = MathCore.clamp(ney, -0.3, 1.3);
-                        let targetEx = MathCore.lerp(-CONF.TABLE_W*0.9, CONF.TABLE_W*0.9, nex);
-                        let targetEy = MathCore.lerp(-1200, 300, ney);
-                        if (!isFinite(targetEx)) targetEx = targetX; if (!isFinite(targetEy)) targetEy = targetY + 300;
+                        nex = MathCore.clamp(nex, -0.2, 1.2); ney = MathCore.clamp(ney, -0.2, 1.2);
+                        let targetEx = MathCore.lerp(-CONF.TABLE_W/2 - 300, CONF.TABLE_W/2 + 300, nex);
+                        let targetEy = MathCore.lerp(-800, 200, ney);
+                        if (!Number.isFinite(targetEx)) targetEx = targetX; if (!Number.isFinite(targetEy)) targetEy = targetY + 300;
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
                         this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.85);
                     } else {
@@ -571,12 +576,11 @@
                         this.p1.elbowY = this.p1.gameY + 300;
                     }
 
-                    let calculatedVelX = this.p1.gameX - (isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.gameX);
-                    let calculatedVelY = this.p1.gameY - (isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.gameY);
+                    let calculatedVelX = this.p1.gameX - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.gameX);
+                    let calculatedVelY = this.p1.gameY - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.gameY);
 
-                    // Só anula se for um glitch de teleporte absurdamente grande
-                    if (Math.abs(calculatedVelX) > 2000 || !isFinite(calculatedVelX)) calculatedVelX = 0;
-                    if (Math.abs(calculatedVelY) > 2000 || !isFinite(calculatedVelY)) calculatedVelY = 0;
+                    if (Math.abs(calculatedVelX) > 2000 || !Number.isFinite(calculatedVelX)) calculatedVelX = 0;
+                    if (Math.abs(calculatedVelY) > 2000 || !Number.isFinite(calculatedVelY)) calculatedVelY = 0;
 
                     this.p1.velX = calculatedVelX; this.p1.velY = calculatedVelY;
                     this.p1.prevX = this.p1.gameX; this.p1.prevY = this.p1.gameY;
@@ -613,8 +617,7 @@
             if (!this.ball.active) return;
             
             const b = this.ball;
-            // ESCUDO TOTAL: Se a bola falhar por um frame de lag, recomeça limpo e não trava o jogo
-            if (!isFinite(b.x) || !isFinite(b.y) || !isFinite(b.z) || !isFinite(b.vx) || !isFinite(b.vy) || !isFinite(b.vz)) { 
+            if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.z) || !Number.isFinite(b.vx) || !Number.isFinite(b.vy) || !Number.isFinite(b.vz)) { 
                 this.resetRound(); return; 
             }
 
@@ -623,8 +626,8 @@
             let magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
             let magY = b.spinX * b.vz * CONF.MAGNUS_FORCE * 0.01;
             
-            b.vx += isFinite(magX) ? magX : 0;
-            b.vy += (isFinite(magY) ? magY : 0) + CONF.GRAVITY;
+            b.vx += Number.isFinite(magX) ? magX : 0;
+            b.vy += (Number.isFinite(magY) ? magY : 0) + CONF.GRAVITY;
             b.vx *= CONF.AIR_DRAG; b.vy *= CONF.AIR_DRAG; b.vz *= CONF.AIR_DRAG;
 
             const currentSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
@@ -645,18 +648,38 @@
                         this.playHitSound(currentSpeed * 1.5);
 
                         const side = b.z < 0 ? 'p1' : 'p2';
-                        if (this.lastHitter === side) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES");
+                        if (this.lastHitter === side) {
+                            this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES");
+                            return;
+                        }
                         else {
-                            this.ball.bounceCount = Math.min(this.ball.bounceCount + 1, 2);
-                            if(this.ball.bounceCount >= 2) this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS QUIQUES");
+                            this.ball.bounceCount++;
+                            if(this.ball.bounceCount >= 2) {
+                                this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS QUIQUES");
+                                return;
+                            }
                         }
                     }
                 }
                 this.checkPaddleHit();
             }
 
+            // ==============================================================
+            // A REGRA DO "FOI EMBORA": Se passar do jogador ou da IA, o ponto acaba.
+            // ==============================================================
+            if (b.z < -CONF.TABLE_L/2 - 400) {
+                // Passou do Player (Player errou)
+                this.scorePoint('p2', "PONTO CPU!");
+                return;
+            }
+            if (b.z > CONF.TABLE_L/2 + 400) {
+                // Passou da CPU (CPU errou)
+                this.scorePoint('p1', "PONTO P1!");
+                return;
+            }
+
             const totalSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
-            if (totalSpeed > CONF.MAX_TOTAL_SPEED && isFinite(totalSpeed)) {
+            if (totalSpeed > CONF.MAX_TOTAL_SPEED && Number.isFinite(totalSpeed)) {
                 const scale = CONF.MAX_TOTAL_SPEED / totalSpeed;
                 b.vx *= scale; b.vy *= scale; b.vz *= scale;
             }
@@ -668,6 +691,7 @@
                 if (this.ball.trail.length > 30) this.ball.trail.shift();
             }
 
+            // Se bater no chão (fora da mesa)
             if (b.y > CONF.FLOOR_Y) this.handleOut();
 
             if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
@@ -706,10 +730,10 @@
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
             let velX = paddle.velX || 0; let velY = isP1 ? (paddle.velY || 0) : (paddle.velZ ? paddle.velZ * 0.15 : 0);
-            if (!isFinite(velX)) velX = 0; if (!isFinite(velY)) velY = 0;
+            if (!Number.isFinite(velX)) velX = 0; if (!Number.isFinite(velY)) velY = 0;
 
             const speed = Math.sqrt(velX**2 + velY**2);
-            let force = 65 + (speed * CONF.SWING_FORCE); // Mais força base!
+            let force = 65 + (speed * CONF.SWING_FORCE); 
             let isSmash = speed > CONF.SMASH_THRESH;
 
             if (isSmash) { force *= 1.45; this.shake = 15; this.flash = 0.3; if(isP1) this.addMsg("CORTADA!", "#0ff"); } 
@@ -735,9 +759,9 @@
                 if (this.timer > CONF.AUTO_SERVE_DELAY) {
                     if (this.server === 'p1') {
                         this.addMsg("SAQUE AUTOMÁTICO", "#fff");
-                        this.ball.x = isFinite(this.p1.gameX) ? this.p1.gameX : 0; 
+                        this.ball.x = Number.isFinite(this.p1.gameX) ? this.p1.gameX : 0; 
                         this.ball.y = -200; 
-                        this.ball.z = (isFinite(this.p1.gameZ) ? this.p1.gameZ : -CONF.TABLE_L/2 - 200) + 50;
+                        this.ball.z = (Number.isFinite(this.p1.gameZ) ? this.p1.gameZ : -CONF.TABLE_L/2 - 200) + 50;
                         this.hitBall('p1', 0, 0);
                     } else { if (!this.isOnline || this.isHost) this.aiServe(); }
                     this.timer = 0;
@@ -751,7 +775,7 @@
             if (this.isOnline && !this.isHost) return; 
             const profile = this.activeAIProfile;
             let predX = MathCore.predict(this.ball, this.p2.gameZ); let predY = MathCore.predictY(this.ball, this.p2.gameZ);
-            if (!isFinite(predX)) predX = 0; if (!isFinite(predY)) predY = -200;
+            if (!Number.isFinite(predX)) predX = 0; if (!Number.isFinite(predY)) predY = -200;
 
             const baseError = 40; const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
             const humanError = baseError * profile.difficultyFactor * speedFactor;
@@ -812,17 +836,22 @@
             this.lastHitter = null; this.aiRecalcCounter = 0; this.timer = 0;
         },
 
-        // =================================================================
-        // FUNÇÕES SEGURAS DE DESENHO (PREVINE TRAVAMENTOS NO CANVAS)
-        // =================================================================
         safeArc: function(ctx, x, y, r) {
-            if (isFinite(x) && isFinite(y) && isFinite(r)) {
-                ctx.beginPath(); ctx.arc(x, y, Math.max(0.1, Math.abs(r)), 0, Math.PI*2); ctx.fill();
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0) {
+                ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
             }
         },
         safeEllipse: function(ctx, x, y, rx, ry, rot=0) {
-            if (isFinite(x) && isFinite(y) && isFinite(rx) && isFinite(ry)) {
-                ctx.beginPath(); ctx.ellipse(x, y, Math.max(0.1, Math.abs(rx)), Math.max(0.1, Math.abs(ry)), rot, 0, Math.PI*2); ctx.fill();
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(rx) && Number.isFinite(ry) && rx > 0 && ry > 0) {
+                ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        drawSafeRect: function(ctx, x, y, w, h, radius) {
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) return;
+            if (ctx.roundRect) {
+                ctx.beginPath(); ctx.roundRect(x, y, w, h, radius); ctx.fill(); ctx.stroke();
+            } else {
+                ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
             }
         },
 
@@ -861,7 +890,6 @@
             grad.addColorStop(0, "#192a56"); grad.addColorStop(1, "#090a0f");
             ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
 
-            // Chão Profundo para ajudar a calcular a distância
             ctx.fillStyle = "rgba(0,0,0,0.4)";
             const f1 = MathCore.project(-4000, CONF.FLOOR_Y, 4000, w, h);
             const f2 = MathCore.project(4000, CONF.FLOOR_Y, 4000, w, h);
@@ -994,7 +1022,7 @@
             const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
             if(pos.visible && !isNaN(pos.x)) {
                 let r = Math.max(1, Math.abs(CONF.BALL_R * pos.s));
-                if (isFinite(r)) {
+                if (Number.isFinite(r)) {
                     const grad = ctx.createRadialGradient(pos.x - r*0.3, pos.y - r*0.3, r*0.1, pos.x, pos.y, r);
                     grad.addColorStop(0, "#ffffff"); grad.addColorStop(0.3, "#f1c40f"); grad.addColorStop(1, "#d35400"); 
                     ctx.fillStyle = grad;
@@ -1023,8 +1051,8 @@
         renderHUD: function(ctx, w, h) {
             const cx = w/2;
             ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
-            ctx.beginPath(); ctx.roundRect(cx-100, 10, 200, 50, 10); ctx.fill();
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1; ctx.stroke();
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
+            this.drawSafeRect(ctx, cx-100, 10, 200, 50, 10);
             
             ctx.font = "bold 35px 'Russo One'"; ctx.textAlign = "center";
             ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p1, cx-50, 48); 
@@ -1047,7 +1075,8 @@
             ctx.globalAlpha = 1;
 
             if (this.state === 'SERVE' && this.server === 'p1') {
-                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.beginPath(); ctx.roundRect(cx-150, h-70, 300, 50, 10); ctx.fill();
+                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.strokeStyle = "transparent";
+                this.drawSafeRect(ctx, cx-150, h-70, 300, 50, 10);
                 let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE O BRAÇO PARA SACAR";
                 ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(textoSaque, cx, h-40);
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
@@ -1098,15 +1127,27 @@
                     }
                 };
                 drawSelectRing(w*0.25, h*0.5, 'left'); drawSelectRing(w*0.75, h*0.5, 'right');
-            } else {
-                const isTL = this.state === 'CALIB_TL';
+            } 
+            else if (this.state === 'CALIB_TL') {
                 ctx.font = "bold 22px sans-serif"; ctx.fillStyle = "#fff";
-                ctx.fillText(isTL ? "SEGURE A MÃO NO ALVO VERDE" : "SEGURE A MÃO NO ALVO VERMELHO", w/2, h*0.15);
+                ctx.fillText("SEGURE A MÃO NO ALVO VERMELHO", w/2, h*0.15);
                 
-                const tx = isTL ? 80 : w-80; const ty = isTL ? 80 : h-80;
-                const color = isTL ? "#0f0" : "#f00";
+                const tx = 80; const ty = 80;
+                ctx.strokeStyle = "#f00"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
                 
-                ctx.strokeStyle = color; ctx.lineWidth = 4;
+                if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !isNaN(this.p1.currRawX)) {
+                    const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
+                    ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
+                }
+            }
+            else if (this.state === 'CALIB_BR') {
+                ctx.font = "bold 22px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("SEGURE A MÃO NO ALVO VERDE", w/2, h*0.15);
+                
+                const tx = w-80; const ty = h-80;
+                ctx.strokeStyle = "#0f0"; ctx.lineWidth = 4;
                 ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
                 
                 if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !isNaN(this.p1.currRawX)) {
@@ -1126,13 +1167,13 @@
                  if(p1 && p2) {
                      const x1 = ((640 - p1.x) / 640) * w; const y1 = (p1.y / 480) * h;
                      const x2 = ((640 - p2.x) / 640) * w; const y2 = (p2.y / 480) * h;
-                     if(isFinite(x1) && isFinite(y1) && isFinite(x2) && isFinite(y2)) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+                     if(Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2)) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
                  }
              });
              kps.forEach(k => {
                  if(k.score > 0.3) {
                      const x = ((640 - k.x) / 640) * w; const y = (k.y / 480) * h;
-                     if(isFinite(x) && isFinite(y)) { ctx.fillStyle = "#0f0"; this.safeArc(ctx, x, y, 5); }
+                     if(Number.isFinite(x) && Number.isFinite(y)) { ctx.fillStyle = "#0f0"; this.safeArc(ctx, x, y, 5); }
                  }
              });
         },
