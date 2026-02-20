@@ -1,38 +1,52 @@
 // =============================================================================
-// PING PONG WII: ARCADE MASTER EDITION (INSPIRADO EM WII SPORTS)
+// THIAGUINHO WII PING PONG: TITANIUM MASTER EDITION (FULL RESTORE)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 100% ESTÁVEL, CÂMERA ARCADE, REGRAS REAIS, ZERO LAG, MOBILE PERFECT
+// STATUS: 10/10 - MULTIPLAYER FIREBASE, CALIBRAÇÃO REAL, CÂMERA FIXA WII
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES DO JOGO ARCADE
+    // 1. CONFIGURAÇÕES FÍSICAS REAIS
     // -----------------------------------------------------------------
     const CONF = {
-        TABLE_W: 1400,       // Largura da mesa
-        TABLE_L: 2400,       // Comprimento da mesa
-        NET_H: 150,          // Altura da rede
-        FLOOR_Y: 600,        // Altura do chão (onde a bola morre)
+        TABLE_W: 1525,       
+        TABLE_L: 2740,       
+        TABLE_Y: 0,          
+        NET_H: 152,          
+        FLOOR_Y: 850,        
         
-        BALL_R: 35,          // Bolinha bem visível
-        GRAVITY: 0.8,        // Gravidade arcade (rápida e responsiva)
-        AIR_DRAG: 0.99,      
-        BOUNCE_LOSS: 0.85,   
+        BALL_R: 35,          
+        GRAVITY: 0.70,       
+        AIR_DRAG: 0.993,     
+        BOUNCE_LOSS: 0.80,   
+        MAGNUS_FORCE: 0.18,
+        MAX_TOTAL_SPEED: 70, 
         
-        PADDLE_R: 65,        // Tamanho da raquete
-        PADDLE_HITBOX: 250,  // Área de acerto "amigável" para não gerar frustração
-        
-        // Câmera Dinâmica (Será ajustada no loop para Celular/PC)
-        CAM_X: 0,
-        CAM_Y: -900,
-        CAM_Z: -2000,
-        FOV: 800
+        AUTO_SERVE_DELAY: 2000,
+        PADDLE_SCALE: 2.5,   
+        PADDLE_HITBOX: 260,  
+        SWING_FORCE: 4.0,    
+        SMASH_THRESH: 35,    
+
+        // Câmera Dinâmica
+        CAM_X: 0,           
+        CAM_Y: -1200,       
+        CAM_Z: -3200,       
+        CAM_PITCH: 0.22,    
+        FOV: 900,           
+
+        CALIB_TIME: 1500,      
+        HAND_SELECT_TIME: 1500 
+    };
+
+    const AI_PROFILES = {
+        'PRO': { speed: 0.16, difficultyFactor: 0.90, baseSpeed: 0.16 }
     };
 
     // -----------------------------------------------------------------
-    // 2. MOTOR GRÁFICO 3D (BLINDADO CONTRA TRAVAMENTOS)
+    // 2. MATH CORE & SHIELD (PROJEÇÃO 3D SEGURA - ZERO CRASH)
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -40,59 +54,110 @@
             let cy = y - CONF.CAM_Y;
             let cz = z - CONF.CAM_Z;
 
-            // Se o objeto estiver atrás da câmera, não renderiza (Evita Crash)
-            if (cz <= 10 || !Number.isFinite(cz)) return { x: -999, y: -999, s: 0, visible: false };
-            
-            // Fator de escala 3D
-            const scale = CONF.FOV / cz;
-            
-            let screenX = (cx * scale) + w/2;
-            let screenY = (cy * scale) + h/2;
+            let cosP = Math.cos(CONF.CAM_PITCH);
+            let sinP = Math.sin(CONF.CAM_PITCH);
+            let ry = cy * cosP - cz * sinP;
+            let rz = cy * sinP + cz * cosP;
 
-            // Proteção final de renderização
-            if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return { x: -999, y: -999, s: 0, visible: false };
-
-            return { x: screenX, y: screenY, s: scale, visible: true };
+            // Escudo Anti-Crash: Ignora cálculos de objetos atrás da câmera
+            if (rz <= 10 || Number.isNaN(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
+            
+            const scale = CONF.FOV / rz;
+            return {
+                x: (cx * scale) + w/2,
+                y: (ry * scale) + h/2,
+                s: scale,
+                visible: true,
+                depth: rz
+            };
         },
         lerp: (a, b, t) => {
-            if (!Number.isFinite(a)) a = 0; if (!Number.isFinite(b)) b = 0;
+            if (Number.isNaN(a)) a = 0; if (Number.isNaN(b)) b = 0;
             return a + (b - a) * t;
+        },
+        clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
+        
+        dist3d: (x1, y1, z1, x2, y2, z2) => {
+            const dx = x1 - x2; const dy = y1 - y2; const dz = z1 - z2;
+            return Math.sqrt(dx*dx + dy*dy + dz*dz);
+        },
+
+        dot3d: (x1, y1, z1, x2, y2, z2) => x1*x2 + y1*y2 + z1*z2,
+        
+        predict: (b, targetZ) => {
+            let sx = b.x, sy = b.y, sz = b.z;
+            let svx = b.vx, svy = b.vy, svz = b.vz;
+            let steps = 0;
+            while(sz < targetZ && steps < 300) {
+                svx += (b.spinY * svz * CONF.MAGNUS_FORCE * 0.005);
+                svy += (b.spinX * svz * CONF.MAGNUS_FORCE * 0.005) + CONF.GRAVITY;
+                svx *= CONF.AIR_DRAG; svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
+                sx += svx; sy += svy; sz += svz;
+                if(sy > 0) { sy = 0; svy *= -0.8; }
+                steps++;
+            }
+            return Number.isNaN(sx) ? 0 : sx;
+        },
+
+        predictY: (b, targetZ) => {
+            let sy = b.y, sz = b.z;
+            let svy = b.vy, svz = b.vz;
+            let steps = 0;
+            while(sz < targetZ && steps < 300) {
+                svy += CONF.GRAVITY;
+                svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
+                sy += svy; sz += svz;
+                if(sy > 0) { sy = 0; svy *= -0.8; }
+                steps++;
+            }
+            return Number.isNaN(sy) ? -200 : sy;
         }
     };
 
     // -----------------------------------------------------------------
-    // 3. LÓGICA DO JOGO (STATE MACHINE)
+    // 3. ENGINE DO JOGO (MULTIPLAYER + CALIBRAÇÃO)
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
-        timer: 0,
+        timer: 0, idleTimer: 0, endTimer: 0,  
+        pose: null, handedness: null,
         
-        useMouse: false, mouseX: 0, mouseY: 0,
+        calibTimer: 0, calibHandCandidate: null,
+        lastFrameTime: 0, activeAIProfile: JSON.parse(JSON.stringify(AI_PROFILES.PRO)),
+        aiFrame: 0, aiRecalcCounter: 0, 
+
+        useMouse: false, mouseX: 320, mouseY: 240,
+
+        // FIREBASE MULTIPLAYER RESTAURADO
+        isOnline: false, isHost: false, roomId: 'thiaguinhowii_pingpong',
+        dbRef: null, roomRef: null, remotePlayersData: {}, lastSync: 0, maintenanceInterval: null,
         
-        // Jogadores
-        p1: { x: 0, y: -200, z: -1200, vx: 0, vy: 0, prevX: 0, prevY: 0 },
-        p2: { x: 0, y: -200, z: 1200, targetX: 0, targetY: -200 },
-        
-        // Bola e Regras
-        ball: { x: 0, y: -300, z: -1200, vx: 0, vy: 0, vz: 0, active: false },
-        lastHitter: null,
-        bouncesP1: 0, // Quiques no lado do jogador
-        bouncesP2: 0, // Quiques no lado da CPU
-        
-        score: { p1: 0, p2: 0 },
-        server: 'p1',
-        
-        shake: 0, flash: 0, particles: [], msgs: [],
+        p1: { gameX: 0, gameY: -200, gameZ: -CONF.TABLE_L/2 - 250, prevX: 0, prevY: 0, velX: 0, velY: 0, elbowX: 0, elbowY: 0, currRawX: 0, currRawY: 0 },
+        p2: { gameX: 0, gameY: -200, gameZ: CONF.TABLE_L/2 + 250, targetX: 0, targetZ: 0, targetY: -200, velX: 0, velZ: 0 },
+        ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, prevY: -300, spinX: 0, spinY: 0, active: false, lastHitBy: null, bounceCount: 0, trail: [] },
+
+        score: { p1: 0, p2: 0 }, server: 'p1', lastHitter: null, rallyCount: 0,
+        shake: 0, shakeX: 0, shakeY: 0, flash: 0,
+        particles: [], msgs: [],
+        calib: { tlX: 0, tlY: 0, brX: 640, brY: 480 },
 
         init: function() {
-            this.state = 'MODE_SELECT';
-            this.useMouse = false;
-            this.score = { p1: 0, p2: 0 };
-            if(window.System && window.System.msg) window.System.msg("PING PONG ARCADE");
+            this.cleanup();
+            this.state = 'MODE_SELECT'; this.handedness = null; this.useMouse = false;
+            this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
+            this.lastFrameTime = performance.now();
+            this.loadCalib();
+            if(window.System && window.System.msg) window.System.msg("PING PONG CARREGADO");
             this.setupInput();
         },
 
         cleanup: function() {
+            if (this.dbRef && window.System && window.System.playerId) {
+                try { this.dbRef.child('players/' + window.System.playerId).remove(); this.dbRef.off(); } catch(e){}
+            }
+            if (this.roomRef) try { this.roomRef.off(); } catch(e){}
+            if (this.maintenanceInterval) clearInterval(this.maintenanceInterval);
+            if (this.roundTimeout) clearTimeout(this.roundTimeout);
             if(window.System && window.System.canvas) {
                 window.System.canvas.onclick = null;
                 window.System.canvas.onmousemove = null;
@@ -101,20 +166,32 @@
             }
         },
 
-        sfx: function(action) {
+        sfx: function(action, ...args) {
             try {
                 if (window.Sfx) {
-                    if (action === 'click') window.Sfx.play(1000, 'sine', 0.1, 0.08);
-                    if (action === 'hit') window.Sfx.play(400, 'square', 0.1, 0.1);
-                    if (action === 'point') window.Sfx.play(800, 'sine', 0.3, 0.1);
-                    if (action === 'error') window.Sfx.play(200, 'sawtooth', 0.3, 0.1);
+                    if (typeof window.Sfx[action] === 'function') window.Sfx[action](...args);
+                    else if (action === 'coin') window.Sfx.play(1200, 'sine', 0.1);
+                    else if (action === 'click') window.Sfx.play(1000, 'sine', 0.1, 0.08);
+                    else if (action === 'hit') window.Sfx.play(300, 'sine', 0.1, 0.1);
                 }
-            } catch (e) {}
+            } catch (e) { }
+        },
+
+        loadCalib: function() {
+            try {
+                const s = localStorage.getItem('tennis_calib_auto');
+                if(s) {
+                    const data = JSON.parse(s);
+                    if(data.calib && !Number.isNaN(data.calib.tlX)) {
+                        this.calib = data.calib;
+                    }
+                    if(data.hand) this.handedness = data.hand;
+                }
+            } catch(e) { }
         },
 
         setupInput: function() {
             if(!window.System.canvas) return;
-            
             const handlePointer = (e) => {
                 const rect = window.System.canvas.getBoundingClientRect();
                 let cx = e.clientX; let cy = e.clientY;
@@ -126,7 +203,7 @@
 
             window.System.canvas.onmousemove = handlePointer;
             window.System.canvas.ontouchstart = handlePointer;
-            window.System.canvas.ontouchmove = (e) => { handlePointer(e); if(this.useMouse && e.cancelable) e.preventDefault(); };
+            window.System.canvas.ontouchmove = (e) => { handlePointer(e); if (this.useMouse && e.cancelable) e.preventDefault(); };
 
             window.System.canvas.onclick = (e) => {
                 const h = window.System.canvas.height;
@@ -135,518 +212,987 @@
                 const my = cy - rect.top;
 
                 if (this.state === 'MODE_SELECT') {
-                    if (my < h * 0.50) { this.useMouse = false; } // Câmera
-                    else { this.useMouse = true; } // Dedo
-                    this.sfx('click');
-                    this.startGame();
+                    if (my < h * 0.45) {
+                        // OFFLINE CÂMERA
+                        this.isOnline = false; this.useMouse = false; this.state = 'CALIB_HAND_SELECT';
+                    } else if (my < h * 0.60) {
+                        // OFFLINE TOUCH
+                        this.isOnline = false; this.useMouse = true; this.handedness = 'right'; this.startGame();
+                    } else {
+                        // ONLINE MULTIPLAYER
+                        this.isOnline = !!window.DB; this.useMouse = false;
+                        if (!window.DB) { if(window.System.msg) window.System.msg("MODO OFFLINE (Sem conexão)"); this.isOnline = false; }
+                        this.state = 'CALIB_HAND_SELECT';
+                    }
+                    this.calibTimer = 0; this.sfx('click');
                 } 
-                else if (this.state === 'SERVE' && this.server === 'p1') {
-                    this.hitBall('p1');
+                else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
+                    this.hitBall('p1', 0, -30);
                 }
-                else if (this.state === 'END') {
-                    this.init();
+                else if (this.state === 'LOBBY') {
+                    if (this.isHost) {
+                        const pCount = Object.keys(this.remotePlayersData || {}).length;
+                        if (pCount >= 2) { this.roomRef.update({ gameState: 'STARTING' }); this.startGame(); this.sfx('coin'); }
+                    }
                 }
+                else if (this.state === 'END') { this.init(); }
             };
         },
 
-        startGame: function() {
-            this.score = { p1: 0, p2: 0 };
-            this.server = 'p1';
-            this.resetRound();
+        connectMultiplayer: function() {
+            this.state = 'LOBBY';
+            try {
+                this.roomRef = window.DB.ref('rooms/' + this.roomId); this.dbRef = this.roomRef;
+                const myData = { name: 'Player', x: this.p1.gameX || 0, y: this.p1.gameY || -200, velX: this.p1.velX || 0, velY: this.p1.velY || 0, lastSeen: firebase.database.ServerValue.TIMESTAMP };
+                this.dbRef.child('players/' + window.System.playerId).set(myData);
+                this.dbRef.child('players/' + window.System.playerId).onDisconnect().remove();
+
+                this.maintenanceInterval = setInterval(() => {
+                    if (!this.isHost || !this.remotePlayersData) return;
+                    const now = Date.now();
+                    Object.keys(this.remotePlayersData).forEach(pid => {
+                        if (pid === window.System.playerId) return;
+                        if (now - (this.remotePlayersData[pid].lastSeen || 0) > 15000) {
+                            this.dbRef.child('players/' + pid).remove(); this.addMsg("JOGADOR CAIU", "#f00");
+                        }
+                    });
+                }, 2000);
+
+                this.roomRef.child('gameState').on('value', (snap) => {
+                    const st = snap.val();
+                    if(st === 'STARTING' && this.state === 'LOBBY' && !this.isHost) this.startGame();
+                    if(st === 'END' && this.state !== 'END') this.state = 'END';
+                });
+
+                this.roomRef.child('ball').on('value', (snap) => {
+                    if (this.isHost || !this.isOnline || !snap.exists()) return;
+                    const bData = snap.val();
+                    this.ball.x = -bData.x; this.ball.y = bData.y; this.ball.z = -bData.z; 
+                    this.ball.vx = -bData.vx; this.ball.vy = bData.vy; this.ball.vz = -bData.vz;
+                    this.ball.spinX = -bData.spinX; this.ball.spinY = -bData.spinY;
+                    this.ball.active = bData.active;
+                    this.ball.lastHitBy = bData.lastHitBy === 'p1' ? 'p2' : (bData.lastHitBy === 'p2' ? 'p1' : null);
+                });
+
+                this.roomRef.child('score').on('value', (snap) => {
+                    if (this.isHost || !this.isOnline || !snap.exists()) return;
+                    const s = snap.val(); this.score.p1 = s.p2; this.score.p2 = s.p1;
+                });
+
+                this.dbRef.child('players').on('value', (snap) => {
+                    const data = snap.val(); if (!data) return;
+                    this.remotePlayersData = data; const ids = Object.keys(data).sort();
+                    this.isHost = (ids[0] === window.System.playerId);
+                    const opId = ids.find(id => id !== window.System.playerId);
+                    if (opId) {
+                        const opData = data[opId];
+                        this.p2.gameX = -opData.x; this.p2.gameY = opData.y; this.p2.velX = -opData.velX; this.p2.velY = opData.velY;
+                    }
+                });
+            } catch(e) { this.state = 'MODE_SELECT'; }
         },
 
-        resetRound: function() {
-            this.state = 'SERVE';
-            this.timer = 0;
-            this.ball.active = false;
-            this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
-            this.ball.y = -300;
-            this.lastHitter = null;
-            this.bouncesP1 = 0;
-            this.bouncesP2 = 0;
-
-            // Posiciona a bola para o saque
-            if (this.server === 'p1') {
-                this.ball.x = 0; this.ball.z = -1200;
-                this.addMsg("SEU SAQUE!", "#3498db");
-            } else {
-                this.ball.x = 0; this.ball.z = 1200;
-                this.addMsg("SAQUE DA CPU", "#e74c3c");
+        syncMultiplayer: function() {
+            if (!this.dbRef || !this.isOnline) return;
+            const now = Date.now();
+            if (now - this.lastSync > 30) {
+                this.lastSync = now;
+                this.dbRef.child('players/' + window.System.playerId).update({
+                    x: this.p1.gameX || 0, y: this.p1.gameY || -200, velX: this.p1.velX || 0, velY: this.p1.velY || 0, lastSeen: firebase.database.ServerValue.TIMESTAMP
+                });
+                if (this.isHost) {
+                    this.roomRef.update({
+                        ball: { x: this.ball.x||0, y: this.ball.y||-300, z: this.ball.z||0, vx: this.ball.vx||0, vy: this.ball.vy||0, vz: this.ball.vz||0, spinX: this.ball.spinX||0, spinY: this.ball.spinY||0, active: this.ball.active, lastHitBy: this.ball.lastHitBy },
+                        score: this.score, gameState: this.state
+                    });
+                }
             }
         },
 
-        spawnMsg: function(txt, col) {
-            this.msgs.push({ t: txt, c: col, y: 0, a: 1.5 });
+        spawnParticles: function(x, y, z, count, color) {
+            for (let i = 0; i < count; i++) {
+                this.particles.push({ x, y, z, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, vz: (Math.random()-0.5)*15, life: 1.0, c: color });
+            }
+            if (this.particles.length > 150) this.particles = this.particles.slice(this.particles.length - 150);
         },
-        addMsg: function(t, c) { this.spawnMsg(t, c); },
 
-        // =================================================================
-        // O LOOP PRINCIPAL (UPDATE)
-        // =================================================================
-        update: function(ctx, w, h, pose) {
+        playHitSound: function(speed) {
             try {
+                if (!window.AudioContext && !window.webkitAudioContext) return;
+                if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+                const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
+                osc.connect(gain); gain.connect(this.audioCtx.destination);
+                osc.frequency.value = 200 + Math.min(speed * 3, 600); osc.type = 'sine';
+                const vol = Math.min(speed / 300, 0.5);
+                gain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(this.audioCtx.currentTime + 0.1);
+            } catch(e) {}
+        },
+
+        startGame: function() {
+            if (this.roundTimeout) { clearTimeout(this.roundTimeout); this.roundTimeout = null; }
+            this.state = 'STARTING'; this.score = { p1: 0, p2: 0 }; this.server = 'p1';
+            this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
+            this.resetRound();
+        },
+
+        // CÂMERA FIXA QUE ENQUADRA A MESA PERFEITAMENTE NO CELULAR E NO PC
+        updateCameraAdapter: function(w, h) {
+            if (h > w) { 
+                CONF.CAM_Z = -3400;  
+                CONF.CAM_Y = -1200;  
+                CONF.CAM_PITCH = 0.22; 
+                CONF.FOV = w * 1.8;  
+            } else { 
+                CONF.CAM_Z = -3200;
+                CONF.CAM_Y = -1200;
+                CONF.CAM_PITCH = 0.20;
+                CONF.FOV = 900;
+            }
+        },
+
+        update: function(ctx, w, h, pose) {
+            try { 
                 const now = performance.now();
                 let dt = this.lastFrameTime ? (now - this.lastFrameTime) : 16;
                 this.lastFrameTime = now;
-                if (dt > 100) dt = 16; // Anti-Freeze: impede saltos temporais
+                
+                // Limite de tempo (Anti-Freeze) para evitar que a física calcule distâncias infinitas
+                if (dt > 100) dt = 16; 
 
-                // Adaptação de Câmera (Mobile vs PC)
-                if (h > w) { 
-                    CONF.CAM_Y = -1200; CONF.CAM_Z = -2800; CONF.FOV = w * 1.5; 
-                } else { 
-                    CONF.CAM_Y = -1000; CONF.CAM_Z = -2200; CONF.FOV = 800; 
+                this.updateCameraAdapter(w, h); 
+
+                if (!this.polyfillDone) {
+                    if (!ctx.roundRect) {
+                        ctx.roundRect = function(x, y, w, h, r) {
+                            if(w<2*r)r=w/2; if(h<2*r)r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+                        };
+                    }
+                    this.polyfillDone = true;
                 }
 
-                if (this.state === 'MODE_SELECT') {
-                    this.p1.x = Math.sin(now * 0.002) * 300;
-                    this.p2.x = Math.cos(now * 0.002) * 300;
-                } else if (this.state !== 'END') {
-                    
-                    this.processInput(pose, w, h);
-                    this.updatePhysics(dt);
-                    this.updateAI(dt);
+                if (this.state === 'MODE_SELECT') { 
+                    this.p1.gameX = Math.sin(now * 0.002) * 300; 
+                    this.p2.gameX = Math.cos(now * 0.002) * 300; 
+                } 
+                else if (this.state !== 'LOBBY' && this.state !== 'END') {
+                    if (this.state === 'IDLE') {
+                        this.idleTimer += dt;
+                        if (this.idleTimer > 1000) { this.state = 'SERVE'; this.idleTimer = 0; this.timer = 0; }
+                    } else if (this.state === 'END_WAIT') {
+                        this.endTimer += dt;
+                        if (this.endTimer > 2000) { this.state = 'END'; if (this.isOnline && this.isHost) this.roomRef.update({ gameState: 'END' }); this.endTimer = 0; }
+                    }
 
-                    if (this.state === 'SERVE') {
-                        this.timer += dt;
-                        if (this.server === 'p2' && this.timer > 1500) {
-                            this.hitBall('p2');
-                            this.timer = 0;
-                        }
-                        // Acompanha a raquete no saque
-                        if (this.server === 'p1') {
-                            this.ball.x = this.p1.x; this.ball.y = this.p1.y - 50;
-                        } else {
-                            this.ball.x = this.p2.x; this.ball.y = this.p2.y - 50;
-                        }
+                    this.processPose(pose, w, h);
+                    
+                    if (this.state.startsWith('CALIB')) this.updateAutoCalibration(dt);
+
+                    if (this.state === 'RALLY' || this.state === 'SERVE') {
+                        if (!this.isOnline || this.isHost) { this.updatePhysics(); if (!this.isOnline) this.updateAI(); this.updateRules(dt); } 
+                        else { this.updatePhysicsClient(dt); }
                     }
                 }
 
-                // Renderização
                 ctx.save();
-                if(this.shake > 0) {
-                    ctx.translate((Math.random()-0.5)*this.shake, (Math.random()-0.5)*this.shake);
-                    this.shake *= 0.8; if(this.shake < 0.5) this.shake = 0;
+                if(this.shake > 0 && !Number.isNaN(this.shake)) {
+                    this.shakeX = (Math.random()-0.5) * this.shake; this.shakeY = (Math.random()-0.5) * this.shake;
+                    ctx.translate(this.shakeX, this.shakeY); this.shake *= 0.9; if(this.shake < 0.5) this.shake = 0;
                 }
 
                 this.renderScene(ctx, w, h);
                 ctx.restore();
 
-                if (this.flash > 0) {
+                if (this.flash > 0 && !Number.isNaN(this.flash)) {
                     ctx.fillStyle = `rgba(255,255,255,${this.flash})`; ctx.fillRect(0,0,w,h);
-                    this.flash -= 0.05; if(this.flash < 0) this.flash = 0;
+                    this.flash *= 0.8; if(this.flash < 0.05) this.flash = 0;
                 }
 
                 if (this.state === 'MODE_SELECT') this.renderModeSelect(ctx, w, h);
+                else if (this.state === 'LOBBY') this.renderLobby(ctx, w, h);
+                else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
                 else if (this.state === 'END') this.renderEnd(ctx, w, h);
                 else this.renderHUD(ctx, w, h);
 
-            } catch (e) { console.error("Proteção Ativada:", e); }
-            
+                if (this.isOnline) this.syncMultiplayer();
+
+            } catch (e) {
+                console.error("ERRO PROTEGIDO PELO SHIELD: ", e);
+            }
             return this.score.p1 || 0;
         },
 
         // =================================================================
-        // CAPTURA DE MOVIMENTO (TOQUE OU CÂMERA)
+        // A CALIBRAÇÃO (A "CERCA" DO JOGADOR) RESTAURADA!
         // =================================================================
-        processInput: function(pose, w, h) {
-            let targetX = 0; let targetY = -200;
+        updateAutoCalibration: function(dt) {
+            const deltaFactor = dt / 16;
+            this.calibTimer = Math.max(0, this.calibTimer - (10 * deltaFactor));
 
-            if (this.useMouse) {
-                // Modo Dedo: Mapeia a tela inteira para a mesa inteira
-                let nx = MathCore.clamp(this.mouseX / w, 0, 1);
-                let ny = MathCore.clamp(this.mouseY / h, 0, 1);
-                targetX = (nx - 0.5) * (CONF.TABLE_W * 1.5); // Multiplicador para alcançar os cantos
-                targetY = -800 + (ny * 800);
+            if (this.state === 'CALIB_HAND_SELECT') {
+                if (this.calibHandCandidate) {
+                    this.calibTimer += 25 * deltaFactor; 
+                    if (this.calibTimer > CONF.HAND_SELECT_TIME) {
+                        this.handedness = this.calibHandCandidate; this.state = 'CALIB_TL'; this.calibTimer = 0; this.sfx('coin');
+                    }
+                }
             } 
-            else {
-                // Modo Câmera: Mapeia o pulso usando a proporção do vídeo
-                if (pose && pose.keypoints) {
-                    // Tenta achar o pulso direito ou esquerdo
-                    let wrist = pose.keypoints.find(k => k.name === 'right_wrist' && k.score > 0.3);
-                    if (!wrist) wrist = pose.keypoints.find(k => k.name === 'left_wrist' && k.score > 0.3);
-
-                    if (wrist) {
-                        // O vídeo geralmente é 640x480. Invertemos o X por causa do espelho
-                        let nx = MathCore.clamp((640 - wrist.x) / 640, 0, 1);
-                        let ny = MathCore.clamp(wrist.y / 480, 0, 1);
-
-                        // Aplica uma "Zona de Conforto": Movimentos curtos cobrem a mesa toda
-                        nx = 0.5 + ((nx - 0.5) * 2.0); 
+            else if (this.state === 'CALIB_TL') { // Canto Superior Esquerdo
+                if (!Number.isNaN(this.p1.currRawX)) {
+                    this.calibTimer += 25 * deltaFactor;
+                    if (this.calibTimer > CONF.CALIB_TIME) {
+                        this.calib.tlX = this.p1.currRawX; this.calib.tlY = this.p1.currRawY; 
+                        this.state = 'CALIB_BR'; this.calibTimer = 0; this.sfx('coin');
+                    }
+                }
+            } 
+            else if (this.state === 'CALIB_BR') { // Canto Inferior Direito
+                if (!Number.isNaN(this.p1.currRawX)) {
+                    this.calibTimer += 25 * deltaFactor;
+                    if (this.calibTimer > CONF.CALIB_TIME) {
+                        this.calib.brX = this.p1.currRawX; this.calib.brY = this.p1.currRawY;
                         
-                        targetX = (nx - 0.5) * (CONF.TABLE_W * 1.5);
-                        targetY = -800 + (ny * 800);
-                    } else {
-                        // Se não ver a mão, volta devagar pro centro
-                        targetX = 0; targetY = -200;
+                        // Garante que a calibração não ficou invertida ou minúscula
+                        if (Math.abs(this.calib.tlX - this.calib.brX) < 100) this.calib.brX = this.calib.tlX + 200;
+                        if (Math.abs(this.calib.tlY - this.calib.brY) < 100) this.calib.brY = this.calib.tlY + 200;
+                        
+                        try { localStorage.setItem('tennis_calib_auto', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        
+                        this.calibTimer = 0; 
+                        if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
+                        this.sfx('coin');
                     }
                 }
             }
+        },
 
-            // Suavização do movimento (Lerp)
-            this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
-            this.p1.x = MathCore.lerp(this.p1.x, targetX, 0.6);
-            this.p1.y = MathCore.lerp(this.p1.y, targetY, 0.6);
-
-            // Calcula a velocidade do movimento para dar o "Efeito da Raquetada"
-            let calcVx = this.p1.x - this.p1.prevX;
-            let calcVy = this.p1.y - this.p1.prevY;
-            this.p1.vx = Number.isFinite(calcVx) ? calcVx : 0;
-            this.p1.vy = Number.isFinite(calcVy) ? calcVy : 0;
-
-            // Se o jogador fizer um movimento brusco para cima durante o saque, saca!
-            if (this.state === 'SERVE' && this.server === 'p1' && !this.useMouse) {
-                if (this.p1.vy < -20) this.hitBall('p1');
+        handleLostTracking: function() {
+            if(this.state.startsWith('CALIB')) this.calibHandCandidate = null;
+            else if (this.state === 'SERVE' || this.state === 'RALLY' || this.state === 'IDLE') {
+                this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, 0, 0.1);
+                this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, -200, 0.1);
+                if (this.state === 'SERVE' && this.server === 'p1') {
+                    this.ball.x = this.p1.gameX; this.ball.y = this.p1.gameY - 50; this.ball.z = this.p1.gameZ + 50; 
+                }
             }
         },
 
-        // =================================================================
-        // FÍSICA E REGRAS ARCADE DE TÊNIS DE MESA
-        // =================================================================
-        updatePhysics: function(dt) {
-            if (!this.ball.active) return;
-            const b = this.ball;
-            const prevY = b.y;
+        processPose: function(pose, w, h) {
+            this.pose = pose; 
 
-            // Move a bola
+            // ==========================================
+            // MODO MOUSE/TOUCH (IGNORA CALIBRAÇÃO)
+            // ==========================================
+            if (this.useMouse) {
+                let nx = this.mouseX / w; let ny = this.mouseY / h;
+                nx = MathCore.clamp(nx, 0, 1); ny = MathCore.clamp(ny, 0, 1);
+
+                const targetX = MathCore.lerp(-CONF.TABLE_W * 0.9, CONF.TABLE_W * 0.9, nx); 
+                const targetY = MathCore.lerp(-800, 200, ny); 
+
+                this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.90);
+                this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.90);
+                this.p1.gameZ = -CONF.TABLE_L/2 - 250; 
+                this.p1.elbowX = this.p1.gameX + 100;
+                this.p1.elbowY = this.p1.gameY + 300;
+
+                let calcVX = this.p1.gameX - (Number.isNaN(this.p1.prevX) ? this.p1.gameX : this.p1.prevX);
+                let calcVY = this.p1.gameY - (Number.isNaN(this.p1.prevY) ? this.p1.gameY : this.p1.prevY);
+
+                if (Math.abs(calcVX) > 2000 || Number.isNaN(calcVX)) calcVX = 0; 
+                if (Math.abs(calcVY) > 2000 || Number.isNaN(calcVY)) calcVY = 0;
+
+                this.p1.velX = calcVX; this.p1.velY = calcVY;
+                this.p1.prevX = this.p1.gameX; this.p1.prevY = this.p1.gameY;
+
+                if (this.state === 'SERVE' && this.server === 'p1') {
+                    this.ball.x = this.p1.gameX; this.ball.y = this.p1.gameY - 50; this.ball.z = this.p1.gameZ + 50; 
+                    this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0; this.ball.active = false;
+                    if (this.p1.velY < -20) this.hitBall('p1', 0, 0);
+                }
+                return;
+            }
+
+            // ==========================================
+            // MODO CÂMERA (CORREÇÃO DE MÃO E CALIBRAÇÃO)
+            // ==========================================
+            if (this.state === 'CALIB_HAND_SELECT') {
+                if (!pose || !pose.keypoints) { this.calibHandCandidate = null; return; }
+                const nose = pose.keypoints.find(k => k.name === 'nose');
+                const leftW = pose.keypoints.find(k => k.name === 'left_wrist');
+                const rightW = pose.keypoints.find(k => k.name === 'right_wrist');
+
+                this.calibHandCandidate = null;
+                // Identifica se você levantou a mão esquerda ou direita ANTES de ter o "this.handedness" definido
+                if (nose && leftW && rightW) {
+                    const leftUp = leftW.y < nose.y; const rightUp = rightW.y < nose.y;
+                    if (leftUp && !rightUp) { this.calibHandCandidate = 'left'; this.p1.currRawX = 640 - leftW.x; this.p1.currRawY = leftW.y; } 
+                    else if (rightUp && !leftUp) { this.calibHandCandidate = 'right'; this.p1.currRawX = 640 - rightW.x; this.p1.currRawY = rightW.y; }
+                }
+                return;
+            }
+
+            if (!this.handedness) return; 
+            if (!pose || !pose.keypoints) { this.handleLostTracking(); return; }
+
+            const wristName = this.handedness + '_wrist';
+            const elbowName = this.handedness + '_elbow';
+            const wrist = pose.keypoints.find(k => k.name === wristName && k.score > 0.3);
+            const elbow = pose.keypoints.find(k => k.name === elbowName && k.score > 0.3);
+
+            if (wrist) {
+                const rawX = 640 - wrist.x; const rawY = wrist.y;
+                
+                if (this.state.startsWith('CALIB')) {
+                    this.p1.currRawX = rawX; this.p1.currRawY = rawY;
+                } else {
+                    // Mapeamento usando os pontos calibrados pela pessoa!
+                    let minX = Math.min(this.calib.tlX, this.calib.brX);
+                    let maxX = Math.max(this.calib.tlX, this.calib.brX);
+                    let minY = Math.min(this.calib.tlY, this.calib.brY);
+                    let maxY = Math.max(this.calib.tlY, this.calib.brY);
+                    
+                    let rangeX = maxX - minX; if(rangeX < 10) rangeX = 640;
+                    let rangeY = maxY - minY; if(rangeY < 10) rangeY = 480;
+
+                    let nx = (rawX - minX) / rangeX;
+                    let ny = (rawY - minY) / rangeY;
+
+                    // Deixa a pessoa ir um pouco para fora da caixa de calibração para salvar bolas difíceis
+                    nx = MathCore.clamp(nx, -0.3, 1.3); 
+                    ny = MathCore.clamp(ny, -0.3, 1.3);
+
+                    let targetX = MathCore.lerp(-CONF.TABLE_W/2 - 300, CONF.TABLE_W/2 + 300, nx); 
+                    let targetY = MathCore.lerp(-800, 200, ny); 
+                    if (Number.isNaN(targetX)) targetX = 0; if (Number.isNaN(targetY)) targetY = -200;
+
+                    this.p1.gameX = MathCore.lerp(this.p1.gameX || 0, targetX, 0.85);
+                    this.p1.gameY = MathCore.lerp(this.p1.gameY || -200, targetY, 0.85);
+                    this.p1.gameZ = -CONF.TABLE_L/2 - 250;
+
+                    if (elbow) {
+                        let rawEx = 640 - elbow.x; let rawEy = elbow.y;
+                        let nex = (rawEx - minX) / rangeX; let ney = (rawEy - minY) / rangeY;
+                        nex = MathCore.clamp(nex, -0.3, 1.3); ney = MathCore.clamp(ney, -0.3, 1.3);
+                        let targetEx = MathCore.lerp(-CONF.TABLE_W/2 - 300, CONF.TABLE_W/2 + 300, nex);
+                        let targetEy = MathCore.lerp(-800, 200, ney);
+                        if (Number.isNaN(targetEx)) targetEx = targetX; if (Number.isNaN(targetEy)) targetEy = targetY + 300;
+                        this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
+                        this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.85);
+                    } else {
+                        this.p1.elbowX = this.p1.gameX + (this.handedness === 'right' ? 150 : -150);
+                        this.p1.elbowY = this.p1.gameY + 300;
+                    }
+
+                    let calculatedVelX = this.p1.gameX - (Number.isNaN(this.p1.prevX) ? this.p1.gameX : this.p1.prevX);
+                    let calculatedVelY = this.p1.gameY - (Number.isNaN(this.p1.prevY) ? this.p1.gameY : this.p1.prevY);
+
+                    // Escudo Anti-Teletransporte: Evita força infinita na bola
+                    if (Math.abs(calculatedVelX) > 2000 || Number.isNaN(calculatedVelX)) calculatedVelX = 0;
+                    if (Math.abs(calculatedVelY) > 2000 || Number.isNaN(calculatedVelY)) calculatedVelY = 0;
+
+                    this.p1.velX = MathCore.clamp(calculatedVelX, -300, 300);
+                    this.p1.velY = MathCore.clamp(calculatedVelY, -300, 300);
+                    this.p1.prevX = this.p1.gameX; this.p1.prevY = this.p1.gameY;
+
+                    if (this.state === 'SERVE' && this.server === 'p1') {
+                        this.ball.x = this.p1.gameX; this.ball.y = this.p1.gameY - 50; this.ball.z = this.p1.gameZ + 50; 
+                        this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0; this.ball.active = false;
+                        if (this.p1.velY < -15) this.hitBall('p1', 0, 0);
+                    }
+                }
+            } else { this.handleLostTracking(); }
+        },
+
+        updatePhysicsClient: function(dt) {
+            if (!this.ball.active) return;
+            const b = this.ball; b.prevY = b.y;
             b.x += b.vx; b.y += b.vy; b.z += b.vz;
+
+            if (b.y >= 0 && b.prevY < 0) {
+                b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
+                this.spawnParticles(b.x, 0, b.z, 5, '#fff');
+                this.playHitSound(Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2) * 1.5);
+            }
+
+            if (Math.abs(b.vz) > 30) {
+                this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
+                if (this.ball.trail.length > 30) this.ball.trail.shift();
+            }
+
+            this.checkPaddleHitClient();
+        },
+
+        updatePhysics: function() {
+            if (!this.ball.active) return;
             
-            // Gravidade e Resistência do ar
-            b.vy += CONF.GRAVITY;
+            const b = this.ball;
+            if (Number.isNaN(b.x) || Number.isNaN(b.y) || Number.isNaN(b.z) || Number.isNaN(b.vx) || Number.isNaN(b.vy) || Number.isNaN(b.vz)) { 
+                this.resetRound(); return; 
+            }
+
+            b.prevY = b.y;
+
+            let magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
+            let magY = b.spinX * b.vz * CONF.MAGNUS_FORCE * 0.01;
+            
+            b.vx += Number.isNaN(magX) ? 0 : magX;
+            b.vy += (Number.isNaN(magY) ? 0 : magY) + CONF.GRAVITY;
             b.vx *= CONF.AIR_DRAG; b.vy *= CONF.AIR_DRAG; b.vz *= CONF.AIR_DRAG;
 
-            // Bateu na Mesa?
-            if (b.y >= CONF.TABLE_Y && prevY < CONF.TABLE_Y) {
-                // Checa se está dentro dos limites da mesa
-                if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
-                    b.y = CONF.TABLE_Y;
-                    b.vy *= -CONF.BOUNCE_LOSS; // Quica!
-                    this.spawnParticles(b.x, CONF.TABLE_Y, b.z, '#fff');
-                    this.sfx('hit');
+            const currentSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
+            let steps = 1; if (currentSpeed > 50) steps = 3; 
+            
+            for(let s=0; s<steps; s++) {
+                const previousY = b.y;
+                b.x += b.vx / steps; b.y += b.vy / steps; b.z += b.vz / steps;
 
-                    // Regras de Quique
-                    if (b.z < 0) this.bouncesP1++; else this.bouncesP2++;
+                if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) b.lastHitBy = null;
 
-                    // Se a bola quicou duas vezes do mesmo lado, é ponto do adversário
-                    if (this.bouncesP1 >= 2) return this.scorePoint('p2', "DOIS QUIQUES!");
-                    if (this.bouncesP2 >= 2) return this.scorePoint('p1', "DOIS QUIQUES!");
+                if (b.y >= 0 && previousY < 0) { 
+                    if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
+                        b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
+                        b.vx += b.spinY * 0.5; b.vz += b.spinX * 0.5;
+                        
+                        this.spawnParticles(b.x, 0, b.z, 5, '#fff');
+                        this.playHitSound(currentSpeed * 1.5);
 
-                    // Se o jogador bateu e quicou no lado dele mesmo, é FALTA
-                    if (this.lastHitter === 'p1' && this.bouncesP1 > 0) return this.scorePoint('p2', "FALTA!");
-                    if (this.lastHitter === 'p2' && this.bouncesP2 > 0) return this.scorePoint('p1', "FALTA!");
+                        const side = b.z < 0 ? 'p1' : 'p2';
+                        if (this.lastHitter === side) {
+                            this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES");
+                            return;
+                        } else {
+                            this.ball.bounceCount++;
+                            if(this.ball.bounceCount >= 2) {
+                                this.scorePoint(side === 'p1' ? 'p2' : 'p1', "PONTO!");
+                                return;
+                            }
+                        }
+                    }
                 }
+                this.checkPaddleHit();
             }
 
-            // Bateu na Rede?
-            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < CONF.TABLE_Y) {
-                b.vz *= -0.3; b.vx *= 0.5; this.shake = 5; this.sfx('hit');
+            // ==============================================================
+            // REGRAS REAIS: PASSOU OU CAIU FORA!
+            // ==============================================================
+            if (b.z < this.p1.gameZ - 100) {
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
+                else this.scorePoint('p2', "PONTO DA CPU!");
+                return;
+            }
+            if (b.z > this.p2.gameZ + 100) {
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') this.scorePoint('p2', "FORA!");
+                else this.scorePoint('p1', "SEU PONTO!");
+                return;
             }
 
-            // Caiu no chão? (Fim do Ponto)
             if (b.y > CONF.FLOOR_Y) {
-                // Se foi o Player 1 quem bateu por último
-                if (this.lastHitter === 'p1') {
-                    if (this.bouncesP2 > 0) this.scorePoint('p1', "PONTO!"); // Quicou na mesa da CPU e caiu
-                    else this.scorePoint('p2', "FORA!"); // Caiu direto no chão
-                } 
-                // Se foi a CPU quem bateu por último
-                else if (this.lastHitter === 'p2') {
-                    if (this.bouncesP1 > 0) this.scorePoint('p2', "PONTO CPU!");
-                    else this.scorePoint('p1', "FORA CPU!");
-                }
+                if (this.ball.bounceCount === 0) this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
+                else this.scorePoint(this.lastHitter, "PONTO!");
                 return;
             }
 
-            // Passou direto (Sem bater no chão, foi parar na parede de trás)
-            if (b.z < -2000) {
-                if (this.lastHitter === 'p2') {
-                    if(this.bouncesP1 > 0) this.scorePoint('p2', "PASSOU!"); else this.scorePoint('p1', "FORA!");
-                }
-                return;
-            }
-            if (b.z > 2000) {
-                if (this.lastHitter === 'p1') {
-                    if(this.bouncesP2 > 0) this.scorePoint('p1', "PASSOU!"); else this.scorePoint('p2', "FORA!");
-                }
-                return;
+            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
+                b.vz *= -0.2; b.vx *= 0.5; this.shake = 5; this.playHitSound(currentSpeed * 0.5); b.lastHitBy = null;
             }
 
-            // Colisão com as Raquetes
-            if (b.vz < 0 && b.z < this.p1.z && b.z > this.p1.z - 100 && this.lastHitter !== 'p1') {
-                let dist = Math.sqrt((b.x - this.p1.x)**2 + (b.y - this.p1.y)**2);
-                if (dist < CONF.PADDLE_HITBOX) this.hitBall('p1');
-            }
-            if (b.vz > 0 && b.z > this.p2.z && b.z < this.p2.z + 100 && this.lastHitter !== 'p2') {
-                let dist = Math.sqrt((b.x - this.p2.x)**2 + (b.y - this.p2.y)**2);
-                if (dist < CONF.PADDLE_HITBOX) this.hitBall('p2');
+            const totalSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy + b.vz*b.vz);
+            if (totalSpeed > CONF.MAX_TOTAL_SPEED && !Number.isNaN(totalSpeed)) {
+                const scale = CONF.MAX_TOTAL_SPEED / totalSpeed;
+                b.vx *= scale; b.vy *= scale; b.vz *= scale;
             }
 
-            // Rastro da bola
-            if (Math.abs(b.vz) > 20) {
+            b.spinX *= 0.99; b.spinY *= 0.99;
+
+            if (Math.abs(b.vz) > 30) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
-                if (this.ball.trail.length > 20) this.ball.trail.shift();
+                if (this.ball.trail.length > 30) this.ball.trail.shift();
             }
         },
 
-        hitBall: function(who) {
+        checkPaddleHitClient: function() {
+            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
+                const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
+                if (distP1 < CONF.PADDLE_HITBOX) {
+                    const dot = MathCore.dot3d(this.p1.gameX - this.ball.x, this.p1.gameY - this.ball.y, this.p1.gameZ - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz);
+                    if (dot > 0) { this.sfx('hit'); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; }
+                }
+            }
+        },
+
+        checkPaddleHit: function() {
+            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
+                const distP1 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.gameX, this.p1.gameY, this.p1.gameZ);
+                if (distP1 < CONF.PADDLE_HITBOX) {
+                    const dot = MathCore.dot3d(this.p1.gameX - this.ball.x, this.p1.gameY - this.ball.y, this.p1.gameZ - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz);
+                    if (dot > 0) this.hitBall('p1', this.ball.x - this.p1.gameX, this.ball.y - this.p1.gameY);
+                }
+            }
+            if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
+                const distP2 = MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p2.gameX, this.p2.gameY, this.p2.gameZ);
+                if (distP2 < CONF.PADDLE_HITBOX) {
+                    const dot = MathCore.dot3d(this.p2.gameX - this.ball.x, this.p2.gameY - this.ball.y, this.p2.gameZ - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz);
+                    if (dot > 0) this.hitBall('p2', 0, 0);
+                }
+            }
+        },
+
+        hitBall: function(who, offX, offY) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
-            
-            // Força base + Velocidade do braço
-            let speed = Math.sqrt(paddle.vx**2 + paddle.vy**2);
-            let force = MathCore.clamp(50 + (speed * 0.5), 50, 120);
+            let velX = paddle.velX || 0; let velY = isP1 ? (paddle.velY || 0) : (paddle.velZ ? paddle.velZ * 0.15 : 0);
+            if (Number.isNaN(velX)) velX = 0; if (Number.isNaN(velY)) velY = 0;
 
-            if (force > 90) { this.shake = 10; this.flash = 0.3; if(isP1) this.addMsg("SMASH!", "#f1c40f"); }
+            const speed = Math.sqrt(velX**2 + velY**2);
+            let force = MathCore.clamp(55 + (speed * CONF.SWING_FORCE), 55, 120); 
             
-            this.sfx('hit');
-            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, isP1 ? '#3498db' : '#e74c3c');
+            let isSmash = force > 95;
+            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; if(isP1) this.addMsg("CORTADA!", "#0ff"); } 
+            else { this.shake = 3; }
 
-            this.ball.active = true;
-            this.ball.lastHitBy = who;
-            this.bouncesP1 = 0; // Zera os quiques no hit
-            this.bouncesP2 = 0;
+            this.playHitSound(force * 3);
 
-            // Joga a bola para o outro lado
-            this.ball.vz = force * (isP1 ? 1 : -1);
+            this.ball.active = true; this.ball.lastHitBy = who;
+            this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
+            this.ball.vx = ((offX||0) * 0.35) + (velX * 0.7);
+            this.ball.vy = -20 + (velY * 0.5) + ((offY||0) * 0.1); 
+            this.ball.spinY = velX * 1.2; this.ball.spinX = velY * 1.2;
+
+            this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
+            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#e74c3c' : '#3498db'); 
             
-            // A direção X é influenciada pelo movimento da raquete e de onde bateu na raquete
-            let offX = this.ball.x - paddle.x;
-            this.ball.vx = (paddle.vx * 0.3) + (offX * 0.1);
-            this.ball.vx = MathCore.clamp(this.ball.vx, -30, 30); // Impede de voar torto demais
-            
-            // Joga um pouco para cima para passar da rede
-            this.ball.vy = -15 + (paddle.vy * 0.2);
-
-            this.state = 'RALLY';
+            if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
         },
 
-        updateAI: function(dt) {
-            if (this.state !== 'RALLY' || this.ball.vz < 0) {
-                // Volta pro centro se não for a vez dele
-                this.p2.targetX = 0; this.p2.targetY = -200;
+        updateRules: function(dt) {
+            if (this.state === 'SERVE') {
+                this.timer += dt || 16;
+                if (this.timer > CONF.AUTO_SERVE_DELAY) {
+                    if (this.server === 'p1') {
+                        this.addMsg("SAQUE AUTOMÁTICO", "#fff");
+                        this.ball.x = Number.isNaN(this.p1.gameX) ? 0 : this.p1.gameX; 
+                        this.ball.y = -200; 
+                        this.ball.z = (Number.isNaN(this.p1.gameZ) ? -CONF.TABLE_L/2 - 200 : this.p1.gameZ) + 50;
+                        this.hitBall('p1', 0, 0);
+                    } else { if (!this.isOnline || this.isHost) this.aiServe(); }
+                    this.timer = 0;
+                }
+            }
+        },
+
+        calculateAITarget: function() {
+            if (this.isOnline && !this.isHost) return; 
+            const profile = this.activeAIProfile;
+            let predX = MathCore.predict(this.ball, this.p2.gameZ); let predY = MathCore.predictY(this.ball, this.p2.gameZ);
+            if (Number.isNaN(predX)) predX = 0; if (Number.isNaN(predY)) predY = -200;
+
+            const baseError = 40; const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
+            const humanError = baseError * profile.difficultyFactor * speedFactor;
+            
+            this.p2.targetX = predX + (Math.random() - 0.5) * humanError;
+            this.p2.targetY = predY + (Math.random() - 0.5) * Math.abs(this.ball.vz || 0) * 0.15; 
+            this.p2.targetZ = Math.abs(this.ball.vz || 0) < 50 ? CONF.TABLE_L/2 : CONF.TABLE_L/2 + 300;
+        },
+
+        updateAI: function() {
+            if (this.isOnline) return; 
+            if (this.state === 'RALLY' && this.ball.vz > 0) {
+                this.aiRecalcCounter++;
+                if (this.aiRecalcCounter >= 4) { this.calculateAITarget(); this.aiRecalcCounter = 0; }
+            }
+
+            this.aiFrame++; if (this.aiFrame % 2 !== 0) return;
+
+            const ai = this.p2; const profile = this.activeAIProfile;
+            ai.velX += ((ai.targetX || 0) - (ai.gameX || 0)) * profile.speed;
+            ai.velX *= 0.80; ai.gameX += ai.velX;
+            ai.velZ += ((ai.targetZ || 0) - (ai.gameZ || 0)) * 0.05;
+            ai.velZ *= 0.85; ai.gameZ += ai.velZ;
+            ai.gameY = MathCore.lerp(ai.gameY || -200, ai.targetY || -200, 0.08);
+            
+            if (this.ball.vz < 0) { ai.targetX = 0; ai.targetZ = CONF.TABLE_L/2 + 300; ai.targetY = -200; }
+        },
+
+        aiServe: function() {
+            this.ball.x = this.p2.gameX || 0; this.ball.y = this.p2.gameY || -200; this.ball.z = (this.p2.gameZ || CONF.TABLE_L/2 + 200) - 100;
+            this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
+            this.hitBall('p2', (Math.random()-0.5)*20, 0);
+        },
+
+        scorePoint: function(winner, txt) {
+            this.score[winner]++; this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
+            this.ball.active = false; this.rallyCount = 0;
+            
+            const profile = this.activeAIProfile;
+            if (winner === 'p2') profile.speed = Math.min(profile.speed * 1.02, profile.baseSpeed * 1.5);
+            else profile.speed = Math.max(profile.speed * 0.99, profile.baseSpeed);
+
+            if ((this.score.p1 >= 11 || this.score.p2 >= 11) && Math.abs(this.score.p1 - this.score.p2) >= 2) {
+                this.state = 'END_WAIT'; this.endTimer = 0;
+            } else { this.server = winner; this.resetRound(); }
+        },
+
+        resetRound: function() {
+            this.state = 'IDLE'; this.idleTimer = 0; this.endTimer = 0;
+            this.ball.active = false; this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
+            this.ball.x = 0; this.ball.y = -300; this.ball.z = 0;
+            this.ball.lastHitBy = null; this.ball.bounceCount = 0; this.ball.trail = [];
+            this.lastHitter = null; this.aiRecalcCounter = 0; this.timer = 0;
+        },
+
+        safeArc: function(ctx, x, y, r) {
+            if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(r) && r > 0) {
+                ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        safeEllipse: function(ctx, x, y, rx, ry, rot=0) {
+            if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(rx) && !Number.isNaN(ry) && rx > 0 && ry > 0) {
+                ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        drawSafeRect: function(ctx, x, y, w, h, radius) {
+            if (Number.isNaN(x) || Number.isNaN(y) || Number.isNaN(w) || Number.isNaN(h)) return;
+            if (ctx.roundRect) {
+                ctx.beginPath(); ctx.roundRect(x, y, w, h, radius); ctx.fill(); ctx.stroke();
             } else {
-                // Acompanha a bola
-                this.p2.targetX = this.ball.x;
-                this.p2.targetY = this.ball.y;
+                ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
             }
-
-            // Move a raquete da CPU suavemente
-            this.p2.prevX = this.p2.x; this.p2.prevY = this.p2.y;
-            this.p2.x = MathCore.lerp(this.p2.x, this.p2.targetX, 0.1);
-            this.p2.y = MathCore.lerp(this.p2.y, this.p2.targetY, 0.1);
-            this.p2.vx = this.p2.x - this.p2.prevX;
-            this.p2.vy = this.p2.y - this.p2.prevY;
         },
 
-        scorePoint: function(winner, reasonText) {
-            this.score[winner]++;
-            this.sfx(winner === 'p1' ? 'point' : 'error');
-            this.addMsg(reasonText, winner === 'p1' ? "#2ecc71" : "#e74c3c");
+        renderModeSelect: function(ctx, w, h) {
+            ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
+            ctx.fillText("PING PONG WII", w/2, h * 0.20);
             
-            if (this.score.p1 >= 11 || this.score.p2 >= 11) {
-                this.state = 'END';
-            } else {
-                this.server = winner; // Quem pontua saca
-                this.resetRound();
-            }
-        },
-
-        spawnParticles: function(x, y, z, color) {
-            for (let i = 0; i < 10; i++) {
-                this.particles.push({ x, y, z, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, vz: (Math.random()-0.5)*15, life: 1.0, c: color });
-            }
-        },
-
-        // =================================================================
-        // RENDERIZAÇÃO 3D (DESENHOS SEGUROS)
-        // =================================================================
-        safePoly: function(ctx, points, color, strokeColor) {
-            let valid = true;
-            for(let p of points) { if(!p.visible || !Number.isFinite(p.x)) valid = false; }
-            if(!valid) return;
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-            ctx.closePath();
-            ctx.fill();
+            ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.35, 320, 60);
+            ctx.fillStyle = "#f39c12"; ctx.fillRect(w/2 - 160, h * 0.50, 320, 60);
+            ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.65, 320, 60);
             
-            if (strokeColor) {
-                ctx.strokeStyle = strokeColor;
-                ctx.lineWidth = Math.max(1, 3 * points[0].s);
-                ctx.stroke();
-            }
+            ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
+            ctx.fillText("JOGAR COM A CÂMERA", w/2, h * 0.35 + 38);
+            ctx.fillText("JOGAR COM O DEDO", w/2, h * 0.50 + 38);
+            ctx.fillText("ONLINE (P2P)", w/2, h * 0.65 + 38);
+        },
+
+        renderLobby: function(ctx, w, h) {
+            ctx.fillStyle = "rgba(10,15,20,0.95)"; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = "#fff"; ctx.textAlign="center"; ctx.font="30px sans-serif";
+            if (this.isHost) {
+                const pCount = Object.keys(this.remotePlayersData || {}).length;
+                if (pCount >= 2) {
+                    ctx.fillStyle = "#2ecc71"; ctx.fillRect(w/2 - 160, h*0.6, 320, 70);
+                    ctx.fillStyle = "white"; ctx.font = "bold 24px 'Russo One'";
+                    ctx.fillText("INICIAR PARTIDA", w/2, h*0.6 + 45);
+                    ctx.fillStyle = "#ccc"; ctx.font = "18px sans-serif";
+                    ctx.fillText("JOGADORES CONECTADOS: " + pCount, w/2, h*0.4);
+                } else { ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2); }
+            } else { ctx.fillText("CONECTADO! AGUARDANDO HOST...", w/2, h/2); }
         },
 
         renderScene: function(ctx, w, h) {
-            // Fundo de Ginásio
-            const grad = ctx.createRadialGradient(w/2, h/2, 10, w/2, h/2, Math.max(w,h));
-            grad.addColorStop(0, "#192a56"); grad.addColorStop(1, "#000");
+            const grad = ctx.createRadialGradient(w/2, h/2, 100, w/2, h/2, Math.max(w,h));
+            grad.addColorStop(0, "#192a56"); grad.addColorStop(1, "#090a0f");
             ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
 
-            // Chão Grid
-            const p1 = MathCore.project(-3000, CONF.FLOOR_Y, -3000, w, h);
-            const p2 = MathCore.project(3000, CONF.FLOOR_Y, -3000, w, h);
-            const p3 = MathCore.project(3000, CONF.FLOOR_Y, 3000, w, h);
-            const p4 = MathCore.project(-3000, CONF.FLOOR_Y, 3000, w, h);
-            this.safePoly(ctx, [p1, p2, p3, p4], "rgba(0,0,0,0.5)");
-
-            // Mesa de Ping Pong
-            const hw = CONF.TABLE_W/2; const hl = CONF.TABLE_L/2;
-            const t1 = MathCore.project(-hw, CONF.TABLE_Y, -hl, w, h);
-            const t2 = MathCore.project(hw, CONF.TABLE_Y, -hl, w, h);
-            const t3 = MathCore.project(hw, CONF.TABLE_Y, hl, w, h);
-            const t4 = MathCore.project(-hw, CONF.TABLE_Y, hl, w, h);
-            
-            // Tampo azul com borda branca
-            this.safePoly(ctx, [t1, t2, t3, t4], "#1e3799", "#fff");
-
-            // Linha central da mesa
-            const m1 = MathCore.project(0, CONF.TABLE_Y, -hl, w, h);
-            const m2 = MathCore.project(0, CONF.TABLE_Y, hl, w, h);
-            if(m1.visible && m2.visible) {
-                ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
+            ctx.fillStyle = "rgba(0,0,0,0.4)";
+            const f1 = MathCore.project(-4000, CONF.FLOOR_Y, 4000, w, h);
+            const f2 = MathCore.project(4000, CONF.FLOOR_Y, 4000, w, h);
+            const f3 = MathCore.project(4000, CONF.FLOOR_Y, -4000, w, h);
+            const f4 = MathCore.project(-4000, CONF.FLOOR_Y, -4000, w, h);
+            if(f1.visible && !Number.isNaN(f1.x)) {
+                ctx.beginPath(); ctx.moveTo(f1.x, f1.y); ctx.lineTo(f2.x, f2.y); ctx.lineTo(f3.x, f3.y); ctx.lineTo(f4.x, f4.y); ctx.fill();
             }
 
-            // Rede
-            const n1 = MathCore.project(-hw-50, CONF.TABLE_Y, 0, w, h);
-            const n2 = MathCore.project(hw+50, CONF.TABLE_Y, 0, w, h);
-            const n3 = MathCore.project(hw+50, CONF.TABLE_Y - CONF.NET_H, 0, w, h);
-            const n4 = MathCore.project(-hw-50, CONF.TABLE_Y - CONF.NET_H, 0, w, h);
-            this.safePoly(ctx, [n1, n2, n3, n4], "rgba(255,255,255,0.2)", "#ecf0f1");
-
-            // Elementos Móveis (Z-Sorting simples: CPU -> Bola -> Player)
-            this.drawPaddle(ctx, this.p2, '#e74c3c', w, h); // Raquete CPU Vermelha
+            this.drawTable(ctx, w, h);
+            this.drawPaddle(ctx, this.p2.gameX, this.p2.gameY, this.p2.gameZ, false, w, h);
             this.drawBall(ctx, w, h);
-            this.drawPaddle(ctx, this.p1, '#3498db', w, h); // Sua Raquete Azul
+            
+            if (!this.state.startsWith('CALIB')) {
+                ctx.globalAlpha = 0.6; this.drawPlayerArm(ctx, w, h); ctx.globalAlpha = 1.0;
+                this.drawPaddle(ctx, this.p1.gameX, this.p1.gameY, this.p1.gameZ, true, w, h);
+            }
+            this.drawParticles(ctx, w, h);
+        },
+        
+        drawPlayerArm: function(ctx, w, h) {
+            if(!this.handedness || this.useMouse) return; 
+            const wristZ = this.p1.gameZ; const elbowZ = this.p1.gameZ + 400; 
+            const pWrist = MathCore.project(this.p1.gameX, this.p1.gameY, wristZ, w, h);
+            const pElbow = MathCore.project(this.p1.elbowX, this.p1.elbowY, elbowZ, w, h);
+            
+            if (pWrist.visible && pElbow.visible && !Number.isNaN(pWrist.x) && !Number.isNaN(pElbow.x)) {
+                ctx.strokeStyle = "#d2b48c"; ctx.lineWidth = Math.max(1, 20 * pWrist.s); ctx.lineCap = "round";
+                ctx.beginPath(); ctx.moveTo(pElbow.x, pElbow.y); ctx.lineTo(pWrist.x, pWrist.y); ctx.stroke();
+                ctx.fillStyle = "#d2b48c"; this.safeArc(ctx, pWrist.x, pWrist.y, 10 * pWrist.s);
+            }
+        },
 
-            // Partículas
+        drawTable: function(ctx, w, h) {
+            const hw = CONF.TABLE_W/2; const hl = CONF.TABLE_L/2; const th = 60; const legH = CONF.FLOOR_Y; 
+            
+            ctx.fillStyle = "#111";
+            const drawLeg = (x, z) => {
+                const p1 = MathCore.project(x-30, 0, z, w, h); const p2 = MathCore.project(x+30, 0, z, w, h);
+                const p3 = MathCore.project(x+30, legH, z, w, h); const p4 = MathCore.project(x-30, legH, z, w, h);
+                if(p1.visible && !Number.isNaN(p1.x)) {
+                    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y); ctx.fill();
+                }
+            };
+            drawLeg(-hw+150, -hl+300); drawLeg(hw-150, -hl+300); drawLeg(-hw+150, hl-300); drawLeg(hw-150, hl-300);
+
+            const c1 = MathCore.project(-hw, 0, -hl, w, h); const c2 = MathCore.project(hw, 0, -hl, w, h);
+            const c3 = MathCore.project(hw, 0, hl, w, h); const c4 = MathCore.project(-hw, 0, hl, w, h);
+            const c1b = MathCore.project(-hw, th, -hl, w, h); const c2b = MathCore.project(hw, th, -hl, w, h);
+            const c3b = MathCore.project(hw, th, hl, w, h); const c4b = MathCore.project(-hw, th, hl, w, h);
+
+            if (!c1.visible || Number.isNaN(c1.x)) return;
+
+            ctx.fillStyle = "#0c2a4d"; 
+            ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c2b.x, c2b.y); ctx.lineTo(c1b.x, c1b.y); ctx.fill();
+            ctx.fillStyle = "#0a3d62"; 
+            ctx.beginPath(); ctx.moveTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c3b.x, c3b.y); ctx.lineTo(c2b.x, c2b.y); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(c4.x, c4.y); ctx.lineTo(c1.x, c1.y); ctx.lineTo(c1b.x, c1b.y); ctx.lineTo(c4b.x, c4b.y); ctx.fill();
+            
+            const topGrad = ctx.createLinearGradient(0, c1.y, 0, c3.y);
+            topGrad.addColorStop(0, '#1e6091'); topGrad.addColorStop(1, '#184e77');
+            ctx.fillStyle = topGrad; 
+            ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.fill();
+            
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = Math.max(2, 5 * c1.s);
+            ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.closePath(); ctx.stroke(); 
+            const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
+            ctx.lineWidth = Math.max(1, 2 * c1.s); ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
+
+            const n1 = MathCore.project(-hw-80, 0, 0, w, h); const n2 = MathCore.project(hw+80, 0, 0, w, h);
+            const n1t = MathCore.project(-hw-80, -CONF.NET_H, 0, w, h); const n2t = MathCore.project(hw+80, -CONF.NET_H, 0, w, h);
+            
+            ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; 
+            ctx.beginPath(); ctx.moveTo(n1.x, n1.y); ctx.lineTo(n2.x, n2.y); ctx.lineTo(n2t.x, n2t.y); ctx.lineTo(n1t.x, n1t.y); ctx.fill();
+            ctx.strokeStyle = "#ecf0f1"; ctx.lineWidth = Math.max(3, 5 * n1t.s); 
+            ctx.beginPath(); ctx.moveTo(n1t.x, n1t.y); ctx.lineTo(n2t.x, n2t.y); ctx.stroke();
+        },
+
+        drawPaddle: function(ctx, x, y, z, isPlayer, w, h) {
+            const pos = MathCore.project(x, y, z, w, h);
+            if (!pos.visible || Number.isNaN(pos.x)) return;
+            const scale = pos.s * CONF.PADDLE_SCALE;
+            
+            ctx.fillStyle = "rgba(0,0,0,0.4)";
+            const sPos = MathCore.project(x, CONF.FLOOR_Y, z, w, h);
+            if (sPos.visible && !Number.isNaN(sPos.x)) {
+                this.safeEllipse(ctx, sPos.x, sPos.y, 45*sPos.s, 15*sPos.s);
+            }
+
+            ctx.fillStyle = "#8d6e63"; 
+            ctx.fillRect(pos.x - 10*scale, pos.y + 35*scale, 20*scale, 55*scale);
+            
+            ctx.fillStyle = "#ecf0f1"; 
+            this.safeEllipse(ctx, pos.x, pos.y + 3*scale, 52*scale, 57*scale);
+
+            ctx.fillStyle = isPlayer ? "#c0392b" : "#2c3e50"; 
+            this.safeEllipse(ctx, pos.x, pos.y, 50*scale, 55*scale);
+            
+            ctx.fillStyle = "rgba(255,255,255,0.15)"; 
+            this.safeEllipse(ctx, pos.x - 15*scale, pos.y - 15*scale, 20*scale, 25*scale, Math.PI/4);
+        },
+
+        drawBall: function(ctx, w, h) {
+            if (!this.ball.active && !['SERVE', 'IDLE', 'END_WAIT'].includes(this.state)) return;
+
+            if (this.ball.y < CONF.FLOOR_Y) {
+                const shadowPos = MathCore.project(this.ball.x, 0, this.ball.z, w, h); 
+                if (Math.abs(this.ball.x) > CONF.TABLE_W/2 || Math.abs(this.ball.z) > CONF.TABLE_L/2) {
+                    MathCore.project(this.ball.x, CONF.FLOOR_Y, this.ball.z, w, h); 
+                }
+                if (shadowPos.visible && !Number.isNaN(shadowPos.x)) {
+                    const distToShadow = Math.abs(this.ball.y);
+                    const alpha = MathCore.clamp(1 - (distToShadow/1000), 0.1, 0.7);
+                    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+                    const bSr = CONF.BALL_R * shadowPos.s * (1 + distToShadow/2000);
+                    this.safeEllipse(ctx, shadowPos.x, shadowPos.y, bSr*1.5, bSr*0.5);
+                }
+            }
+
+            ctx.strokeStyle = "rgba(255, 200, 0, 0.4)"; ctx.lineWidth = 15; ctx.lineCap = "round";
+            ctx.beginPath();
+            this.ball.trail.forEach((t, i) => {
+                const tp = MathCore.project(t.x, t.y, t.z, w, h);
+                if (tp.visible && !Number.isNaN(tp.x)) { if(i===0) ctx.moveTo(tp.x, tp.y); else ctx.lineTo(tp.x, tp.y); }
+                t.a -= 0.05;
+            });
+            ctx.stroke();
+            this.ball.trail = this.ball.trail.filter(t => t.a > 0);
+
+            const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
+            if(pos.visible && !Number.isNaN(pos.x)) {
+                let r = Math.max(1, Math.abs(CONF.BALL_R * pos.s));
+                if (!Number.isNaN(r)) {
+                    const grad = ctx.createRadialGradient(pos.x - r*0.3, pos.y - r*0.3, r*0.1, pos.x, pos.y, r);
+                    grad.addColorStop(0, "#ffffff"); grad.addColorStop(0.3, "#f1c40f"); grad.addColorStop(1, "#d35400"); 
+                    ctx.fillStyle = grad;
+                    this.safeArc(ctx, pos.x, pos.y, r);
+                }
+            }
+        },
+
+        drawParticles: function(ctx, w, h) {
             this.particles.forEach(p => {
                 p.x += p.vx; p.y += p.vy; p.z += p.vz; p.life -= 0.05;
                 const pos = MathCore.project(p.x, p.y, p.z, w, h);
-                if(pos.visible && Number.isFinite(pos.x)) {
+                if(pos.visible && !Number.isNaN(pos.x)) {
                     ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; 
-                    ctx.beginPath(); ctx.arc(pos.x, pos.y, 4*pos.s, 0, Math.PI*2); ctx.fill();
+                    this.safeArc(ctx, pos.x, pos.y, 4*pos.s);
                 }
             });
             this.particles = this.particles.filter(p => p.life > 0);
             ctx.globalAlpha = 1;
         },
 
-        drawPaddle: function(ctx, paddle, color, w, h) {
-            const pos = MathCore.project(paddle.x, paddle.y, paddle.z, w, h);
-            if (!pos.visible || !Number.isFinite(pos.x)) return;
-            const radius = CONF.PADDLE_R * pos.s * CONF.PADDLE_SCALE;
-
-            // Sombra no chão
-            ctx.fillStyle = "rgba(0,0,0,0.3)";
-            const shad = MathCore.project(paddle.x, CONF.FLOOR_Y, paddle.z, w, h);
-            if (shad.visible && Number.isFinite(shad.x)) {
-                ctx.beginPath(); ctx.ellipse(shad.x, shad.y, radius, radius*0.3, 0, 0, Math.PI*2); ctx.fill();
-            }
-
-            // Cabo
-            ctx.fillStyle = "#8d6e63";
-            ctx.fillRect(pos.x - (radius*0.2), pos.y, radius*0.4, radius*1.5);
-
-            // Borracha
-            ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(pos.x, pos.y, radius, 0, Math.PI*2); ctx.fill();
-            ctx.lineWidth = 2*pos.s; ctx.strokeStyle = "#fff"; ctx.stroke();
-        },
-
-        drawBall: function(ctx, w, h) {
-            if (!this.ball.active && this.state !== 'SERVE') return;
-
-            // Sombra exata da bola
-            if (this.ball.y < CONF.FLOOR_Y) {
-                // Projeta no chão, ou na mesa se estiver em cima da mesa
-                let shadowY = CONF.FLOOR_Y;
-                if (Math.abs(this.ball.x) <= CONF.TABLE_W/2 && Math.abs(this.ball.z) <= CONF.TABLE_L/2) shadowY = CONF.TABLE_Y;
-                
-                const shad = MathCore.project(this.ball.x, shadowY, this.ball.z, w, h); 
-                if (shad.visible && Number.isFinite(shad.x)) {
-                    let dist = Math.abs(this.ball.y - shadowY);
-                    let alpha = MathCore.clamp(1 - (dist/1000), 0.1, 0.6);
-                    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
-                    let r = CONF.BALL_R * shad.s;
-                    ctx.beginPath(); ctx.ellipse(shad.x, shad.y, r, r*0.4, 0, 0, Math.PI*2); ctx.fill();
-                }
-            }
-
-            // Rastro brilhante
-            ctx.strokeStyle = "rgba(241, 196, 15, 0.4)"; ctx.lineWidth = 8; ctx.lineCap = "round";
-            ctx.beginPath();
-            this.ball.trail.forEach((t, i) => {
-                const tp = MathCore.project(t.x, t.y, t.z, w, h);
-                if (tp.visible && Number.isFinite(tp.x)) { if(i===0) ctx.moveTo(tp.x, tp.y); else ctx.lineTo(tp.x, tp.y); }
-                t.a -= 0.05;
-            });
-            ctx.stroke();
-            this.ball.trail = this.ball.trail.filter(t => t.a > 0);
-
-            // Bola 3D
-            const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
-            if(pos.visible && Number.isFinite(pos.x)) {
-                let r = Math.max(1, Math.abs(CONF.BALL_R * pos.s));
-                const grad = ctx.createRadialGradient(pos.x - r*0.3, pos.y - r*0.3, r*0.1, pos.x, pos.y, r);
-                grad.addColorStop(0, "#fff"); grad.addColorStop(0.5, "#f1c40f"); grad.addColorStop(1, "#d35400"); 
-                ctx.fillStyle = grad;
-                ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, Math.PI*2); ctx.fill();
-            }
+        addMsg: function(t, c) {
+            this.msgs.push({t, c, y: 300, a: 1.5, s: 1.0}); 
         },
 
         renderHUD: function(ctx, w, h) {
-            // Placar
-            ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; 
-            ctx.fillRect(w/2 - 100, 10, 200, 50);
-            ctx.font = "bold 30px 'Russo One'"; ctx.textAlign = "center";
-            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p1, w/2 - 50, 45); 
-            ctx.fillStyle = "#fff"; ctx.fillText("-", w/2, 45);
-            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p2, w/2 + 50, 45); 
+            const cx = w/2;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
+            this.drawSafeRect(ctx, cx-100, 10, 200, 50, 10);
+            
+            ctx.font = "bold 35px 'Russo One'"; ctx.textAlign = "center";
+            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p1, cx-50, 48); 
+            ctx.fillStyle = "#555"; ctx.fillText("-", cx, 48);
+            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p2, cx+50, 48); 
 
-            // Textos de Ação (Ponto, Fora, Smash)
             this.msgs.forEach(m => {
-                m.y += 2; m.a -= 0.02;
+                m.y -= 2; m.a -= 0.02; m.s += 0.01;
                 if(m.a > 0) {
+                    ctx.save();
                     ctx.globalAlpha = Math.min(1, m.a);
-                    ctx.font = "bold 40px 'Russo One'"; 
-                    ctx.strokeStyle = "black"; ctx.lineWidth = 4; ctx.strokeText(m.t, w/2, h/2 - 100 - m.y);
-                    ctx.fillStyle = m.c; ctx.fillText(m.t, w/2, h/2 - 100 - m.y);
+                    ctx.translate(cx, m.y); ctx.scale(m.s, m.s);
+                    ctx.font = "bold 35px 'Russo One'"; 
+                    ctx.strokeStyle = "black"; ctx.lineWidth = 5; ctx.strokeText(m.t, 0, 0);
+                    ctx.fillStyle = m.c; ctx.fillText(m.t, 0, 0);
+                    ctx.restore();
                 }
             });
             this.msgs = this.msgs.filter(m => m.a > 0);
             ctx.globalAlpha = 1;
 
             if (this.state === 'SERVE' && this.server === 'p1') {
-                ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(w/2 - 150, h - 80, 300, 50);
-                let txt = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE A MÃO PARA SACAR";
-                ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(txt, w/2, h - 50);
+                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.strokeStyle = "transparent";
+                this.drawSafeRect(ctx, cx-150, h-70, 300, 50, 10);
+                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE O BRAÇO PARA SACAR";
+                ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(textoSaque, cx, h-40);
+                const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
+                ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-140, h-25, 280*progress, 5);
             }
         },
 
-        renderModeSelect: function(ctx, w, h) {
-            ctx.fillStyle = "rgba(0, 0, 0, 0.85)"; ctx.fillRect(0, 0, w, h);
-            ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 40px 'Russo One'";
-            ctx.fillText("PING PONG ARCADE", w/2, h * 0.30);
+        renderCalibration: function(ctx, w, h) {
+            ctx.fillStyle = "#111"; ctx.fillRect(0,0,w,h);
             
-            ctx.fillStyle = "#3498db"; ctx.fillRect(w/2 - 160, h * 0.5 - 35, 320, 70);
-            ctx.fillStyle = "#e74c3c"; ctx.fillRect(w/2 - 160, h * 0.7 - 35, 320, 70);
-            
-            ctx.fillStyle = "white"; ctx.font = "bold 20px 'Russo One'";
-            ctx.fillText("JOGAR COM A CÂMERA", w/2, h * 0.5 + 8);
-            ctx.fillText("JOGAR COM O DEDO", w/2, h * 0.7 + 8);
+            if (this.pose && this.pose.keypoints) {
+                this.drawSkeleton(ctx, w, h);
+                
+                if (this.handedness && this.p1.currRawX !== undefined && this.p1.currRawX !== null && !Number.isNaN(this.p1.currRawX)) {
+                    const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
+                    ctx.translate(cx, cy); ctx.rotate(-0.2);
+                    ctx.fillStyle = "#8d6e63"; ctx.fillRect(-5, 0, 10, 30); 
+                    ctx.fillStyle = "#e74c3c"; this.safeArc(ctx, 0, -20, 25); 
+                    ctx.rotate(0.2); ctx.translate(-cx, -cy);
+                    
+                    if (this.calibTimer > 0 && (this.state === 'CALIB_TL' || this.state === 'CALIB_BR')) {
+                        const progress = Math.min(1, this.calibTimer / CONF.CALIB_TIME);
+                        ctx.strokeStyle = "#0f0"; ctx.lineWidth = 6;
+                        ctx.beginPath(); ctx.arc(cx, cy, 40, -Math.PI/2, (-Math.PI/2) + (Math.PI*2*progress)); ctx.stroke();
+                    }
+                }
+            } else {
+                ctx.fillStyle = "#fff"; ctx.font = "bold 30px sans-serif"; ctx.textAlign = "center";
+                ctx.fillText("PROCURANDO JOGADOR...", w/2, h*0.5);
+                ctx.font = "18px sans-serif"; ctx.fillStyle = "#aaa";
+                ctx.fillText("Fique de frente para a câmera no meio da tela.", w/2, h*0.6);
+            }
+
+            ctx.fillStyle = "#fff"; ctx.textAlign = "center";
+
+            if (this.state === 'CALIB_HAND_SELECT') {
+                ctx.font = "bold 35px sans-serif"; ctx.fillText("ESCOLHA SUA MÃO", w/2, h*0.15);
+                ctx.font = "20px sans-serif"; ctx.fillStyle = "#aaa";
+                ctx.fillText("Levante uma mão p/ selecionar", w/2, h*0.22);
+                
+                const drawSelectRing = (x, y, hand) => {
+                    ctx.fillStyle = "#fff"; ctx.font = "bold 25px sans-serif";
+                    ctx.fillText(hand === 'left' ? "✋ Esq" : "Dir ✋", x, y);
+                    if (this.calibHandCandidate === hand) {
+                        const progress = Math.min(1, this.calibTimer / CONF.HAND_SELECT_TIME);
+                        ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5;
+                        ctx.beginPath(); ctx.arc(x, y-10, 50, -Math.PI/2, (-Math.PI/2) + (Math.PI*2*progress)); ctx.stroke();
+                    }
+                };
+                drawSelectRing(w*0.25, h*0.5, 'left'); drawSelectRing(w*0.75, h*0.5, 'right');
+            } 
+            else if (this.state === 'CALIB_TL') {
+                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("MANTENHA A MÃO NO ALVO VERMELHO (ESQ/CIMA)", w/2, h*0.15);
+                
+                const tx = 80; const ty = 80;
+                ctx.strokeStyle = "#f00"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
+                
+                if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !Number.isNaN(this.p1.currRawX)) {
+                    const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
+                    ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
+                }
+            }
+            else if (this.state === 'CALIB_BR') {
+                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("MANTENHA A MÃO NO ALVO VERDE (DIR/BAIXO)", w/2, h*0.15);
+                
+                const tx = w-80; const ty = h-80;
+                ctx.strokeStyle = "#0f0"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
+                
+                if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !Number.isNaN(this.p1.currRawX)) {
+                    const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
+                    ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
+                }
+            }
+        },
+
+        drawSkeleton: function(ctx, w, h) {
+             const kps = this.pose.keypoints; const find = (n) => kps.find(k => k.name === n && k.score > 0.3);
+             const bones = [['nose', 'left_eye'], ['nose', 'right_eye'], ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip']];
+             ctx.strokeStyle = "rgba(0, 255, 0, 0.6)"; ctx.lineWidth = 3;
+             bones.forEach(b => {
+                 const p1 = find(b[0]); const p2 = find(b[1]);
+                 if(p1 && p2) {
+                     const x1 = ((640 - p1.x) / 640) * w; const y1 = (p1.y / 480) * h;
+                     const x2 = ((640 - p2.x) / 640) * w; const y2 = (p2.y / 480) * h;
+                     if(!Number.isNaN(x1) && !Number.isNaN(y1) && !Number.isNaN(x2) && !Number.isNaN(y2)) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+                 }
+             });
+             kps.forEach(k => {
+                 if(k.score > 0.3) {
+                     const x = ((640 - k.x) / 640) * w; const y = (k.y / 480) * h;
+                     if(!Number.isNaN(x) && !Number.isNaN(y)) { ctx.fillStyle = "#0f0"; this.safeArc(ctx, x, y, 5); }
+                 }
+             });
         },
 
         renderEnd: function(ctx, w, h) {
             ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0,0,w,h);
             const win = this.score.p1 > this.score.p2;
-            ctx.fillStyle = win ? "#2ecc71" : "#e74c3c";
-            ctx.font = "bold 50px 'Russo One'"; ctx.textAlign = "center";
+            ctx.fillStyle = win ? "#f1c40f" : "#e74c3c";
+            ctx.font = "bold 60px 'Russo One'"; ctx.textAlign = "center";
             ctx.fillText(win ? "VITÓRIA!" : "DERROTA", w/2, h*0.4);
-            ctx.fillStyle = "#fff"; ctx.font = "30px sans-serif";
+            ctx.fillStyle = "#fff"; ctx.font = "40px sans-serif";
             ctx.fillText(`${this.score.p1} - ${this.score.p2}`, w/2, h*0.55);
-            ctx.font = "16px sans-serif"; ctx.fillText("Toque para voltar", w/2, h*0.8);
         }
     };
 
