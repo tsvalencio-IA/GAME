@@ -1,14 +1,14 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: VERSÃO 11 (O PADRÃO NINTENDO / SONY)
-// ARQUITETO: SENIOR GAME ENGINE ARCHITECT (Miyamoto / Nishino Logic)
-// STATUS: FÍSICA PARABÓLICA (NUNCA ERRA A MESA), ANTI-CRASH TOTAL, PÉS DA MESA
+// THIAGUINHO WII PING PONG: V12.0 - GOLD MASTER (PLAYSTATION / NINTENDO FEEL)
+// ARQUITETO: SENIOR GAME ENGINE ARCHITECT (Wii Sports Logic)
+// STATUS: AIM ASSIST PARABÓLICO, GINÁSIO 3D, HITBOX MAGNÉTICA, ANTI-CRASH 100%
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS DA QUADRA (PERFEITAS PARA O CELULAR)
+    // 1. CONFIGURAÇÕES FÍSICAS E DA QUADRA (DIMENSÕES REAIS)
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,       
@@ -18,15 +18,14 @@
         FLOOR_Y: 850,        
         
         BALL_R: 35,          
-        GRAVITY: 0.80,       // Gravidade constante para a Parábola Perfeita
+        GRAVITY: 0.85,       // Gravidade ajustada para a parábola perfeita
         BOUNCE_LOSS: 0.85,   
         
         PADDLE_SCALE: 2.8,   
-        PADDLE_HITBOX: 350,  // Hitbox massiva: Você NUNCA mais vai furar a bola
-        SWING_FORCE: 4.0,    
-        SMASH_THRESH: 40,    
-
-        // Câmera dinâmica 
+        PADDLE_HITBOX: 450,  // Hitbox Magnética (Puxa a bola se o movimento for próximo)
+        SWING_FORCE: 3.5,    
+        
+        // Câmera Mobile Afastada (Visão de Quadra Inteira)
         CAM_X: 0,           
         CAM_Y: -1500,       
         CAM_Z: -3800,       
@@ -38,11 +37,11 @@
     };
 
     const AI_PROFILES = {
-        'PRO': { speed: 0.16, difficultyFactor: 0.90, baseSpeed: 0.16 }
+        'PRO': { speed: 0.15, difficultyFactor: 0.90, baseSpeed: 0.15 }
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & ESCUDO ANTI-CRASH (TODAS AS FUNÇÕES RESTAURADAS)
+    // 2. MATH CORE & ESCUDO ANTI-CRASH
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -55,14 +54,14 @@
             let ry = cy * cosP - cz * sinP;
             let rz = cy * sinP + cz * cosP;
 
-            // Escudo 1: Atrás da câmera ou valores quebrados
+            // Escudo: Ignora objetos atrás da câmera
             if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             
             const scale = CONF.FOV / rz;
             let screenX = (cx * scale) + w/2;
             let screenY = (ry * scale) + h/2;
 
-            // Escudo 2: Previne o Canvas de Crashar com números infinitos
+            // Escudo: Impede números absurdos que travam o Canvas no Celular
             if (!Number.isFinite(screenX) || !Number.isFinite(screenY) || Math.abs(screenX) > 15000 || Math.abs(screenY) > 15000) {
                 return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             }
@@ -81,36 +80,26 @@
             let d = Math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2);
             return Number.isFinite(d) ? d : 9999;
         },
-        dot3d: (x1, y1, z1, x2, y2, z2) => {
-            let dt = x1*x2 + y1*y2 + z1*z2;
-            return Number.isFinite(dt) ? dt : 0;
-        },
-        // O predict FOI RESTAURADO PARA O JOGO NÃO TRAVAR NA HORA QUE A IA PENSAR!
-        predict: (b, targetZ) => {
-            let sx = b.x, sz = b.z;
-            let svx = b.vx, svz = b.vz;
-            if (Math.abs(svz) < 0.1) return sx;
-            let time = Math.abs((targetZ - sz) / svz);
-            let finalX = sx + (svx * time);
+        predictX: (b, targetZ) => {
+            if (Math.abs(b.vz) < 0.1) return b.x;
+            let time = Math.abs((targetZ - b.z) / b.vz);
+            let finalX = b.x + (b.vx * time);
             return Number.isFinite(finalX) ? finalX : 0;
         },
         predictY: (b, targetZ) => {
-            let sy = b.y, sz = b.z;
-            let svy = b.vy, svz = b.vz;
-            if (Math.abs(svz) < 0.1) return sy;
-            let time = Math.abs((targetZ - sz) / svz);
-            // Física: Y = Y0 + Vy*t + 0.5*g*t^2
-            let finalY = sy + (svy * time) + (0.5 * CONF.GRAVITY * time * time);
+            if (Math.abs(b.vz) < 0.1) return b.y;
+            let time = Math.abs((targetZ - b.z) / b.vz);
+            let finalY = b.y + (b.vy * time) + (0.5 * CONF.GRAVITY * time * time);
             return Number.isFinite(finalY) ? finalY : -200;
         }
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO (COM MULTIPLAYER INTEGRADO AO SEU CORE)
+    // 3. ENGINE DO JOGO (COM LOBBY MULTIPLAYER)
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
-        timer: 0, idleTimer: 0, endTimer: 0,  
+        timer: 0, idleTimer: 0, endTimer: 0, serveTimeout: 0,
         pose: null, handedness: null, polyfillDone: false,
         hitstop: 0, 
         
@@ -121,14 +110,13 @@
         aiFrame: 0, aiRecalcCounter: 0, 
         useMouse: false, mouseX: 320, mouseY: 240,
 
-        // ID Seguro para o Multiplayer
         get playerId() { return (window.System && window.System.playerId) ? window.System.playerId : 'player_' + Math.floor(Math.random()*10000); },
 
         isOnline: false, isHost: false, roomId: 'thiaguinho_pingpong_oficial',
         dbRef: null, roomRef: null, remotePlayersData: {}, lastSync: 0, maintenanceInterval: null,
         
-        p1: { x: 0, y: -200, z: -CONF.TABLE_L/2 - 200, vx: 0, vy: 0, prevX: 0, prevY: 0, elbowX: 0, elbowY: 0, rawX: 0, rawY: 0 },
-        p2: { x: 0, y: -200, z: CONF.TABLE_L/2 + 200, targetX: 0, targetY: -200, vx: 0, vz: 0 },
+        p1: { x: 0, y: -200, z: -CONF.TABLE_L/2 - 300, vx: 0, vy: 0, prevX: 0, prevY: 0, elbowX: 0, elbowY: 0, rawX: 0, rawY: 0 },
+        p2: { x: 0, y: -200, z: CONF.TABLE_L/2 + 300, targetX: 0, targetY: -200, vx: 0, vz: 0 },
         ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, active: false, lastHitBy: null, bounceCount: 0, trail: [] },
 
         score: { p1: 0, p2: 0 }, server: 'p1', lastHitter: null, rallyCount: 0,
@@ -142,7 +130,7 @@
             this.msgs = [];
             this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V11 PRONTO");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V12 PRONTO");
             this.setupInput();
         },
 
@@ -195,7 +183,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_master');
+                const s = localStorage.getItem('tennis_calib_v12');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -241,10 +229,13 @@
                     }
                     this.calibTimer = 0; this.sfx('click');
                 } 
+                else if (this.state.startsWith('CALIB')) {
+                    // Escape Hatch (Pula calibração se estiver no PC sem câmera e clicar)
+                    this.isOnline = false; this.useMouse = true; this.handedness = 'right'; this.startGame();
+                }
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
-                    // Força artificial de saque no mouse
                     this.p1.vx = 0; this.p1.vy = -100;
-                    this.hitBall('p1', 0, 0);
+                    this.executeAimAssistHit('p1');
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -335,16 +326,12 @@
 
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
-                // CÂMERA MOBILE: AFASTADA PARA CABER A LARGURA SEM DEFORMAR
                 CONF.CAM_Z = -4500; CONF.CAM_Y = -1800; CONF.CAM_PITCH = 0.28; CONF.FOV = w * 1.6; 
             } else { 
                 CONF.CAM_Z = -3800; CONF.CAM_Y = -1500; CONF.CAM_PITCH = 0.25; CONF.FOV = 900; 
             }
         },
 
-        // =====================================================================
-        // GAME LOOP (O ESCUDO COMPLETO)
-        // =====================================================================
         update: function(ctx, w, h, pose) {
             try { 
                 const now = performance.now();
@@ -354,7 +341,6 @@
 
                 this.updateCameraAdapter(w, h); 
 
-                // HITSTOP (Efeito do Smash Bros)
                 if (this.hitstop > 0) {
                     this.hitstop -= dt;
                     dt = 0; 
@@ -372,7 +358,7 @@
                 else if (this.state !== 'LOBBY' && this.state !== 'END') {
                     if (this.state === 'IDLE') {
                         this.idleTimer += (dt === 0 ? 16 : dt);
-                        if (this.idleTimer > 1000) { this.state = 'SERVE'; this.idleTimer = 0; this.timer = 0; }
+                        if (this.idleTimer > 1000) { this.state = 'SERVE'; this.idleTimer = 0; this.serveTimeout = 0; }
                     } else if (this.state === 'END_WAIT') {
                         this.endTimer += (dt === 0 ? 16 : dt);
                         if (this.endTimer > 2000) { this.state = 'END'; if (this.isOnline && this.isHost) this.roomRef.update({ gameState: 'END' }); this.endTimer = 0; }
@@ -383,7 +369,7 @@
                         if (this.state.startsWith('CALIB')) this.updateAutoCalibration(dt);
 
                         if (this.state === 'RALLY' || this.state === 'SERVE') {
-                            if (!this.isOnline || this.isHost) { this.updatePhysics(); if (!this.isOnline) this.updateAI(); this.updateRules(dt); } 
+                            if (!this.isOnline || this.isHost) { this.updatePhysics(dt); if (!this.isOnline) this.updateAI(); this.updateRules(dt); } 
                             else { this.updatePhysicsClient(); }
                         }
                     }
@@ -416,7 +402,7 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V11 ATIVADO (Jogo Salvo): ", e);
+                console.error("SHIELD V12.0: Crash Prevented ", e);
             }
             return this.score.p1 || 0;
         },
@@ -450,21 +436,13 @@
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 150) this.calib.brX = this.calib.tlX + 250;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 150) this.calib.brY = this.calib.tlY + 250;
                         
-                        try { localStorage.setItem('tennis_calib_master', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        try { localStorage.setItem('tennis_calib_v12', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
                         
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
                         this.sfx('coin');
                     }
                 }
-            }
-        },
-
-        handleLostTracking: function() {
-            if(this.state.startsWith('CALIB')) this.calibHandCandidate = null;
-            else if (this.state === 'SERVE' || this.state === 'RALLY' || this.state === 'IDLE') {
-                this.p1.x = MathCore.lerp(this.p1.x || 0, 0, 0.1);
-                this.p1.y = MathCore.lerp(this.p1.y || -200, -200, 0.1);
             }
         },
 
@@ -491,7 +469,7 @@
                 this.p1.vy = MathCore.clamp(Number.isFinite(calcVY) ? calcVY : 0, -300, 300);
                 this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
-                if (this.state === 'SERVE' && this.server === 'p1' && this.p1.vy < -20) this.hitBall('p1', 0, 0);
+                if (this.state === 'SERVE' && this.server === 'p1' && this.p1.vy < -20) this.executeAimAssistHit('p1');
                 return;
             }
 
@@ -509,7 +487,7 @@
             }
 
             if (!this.handedness) return; 
-            if (!pose || !pose.keypoints) { this.handleLostTracking(); return; }
+            if (!pose || !pose.keypoints) return;
 
             const wrist = pose.keypoints.find(k => k.name === this.handedness + '_wrist' && k.score > 0.2);
             const elbow = pose.keypoints.find(k => k.name === this.handedness + '_elbow' && k.score > 0.2);
@@ -540,9 +518,8 @@
                         let ney = MathCore.clamp((elbow.y - minY) / rangeY, -0.5, 1.5);
                         let targetEx = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nex);
                         let targetEy = MathCore.lerp(-800, 300, ney);
-                        if (!Number.isFinite(targetEx)) targetEx = targetX; if (!Number.isFinite(targetEy)) targetEy = targetY + 300;
-                        this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
-                        this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.85);
+                        this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, Number.isFinite(targetEx) ? targetEx : targetX, 0.85);
+                        this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, Number.isFinite(targetEy) ? targetEy : targetY, 0.85);
                     } else {
                         this.p1.elbowX = this.p1.x + (this.handedness === 'right' ? 150 : -150); this.p1.elbowY = this.p1.y + 300;
                     }
@@ -555,35 +532,84 @@
                     this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
                     if (this.state === 'SERVE' && this.server === 'p1') {
-                        if (this.p1.vy < -15) this.hitBall('p1', 0, 0); 
+                        if (this.p1.vy < -25) this.executeAimAssistHit('p1'); 
                     }
                 }
-            } else { this.handleLostTracking(); }
+            }
         },
 
         // =====================================================================
-        // FÍSICA PARABÓLICA (O SEGREDO DA NINTENDO / SONY)
+        // O SEGREDO NINTENDO: AIM ASSIST (BOLA PARABÓLICA PRESA À MESA)
         // =====================================================================
+        executeAimAssistHit: function(who) {
+            const isP1 = who === 'p1';
+            const paddle = isP1 ? this.p1 : this.p2;
+            
+            let velX = Number.isFinite(paddle.vx) ? paddle.vx : 0; 
+            let velY = isP1 ? (Number.isFinite(paddle.vy) ? paddle.vy : 0) : (Number.isFinite(paddle.vz) ? paddle.vz * 0.15 : 0);
+
+            let speed = Math.sqrt(velX**2 + velY**2);
+            let force = MathCore.clamp(60 + (speed * CONF.SWING_FORCE), 60, 150); 
+            
+            let isSmash = force > 110;
+            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1) this.addMsg("CORTADA!", "#0ff"); } 
+            else { this.shake = 3; }
+
+            this.playHitSound(force * 3);
+            this.ball.active = true;
+            this.ball.lastHitBy = who;
+
+            // MÁGICA 1: DEFINE O ALVO EXATO NA MESA DO ADVERSÁRIO (A bola NUNCA voa fora da tela)
+            let targetZ = isP1 ? (CONF.TABLE_L/2 - 200) : (-CONF.TABLE_L/2 + 200);
+            
+            // O X depende da sua mão, mas é "Clampado" dentro da mesa
+            let targetX = (paddle.x / (CONF.TABLE_W/2)) * (CONF.TABLE_W * 0.4); 
+            targetX += velX * 1.5; // Efeito da raquetada
+            targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100); 
+
+            // MÁGICA 2: TEMPO DE VOO. Bolas fortes chegam mais rápido.
+            let timeToReach = MathCore.lerp(70, 25, (force - 60) / 90); 
+            if (isSmash) timeToReach = 20;
+
+            // MÁGICA 3: FÍSICA DE PROJÉTIL (Garante que a bola caia no targetZ e targetX no tempo exato)
+            let dx = targetX - this.ball.x;
+            let dz = targetZ - this.ball.z;
+            let dy = CONF.TABLE_Y - this.ball.y;
+
+            this.ball.vx = dx / timeToReach;
+            this.ball.vz = dz / timeToReach;
+            
+            // Vy = (Dy - 0.5 * G * T^2) / T
+            this.ball.vy = (dy - (0.5 * CONF.GRAVITY * timeToReach * timeToReach)) / timeToReach;
+
+            // Efeito visual apenas
+            this.ball.spinY = velX * 0.8; 
+            this.ball.spinX = velY * 0.8;
+
+            this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
+            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#e74c3c' : '#3498db'); 
+            
+            if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
+        },
+
         updatePhysicsClient: function() {
             if (!this.ball.active) return;
             const b = this.ball; b.prevY = b.y;
             b.x += b.vx; b.y += b.vy; b.z += b.vz;
 
-            if (b.y >= 0 && b.prevY < 0) {
-                b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
-                this.spawnParticles(b.x, 0, b.z, 5, '#fff');
-                this.playHitSound(Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2) * 1.5);
+            if (b.y >= CONF.TABLE_Y && b.prevY < CONF.TABLE_Y && Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
+                b.y = CONF.TABLE_Y; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
+                this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 5, '#fff');
+                this.playHitSound(100);
             }
-
             if (Math.abs(b.vz) > 20) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
                 if (this.ball.trail.length > 20) this.ball.trail.shift();
             }
-
             this.checkPaddleHitClient();
         },
 
-        updatePhysics: function() {
+        updatePhysics: function(dt) {
             if (!this.ball.active) return;
             
             const b = this.ball;
@@ -591,7 +617,7 @@
 
             b.prevY = b.y;
 
-            // GRAVIDADE PURA (Sem atrito do ar para não quebrar a matemática da parábola de acerto)
+            // SEM ATRITO DO AR NO EIXO Z PRA NÃO ESTRAGAR A PARÁBOLA
             b.vy += CONF.GRAVITY;
 
             const currentSpeed = Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2);
@@ -603,37 +629,40 @@
 
                 if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) b.lastHitBy = null;
 
-                if (b.y >= 0 && previousY < 0) { 
+                if (b.y >= CONF.TABLE_Y && previousY < CONF.TABLE_Y) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
-                        b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
-                        this.spawnParticles(b.x, 0, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5);
+                        b.y = CONF.TABLE_Y; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
+                        this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5);
 
                         const side = b.z < 0 ? 'p1' : 'p2';
-                        if (this.lastHitter === side) { this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES"); return; } 
-                        else {
+                        if (this.lastHitter === side) { 
+                            this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES"); return; 
+                        } else {
                             this.ball.bounceCount++;
-                            if(this.ball.bounceCount >= 2) { this.scorePoint(side === 'p1' ? 'p2' : 'p1', "PONTO!"); return; }
+                            if(this.ball.bounceCount >= 2) { 
+                                this.scorePoint(side === 'p1' ? 'p2' : 'p1', "PONTO!"); return; 
+                            }
                         }
                     }
                 }
                 this.checkPaddleHit();
             }
 
-            if (b.z < this.p1.z - 200) {
+            // PASSOU OU CAIU DA MESA
+            if (b.z < this.p1.z - 300) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
                 else this.scorePoint('p2', "PASSOU!"); return;
             }
-            if (b.z > this.p2.z + 200) {
+            if (b.z > this.p2.z + 300) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') this.scorePoint('p2', "FORA!");
                 else this.scorePoint('p1', "SEU PONTO!"); return;
             }
-
             if (b.y > CONF.FLOOR_Y) {
                 if (this.ball.bounceCount === 0) this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
                 else this.scorePoint(this.lastHitter, "PONTO!"); return;
             }
 
-            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
+            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < CONF.TABLE_Y) {
                 b.vz *= -0.2; b.vx *= 0.5; this.shake = 5; this.playHitSound(100); b.lastHitBy = null;
             }
 
@@ -645,8 +674,7 @@
 
         checkPaddleHitClient: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                // Cilindro de Z (Garante que a bola bata mesmo se a câmera der um mini lag)
-                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
+                if (this.ball.z < this.p1.z + 400 && this.ball.z > this.p1.z - 200) {
                     let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
                     if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) { 
                         this.playHitSound(100); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
@@ -656,88 +684,33 @@
         },
 
         checkPaddleHit: function() {
+            // HITBOX MAGNÉTICA (O FIM DO GHOST HIT)
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                // Timing Window Profunda
-                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
+                // A janela de Z é grande para dar tempo do celular ler o braço
+                if (this.ball.z < this.p1.z + 400 && this.ball.z > this.p1.z - 200) {
                     let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) {
-                        // Verifica se o braço está com energia ou se é o mouse
-                        let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
-                        if (speed > 10 || this.useMouse) {
-                            this.hitBall('p1', dx, dy);
-                        }
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
+                    
+                    // Se bater em cheio, ou se passar a mão rápido perto da bola
+                    if (dist < CONF.PADDLE_HITBOX || (speed > 20 && dist < CONF.PADDLE_HITBOX * 1.5) || this.useMouse) {
+                        this.executeAimAssistHit('p1');
                     }
                 }
             }
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
-                if (this.ball.z > this.p2.z - 150 && this.ball.z < this.p2.z + 150) {
+                if (this.ball.z > this.p2.z - 400 && this.ball.z < this.p2.z + 200) {
                     let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
                     if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) {
-                        this.hitBall('p2', dx, dy);
+                        this.executeAimAssistHit('p2');
                     }
                 }
             }
         },
 
-        hitBall: function(who, offX=0, offY=0) {
-            const isP1 = who === 'p1';
-            const paddle = isP1 ? this.p1 : this.p2;
-            
-            let velX = Number.isFinite(paddle.vx) ? paddle.vx : 0; 
-            let velY = isP1 ? (Number.isFinite(paddle.vy) ? paddle.vy : 0) : (Number.isFinite(paddle.vz) ? paddle.vz * 0.15 : 0);
-
-            const speed = Math.sqrt(velX**2 + velY**2);
-            let force = MathCore.clamp(60 + (speed * CONF.SWING_FORCE), 60, 150); 
-            
-            let isSmash = force > 110;
-            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1 && typeof this.addMsg === 'function') this.addMsg("CORTADA!", "#0ff"); } 
-            else { this.shake = 3; }
-
-            this.playHitSound(force * 3);
-            this.ball.active = true;
-            this.ball.lastHitBy = who;
-
-            // ==========================================
-            // AIM ASSIST: A PARÁBOLA NINTENDO 
-            // ==========================================
-            
-            // 1. Onde a bola deve cair no eixo Z? (No campo do adversário)
-            let targetZ = isP1 ? (CONF.TABLE_L/2 - 200) : (-CONF.TABLE_L/2 + 200);
-
-            // 2. Onde a bola deve cair no eixo X? (Depende da raquete, mas NUNCA sai da mesa)
-            let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.0, 1.0); 
-            let targetX = (impactFactor * (CONF.TABLE_W * 0.4)) + (velX * 1.5); 
-            targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100); 
-
-            // 3. O Tempo de Voo
-            let distZ = Math.abs(targetZ - this.ball.z);
-            let vz = Math.abs(force) * (isP1 ? 1 : -1); 
-            let timeToReach = Math.abs(distZ / vz);
-            timeToReach = Math.max(10, timeToReach); // Nunca deixa o tempo ser muito pequeno (Crash fix)
-
-            // 4. Velocidade X e Z Perfeita
-            this.ball.vx = (targetX - this.ball.x) / timeToReach;
-            this.ball.vz = vz;
-
-            // 5. A MÁGICA: Velocidade Y (Altura) para que a bola caia na mesa exatamente no momento Z.
-            // Formula: Y_final = Y_inicial + V_y * t + 0.5 * G * t^2
-            let dy = CONF.TABLE_Y - this.ball.y; 
-            let gravityTerm = 0.5 * CONF.GRAVITY * (timeToReach * timeToReach);
-            this.ball.vy = (dy - gravityTerm) / timeToReach;
-
-            // Spin apenas visual
-            this.ball.spinY = velX * 0.5; 
-            this.ball.spinX = velY * 0.5;
-
-            this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
-            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#e74c3c' : '#3498db'); 
-            
-            if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
-        },
-
         updateRules: function(dt) {
             if (this.state === 'SERVE') {
-                this.timer += dt || 16;
+                this.serveTimeout += dt || 16;
                 if (this.server === 'p1') {
                     this.ball.x = Number.isFinite(this.p1.x) ? this.p1.x : 0; 
                     this.ball.y = Number.isFinite(this.p1.y) ? this.p1.y - 50 : -200; 
@@ -748,19 +721,21 @@
                     this.ball.z = CONF.TABLE_L/2 + 100;
                 }
 
-                if (this.timer > CONF.AUTO_SERVE_DELAY) {
+                // Força o saque depois de muito tempo parado
+                if (this.serveTimeout > 4000) {
                     if (this.server === 'p1') {
-                        if(typeof this.addMsg === 'function') this.addMsg("SAQUE AUTOMÁTICO", "#fff");
-                        this.hitBall('p1', 0, 0);
-                    } else { if (!this.isOnline || this.isHost) this.aiServe(); }
-                    this.timer = 0;
+                        this.addMsg("SAQUE AUTOMÁTICO", "#fff");
+                        this.executeAimAssistHit('p1');
+                    } else { if (!this.isOnline || this.isHost) this.executeAimAssistHit('p2'); }
+                    this.serveTimeout = 0;
                 }
             }
         },
 
         calculateAITarget: function() {
             if (this.isOnline && !this.isHost) return; 
-            let predX = MathCore.predict(this.ball, this.p2.z); let predY = MathCore.predictY(this.ball, this.p2.z);
+            let predX = MathCore.predictX(this.ball, this.p2.z); 
+            let predY = MathCore.predictY(this.ball, this.p2.z);
             if (!Number.isFinite(predX)) predX = 0; if (!Number.isFinite(predY)) predY = -200;
 
             const baseError = 40; const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
@@ -785,33 +760,36 @@
             if (this.ball.vz < 0) { ai.targetX = 0; ai.targetY = -200; }
         },
 
-        aiServe: function() {
-            this.hitBall('p2', (Math.random()-0.5)*20, 0);
-        },
-
         scorePoint: function(winner, txt) {
+            // BLINDAGEM DO BUG DE "DOIS TOQUES PRESOS"
+            if (this.state !== 'RALLY') return; // Se já pontuou, não pontua de novo no mesmo frame
+            
             this.score[winner]++; 
-            if(typeof this.addMsg === 'function') this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
-            this.sfx(winner === 'p1' ? 'coin' : 'hit');
+            this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
+            this.sfx(winner === 'p1' ? 'coin' : 'error');
             this.ball.active = false; this.rallyCount = 0;
+            
             if (winner === 'p2') this.activeAIProfile.speed = Math.min(this.activeAIProfile.speed * 1.02, this.activeAIProfile.baseSpeed * 1.5);
             else this.activeAIProfile.speed = Math.max(this.activeAIProfile.speed * 0.99, this.activeAIProfile.baseSpeed);
 
             if ((this.score.p1 >= 11 || this.score.p2 >= 11) && Math.abs(this.score.p1 - this.score.p2) >= 2) {
                 this.state = 'END_WAIT'; this.endTimer = 0;
-            } else { this.server = winner; this.resetRound(); }
+            } else { 
+                this.server = winner; 
+                this.resetRound(); 
+            }
         },
 
         resetRound: function() {
-            this.state = 'IDLE'; this.idleTimer = 0; this.endTimer = 0;
+            this.state = 'IDLE'; this.idleTimer = 0; this.endTimer = 0; this.serveTimeout = 0;
             this.ball.active = false; this.ball.vx = 0; this.ball.vy = 0; this.ball.vz = 0;
             this.ball.x = 0; this.ball.y = -300; this.ball.z = 0;
             this.ball.lastHitBy = null; this.ball.bounceCount = 0; this.ball.trail = [];
-            this.lastHitter = null; this.aiRecalcCounter = 0; this.timer = 0;
+            this.lastHitter = null; this.aiRecalcCounter = 0;
         },
 
         // =================================================================
-        // DESENHOS BLINDADOS E O RETORNO DOS PÉS DA MESA
+        // DESENHOS BLINDADOS E O GINÁSIO 3D
         // =================================================================
         safeCircle: function(ctx, x, y, r, color) {
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0.1) {
@@ -834,7 +812,7 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V11.0", w/2, h * 0.15);
+            ctx.fillText("PING PONG V12", w/2, h * 0.15);
             
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.25, 320, 50);
             ctx.fillStyle = "#d35400"; ctx.fillRect(w/2 - 160, h * 0.40, 320, 50);
@@ -855,7 +833,6 @@
             if (this.isHost) {
                 const pids = Object.keys(this.remotePlayersData || {});
                 const pCount = pids.length;
-                
                 ctx.font = "30px 'Russo One'"; ctx.fillText("SALA MULTIPLAYER", w/2, h*0.2);
                 ctx.font = "16px sans-serif"; ctx.fillStyle = "#ccc"; ctx.fillText(`JOGADORES CONECTADOS: ${pCount}/2`, w/2, h*0.3);
                 
@@ -878,13 +855,22 @@
         },
 
         renderScene: function(ctx, w, h) {
-            ctx.fillStyle = "#0a192f"; ctx.fillRect(0,0,w,h); 
+            // GINÁSIO 3D (PAREDES)
+            ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,w,h); 
 
-            const f1 = MathCore.project(-4000, CONF.FLOOR_Y, 4000, w, h);
-            const f2 = MathCore.project(4000, CONF.FLOOR_Y, 4000, w, h);
-            const f3 = MathCore.project(4000, CONF.FLOOR_Y, -4000, w, h);
-            const f4 = MathCore.project(-4000, CONF.FLOOR_Y, -4000, w, h);
-            this.safeDrawPoly(ctx, [f1, f2, f3, f4], "#111"); 
+            // PISO DE MADEIRA DO GINÁSIO
+            const f1 = MathCore.project(-8000, CONF.FLOOR_Y, 8000, w, h);
+            const f2 = MathCore.project(8000, CONF.FLOOR_Y, 8000, w, h);
+            const f3 = MathCore.project(8000, CONF.FLOOR_Y, -8000, w, h);
+            const f4 = MathCore.project(-8000, CONF.FLOOR_Y, -8000, w, h);
+            this.safeDrawPoly(ctx, [f1, f2, f3, f4], "#8b5a2b"); 
+
+            // LINHAS DO GINÁSIO NO CHÃO
+            const l1 = MathCore.project(-3000, CONF.FLOOR_Y, -4000, w, h);
+            const l2 = MathCore.project(-3000, CONF.FLOOR_Y, 4000, w, h);
+            if (l1.visible && l2.visible && Number.isFinite(l1.x) && Number.isFinite(l2.x)) {
+                ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 4 * l1.s; ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.stroke();
+            }
 
             this.drawTable(ctx, w, h);
             this.drawPaddle(ctx, this.p2, false, w, h);
@@ -912,11 +898,12 @@
         drawTable: function(ctx, w, h) {
             const hw = CONF.TABLE_W/2; const hl = CONF.TABLE_L/2; const th = 60; const legH = CONF.FLOOR_Y; 
             
-            // OS PÉS DA MESA ESTÃO DE VOLTA!
+            // PÉS DA MESA EM 3D ROBUSTO
             const drawLeg = (x, z) => {
-                const p1 = MathCore.project(x-30, 0, z, w, h); const p2 = MathCore.project(x+30, 0, z, w, h);
-                const p3 = MathCore.project(x+30, legH, z, w, h); const p4 = MathCore.project(x-30, legH, z, w, h);
-                this.safeDrawPoly(ctx, [p1, p2, p3, p4], "#111");
+                const legW = 30;
+                const p1 = MathCore.project(x-legW, th, z-legW, w, h); const p2 = MathCore.project(x+legW, th, z-legW, w, h);
+                const p3 = MathCore.project(x+legW, legH, z-legW, w, h); const p4 = MathCore.project(x-legW, legH, z-legW, w, h);
+                this.safeDrawPoly(ctx, [p1, p2, p3, p4], "#333");
             };
             drawLeg(-hw+150, -hl+300); drawLeg(hw-150, -hl+300); drawLeg(-hw+150, hl-300); drawLeg(hw-150, hl-300);
 
@@ -927,14 +914,11 @@
 
             if (!c1.visible || !Number.isFinite(c1.x)) return;
 
-            this.safeDrawPoly(ctx, [c1, c2, c2b, c1b], "#0c2a4d");
-            this.safeDrawPoly(ctx, [c2, c3, c3b, c2b], "#0a3d62");
-            this.safeDrawPoly(ctx, [c4, c1, c1b, c4b], "#0a3d62");
+            this.safeDrawPoly(ctx, [c1, c2, c2b, c1b], "#0c2a4d"); // Borda Frente
+            this.safeDrawPoly(ctx, [c2, c3, c3b, c2b], "#0a3d62"); // Borda Lado
+            this.safeDrawPoly(ctx, [c4, c1, c1b, c4b], "#0a3d62"); // Borda Lado
             
-            // Tampo azul estilo torneio com bordas brancas
-            const topGrad = ctx.createLinearGradient(0, c1.y, 0, c3.y);
-            topGrad.addColorStop(0, '#1e6091'); topGrad.addColorStop(1, '#184e77');
-            this.safeDrawPoly(ctx, [c1, c2, c3, c4], topGrad, "#fff");
+            this.safeDrawPoly(ctx, [c1, c2, c3, c4], "#1e6091", "#fff"); // Tampo
             
             const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
             if (m1.visible && m2.visible && Number.isFinite(m1.x) && Number.isFinite(m2.x)) {
