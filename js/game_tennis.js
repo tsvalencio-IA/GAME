@@ -1,14 +1,14 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: V14.0 - GOLD MASTER (PLAYSTATION / NINTENDO FEEL)
-// ARQUITETO: SENIOR GAME ENGINE ARCHITECT (Wii Sports Logic)
-// STATUS: GINÁSIO 3D, DETECÇÃO REAL DE SWING, IA VULNERÁVEL A BALÃO, ANTI-CRASH
+// THIAGUINHO WII PING PONG: V15.0 - ULTIMATE FEEL (TENSION ENGINE)
+// ARQUITETO: SENIOR GAME ENGINE ARCHITECT (PlayStation / Nintendo Standard)
+// STATUS: RALLY MULTIPLIER, DYNAMIC CAMERA ZOOM, ANTI-NET SYSTEM, FIRE SMASH
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS (VELOCIDADE AUMENTADA PARA MAIS EMOÇÃO)
+    // 1. CONFIGURAÇÕES FÍSICAS (ARCADE EXTREMO)
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,       
@@ -18,14 +18,14 @@
         FLOOR_Y: 850,        
         
         BALL_R: 35,          
-        GRAVITY: 1.1,        // Gravidade maior faz o jogo ficar muito mais rápido e real
+        GRAVITY: 1.2,        // Gravidade forte para o jogo ser agressivo
         BOUNCE_LOSS: 0.85,   
         
         PADDLE_SCALE: 2.8,   
-        PADDLE_HITBOX: 400,  
-        SWING_FORCE: 5.0,    // Força bruta do seu movimento convertida em velocidade
+        PADDLE_HITBOX: 450,  
+        SWING_FORCE: 5.0,    
         
-        // Câmera Mobile Afastada (Visão de Quadra Inteira)
+        // Câmera Base
         CAM_X: 0,           
         CAM_Y: -1500,       
         CAM_Z: -3800,       
@@ -37,11 +37,11 @@
     };
 
     const AI_PROFILES = {
-        'PRO': { speed: 0.12, difficultyFactor: 0.85, baseSpeed: 0.12 } // IA um pouco mais humana
+        'PRO': { speed: 0.16, difficultyFactor: 0.80, baseSpeed: 0.16 } // IA competitiva, mas vencível
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO SUPREMO
+    // 2. MATH CORE & ESCUDO ANTI-CRASH
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -93,7 +93,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO (COM LOBBY MULTIPLAYER)
+    // 3. ENGINE DO JOGO E LOBBY MULTIPLAYER
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -128,7 +128,7 @@
             this.msgs = [];
             this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V14");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V15");
             this.setupInput();
         },
 
@@ -150,20 +150,27 @@
         spawnParticles: function(x, y, z, count, color) {
             if (!this.particles) this.particles = [];
             for (let i = 0; i < count; i++) {
-                this.particles.push({ x, y, z, vx: (Math.random()-0.5)*20, vy: (Math.random()-0.5)*20, vz: (Math.random()-0.5)*20, life: 1.0, c: color });
+                this.particles.push({ x, y, z, vx: (Math.random()-0.5)*25, vy: (Math.random()-0.5)*25, vz: (Math.random()-0.5)*25, life: 1.0, c: color });
             }
             if (this.particles.length > 150) this.particles = this.particles.slice(this.particles.length - 150);
         },
 
-        playHitSound: function(speed) {
+        playHitSound: function(speed, rally) {
             try {
                 if (!window.AudioContext && !window.webkitAudioContext) return;
                 if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
                 const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
                 osc.connect(gain); gain.connect(this.audioCtx.destination);
-                osc.frequency.value = 200 + Math.min(speed * 2, 800); osc.type = 'sine';
-                const vol = Math.min(speed / 150, 0.6);
+                
+                // O Pitch sobe conforme o rally avança! Dá uma adrenalina absurda.
+                let baseFreq = 200 + Math.min(speed * 2, 800);
+                let rallyBoost = Math.min(400, (rally || 0) * 30);
+                
+                osc.frequency.value = baseFreq + rallyBoost; 
+                osc.type = 'sine';
+                
+                const vol = Math.min(speed / 150, 0.8);
                 gain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
                 gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.15);
                 osc.start(); osc.stop(this.audioCtx.currentTime + 0.15);
@@ -181,7 +188,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_v13');
+                const s = localStorage.getItem('tennis_calib_v15');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -228,12 +235,11 @@
                     this.calibTimer = 0; this.sfx('click');
                 } 
                 else if (this.state.startsWith('CALIB')) {
-                    // Escape Hatch (Pula calibração se estiver no PC sem câmera e clicar)
                     this.isOnline = false; this.useMouse = true; this.handedness = 'right'; this.startGame();
                 }
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
                     this.p1.vx = 0; this.p1.vy = -100;
-                    this.executeAimAssistHit('p1', 0, 0, 150); // Manda uma velocidade forte virtual
+                    this.executeAimAssistHit('p1', 0, 0, 200); // Saque Dedo é forte
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -322,11 +328,23 @@
             this.resetRound();
         },
 
+        // =====================================================================
+        // CAMERA ADAPTATIVA + TENSION ZOOM
+        // =====================================================================
         updateCameraAdapter: function(w, h) {
+            // A câmera dá um zoom de leve conforme o rally avança! Pura emoção!
+            let tensionZoom = Math.min(800, this.rallyCount * 40); 
+            
             if (h > w) { 
-                CONF.CAM_Z = -4500; CONF.CAM_Y = -1800; CONF.CAM_PITCH = 0.28; CONF.FOV = w * 1.6; 
+                CONF.CAM_Z = -5000 + tensionZoom; 
+                CONF.CAM_Y = -2400 + (tensionZoom * 0.3);  
+                CONF.CAM_PITCH = 0.35; 
+                CONF.FOV = w * 1.8; 
             } else { 
-                CONF.CAM_Z = -3800; CONF.CAM_Y = -1500; CONF.CAM_PITCH = 0.25; CONF.FOV = 900; 
+                CONF.CAM_Z = -3800 + tensionZoom; 
+                CONF.CAM_Y = -1500; 
+                CONF.CAM_PITCH = 0.25; 
+                CONF.FOV = 900; 
             }
         },
 
@@ -400,7 +418,7 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V14.0: Crash Prevented ", e);
+                console.error("SHIELD V15.0: Crash Prevented ", e);
             }
             return this.score.p1 || 0;
         },
@@ -434,7 +452,7 @@
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 150) this.calib.brX = this.calib.tlX + 250;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 150) this.calib.brY = this.calib.tlY + 250;
                         
-                        try { localStorage.setItem('tennis_calib_v13', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        try { localStorage.setItem('tennis_calib_v15', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
                         
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
@@ -447,13 +465,12 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
-            // MODO MOUSE/TOUCH
             if (this.useMouse) {
                 let nx = MathCore.clamp(this.mouseX / w, 0, 1);
                 let ny = MathCore.clamp(this.mouseY / h, 0, 1);
                 
                 const targetX = MathCore.lerp(-CONF.TABLE_W * 1.2, CONF.TABLE_W * 1.2, nx); 
-                const targetY = MathCore.lerp(-400, 300, ny); 
+                const targetY = MathCore.lerp(-200, 300, ny); // Limitei o Y pra cima pra raquete não encobrir a IA
 
                 this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
                 this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.85);
@@ -503,7 +520,7 @@
                     let ny = MathCore.clamp((this.p1.rawY - minY) / rangeY, -0.5, 1.5);
 
                     let targetX = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nx); 
-                    let targetY = MathCore.lerp(-500, 300, ny); 
+                    let targetY = MathCore.lerp(-800, 300, ny); 
                     if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
                     this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
@@ -514,14 +531,14 @@
                         let nex = MathCore.clamp((640 - elbow.x - minX) / rangeX, -0.5, 1.5); 
                         let ney = MathCore.clamp((elbow.y - minY) / rangeY, -0.5, 1.5);
                         let targetEx = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nex);
-                        let targetEy = MathCore.lerp(-500, 300, ney);
+                        let targetEy = MathCore.lerp(-800, 300, ney);
+                        if (!Number.isFinite(targetEx)) targetEx = targetX; if (!Number.isFinite(targetEy)) targetEy = targetY + 300;
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, Number.isFinite(targetEx) ? targetEx : targetX, 0.85);
                         this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, Number.isFinite(targetEy) ? targetEy : targetY, 0.85);
                     } else {
                         this.p1.elbowX = this.p1.x + (this.handedness === 'right' ? 150 : -150); this.p1.elbowY = this.p1.y + 300;
                     }
 
-                    // A MAGIA DO SWING: Pega a velocidade real crua da sua mão na câmera!
                     let calculatedVelX = this.p1.x - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.x);
                     let calculatedVelY = this.p1.y - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.y);
 
@@ -529,17 +546,15 @@
                     this.p1.vy = MathCore.clamp(Number.isFinite(calculatedVelY) ? calculatedVelY : 0, -350, 350);
                     this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
-                    // Saque do jogador pela câmera: Movimento rápido para cima
                     if (this.state === 'SERVE' && this.server === 'p1') {
-                        let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
-                        if (this.p1.vy < -25 && speed > 30) this.executeAimAssistHit('p1', 0, 0, speed); 
+                        if (this.p1.vy < -25) this.executeAimAssistHit('p1', 0, 0, Math.abs(this.p1.vy)); 
                     }
                 }
             }
         },
 
         // =====================================================================
-        // NOVO: SISTEMA DE INTENSIDADE DA RAQUETADA (O GAME FEEL NINTENDO)
+        // O SEGREDO NINTENDO: AIM ASSIST PARABÓLICO + SISTEMA ANTI-REDE
         // =====================================================================
         executeAimAssistHit: function(who, offX=0, offY=0, handSpeed=0) {
             const isP1 = who === 'p1';
@@ -548,39 +563,45 @@
             let velX = Number.isFinite(paddle.vx) ? paddle.vx : 0; 
             let velY = isP1 ? (Number.isFinite(paddle.vy) ? paddle.vy : 0) : (Number.isFinite(paddle.vz) ? paddle.vz * 0.15 : 0);
 
-            // Se o usuário estiver no mouse, simula uma velocidade média-alta
-            if (this.useMouse && isP1) handSpeed = handSpeed > 0 ? handSpeed : 80;
+            // MODO DEDO: Transforma o dedo num Swing brutal garantido
+            let safeSpeed = this.useMouse && isP1 ? Math.max(200, handSpeed * 3) : MathCore.clamp(handSpeed, 0, 400);
 
-            // FORÇA: Se a mão balançou pouco (< 25), é só um bloqueio. Se balançou muito, é porrada!
-            let safeSpeed = MathCore.clamp(handSpeed, 0, 300);
-            let force = MathCore.clamp(60 + (safeSpeed * CONF.SWING_FORCE), 60, 200); 
+            // Acelerador de Rally (O jogo fica frenético)
+            let rallyMultiplier = Math.min(2.5, 1.0 + (this.rallyCount * 0.12));
             
-            let isSmash = force > 130 && safeSpeed > 60;
-            let isBlock = safeSpeed < 15; // Mão parada (Bloqueio)
+            let force = MathCore.clamp(80 + (safeSpeed * 0.4), 80, 250) * rallyMultiplier; 
+            
+            let isSmash = force > 180 && safeSpeed > 100;
+            let isBlock = safeSpeed < 20 && !this.useMouse; // Mão parada na câmera
 
-            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1) this.addMsg(safeSpeed > 150 ? "CORTADA FATAL!" : "CORTADA!", "#0ff"); } 
-            else if (isBlock) { force = 45; if(isP1) this.addMsg("DEFESA!", "#aaa"); this.shake = 1; }
-            else { this.shake = 4; }
+            if (isSmash) { 
+                force *= 1.2; this.shake = 15; this.flash = 0.3; this.hitstop = 30; 
+                if(isP1) this.addMsg(safeSpeed > 200 ? "SUPER CORTADA!" : "CORTADA!", "#ff4500"); 
+            } else if (isBlock) { 
+                force = 50; if(isP1) this.addMsg("DEFESA", "#aaa"); this.shake = 1; 
+            } else { 
+                this.shake = 4; 
+            }
 
-            this.playHitSound(force * 3);
+            this.playHitSound(force, this.rallyCount);
             this.ball.active = true;
             this.ball.lastHitBy = who;
 
-            // MÁGICA 1: DEFINE O ALVO EXATO NA MESA (A BOLA NUNCA SAI PRA PAREDE)
-            let targetZ = isP1 ? (CONF.TABLE_L/2 - 100) : (-CONF.TABLE_L/2 + 100);
+            // 1. ALVO NA MESA DO ADVERSÁRIO (O Aim Assist que te salva de errar)
+            let targetZ = isP1 ? (CONF.TABLE_L/2 - 200) : (-CONF.TABLE_L/2 + 200);
             let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.0, 1.0); 
             let targetX = (impactFactor * (CONF.TABLE_W * 0.4)) + (velX * 1.5); 
             targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100); 
 
-            // MÁGICA 2: TEMPO DE VOO (Voo rápido se bateu forte, Voo lento se bloqueou)
+            // 2. TEMPO DE VOO DA PARÁBOLA
             let timeToReach;
-            if (isBlock) timeToReach = 90; // Bloqueio faz a bola voltar super devagar
-            else timeToReach = MathCore.lerp(75, 12, safeSpeed / 300); // Mão super rápida = 12 frames (Bala)
+            if (isBlock) timeToReach = 80;
+            else timeToReach = MathCore.lerp(60, 15, safeSpeed / 400) / rallyMultiplier;
             
             if (isSmash) timeToReach = Math.min(15, timeToReach);
-            timeToReach = Math.max(10, timeToReach); 
+            timeToReach = Math.max(12, timeToReach); 
 
-            // MÁGICA 3: FÍSICA DE PROJÉTIL (Parábola Perfeita pro Alvo)
+            // 3. FÍSICA BALÍSTICA (A trajetória perfeita)
             let dx = targetX - this.ball.x;
             let dz = targetZ - this.ball.z;
             let dy = CONF.TABLE_Y - this.ball.y;
@@ -589,9 +610,19 @@
             this.ball.vz = dz / timeToReach;
             this.ball.vy = (dy - (0.5 * CONF.GRAVITY * timeToReach * timeToReach)) / timeToReach;
 
-            // LOB SYSTEM: Se balançar a mão bem forte PRA CIMA, dá um BALÃO!
-            if (velY < -50 && isP1 && !isBlock) {
-                timeToReach *= 1.8; // Fica o dobro do tempo no ar
+            // SISTEMA ANTI-REDE: Garante que o modo "dedo" não jogue a bola na rede sem querer
+            let timeToNet = Math.abs((0 - this.ball.z) / this.ball.vz);
+            if (timeToNet > 0 && timeToNet < timeToReach) {
+                let yAtNet = this.ball.y + (this.ball.vy * timeToNet) + (0.5 * CONF.GRAVITY * timeToNet * timeToNet);
+                // Se a bola for passar abaixo de -130 na rede, impulsiona para cima!
+                if (yAtNet > -(CONF.NET_H + 20)) {
+                    this.ball.vy -= 15; // Joga a bola pro alto e salva o ponto
+                }
+            }
+
+            // Balão intencional se o jogador levantar muito a mão
+            if (velY < -80 && isP1 && !isBlock && !this.useMouse) {
+                timeToReach *= 1.8; 
                 this.ball.vx = dx / timeToReach;
                 this.ball.vz = dz / timeToReach;
                 this.ball.vy = (dy - (0.5 * CONF.GRAVITY * timeToReach * timeToReach)) / timeToReach;
@@ -602,7 +633,10 @@
             this.ball.spinX = velY * 0.8;
 
             this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
-            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, isSmash ? 25 : 10, isP1 ? '#e74c3c' : '#3498db'); 
+            
+            // Fogo no Smash!
+            let pColor = isSmash ? '#ff4500' : (isP1 ? '#e74c3c' : '#3498db');
+            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, isSmash ? 30 : 10, pColor); 
             
             if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
         },
@@ -615,7 +649,7 @@
             if (b.y >= CONF.TABLE_Y && b.prevY < CONF.TABLE_Y && Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                 b.y = CONF.TABLE_Y; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
                 this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 5, '#fff');
-                this.playHitSound(100);
+                this.playHitSound(100, this.rallyCount);
             }
             if (Math.abs(b.vz) > 20) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
@@ -631,8 +665,6 @@
             if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.z)) { this.resetRound(); return; }
 
             b.prevY = b.y;
-
-            // GRAVIDADE CONSTANTE PRA PARÁBOLA NÃO QUEBRAR
             b.vy += CONF.GRAVITY;
 
             const currentSpeed = Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2);
@@ -647,7 +679,7 @@
                 if (b.y >= CONF.TABLE_Y && previousY < CONF.TABLE_Y) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                         b.y = CONF.TABLE_Y; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
-                        this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5);
+                        this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5, this.rallyCount);
 
                         const side = b.z < 0 ? 'p1' : 'p2';
                         if (this.lastHitter === side) { 
@@ -663,14 +695,13 @@
                 this.checkPaddleHit();
             }
 
-            // PASSOU OU CAIU DA MESA
             if (b.z < this.p1.z - 300) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
                 else this.scorePoint('p2', "PASSOU!"); return;
             }
             if (b.z > this.p2.z + 300) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') this.scorePoint('p2', "FORA!");
-                else this.scorePoint('p1', "SEU PONTO!"); return;
+                else this.scorePoint('p1', "PONTO!"); return;
             }
             if (b.y > CONF.FLOOR_Y) {
                 if (this.ball.bounceCount === 0) this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
@@ -700,7 +731,6 @@
         },
 
         checkPaddleHit: function() {
-            // JANELA DE IMPACTO MAGNÉTICA (Detecta se você REALMENTE balançou a mão)
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 if (this.ball.z < this.p1.z + 400 && this.ball.z > this.p1.z - 200) {
                     let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
@@ -710,11 +740,9 @@
                     if (this.useMouse) {
                         if (dist < CONF.PADDLE_HITBOX) this.executeAimAssistHit('p1', dx, dy, handSpeed + 80);
                     } else {
-                        // Câmera: Você balançou a mão?
                         if (handSpeed > 25 && dist < CONF.PADDLE_HITBOX * 1.5) {
                             this.executeAimAssistHit('p1', dx, dy, handSpeed);
                         } else if (dist < CONF.PADDLE_HITBOX * 0.4) {
-                            // Deixou a mão parada no meio da bola. Bloqueio fraco!
                             this.executeAimAssistHit('p1', dx, dy, 5); 
                         }
                     }
@@ -724,14 +752,13 @@
                 if (this.ball.z > this.p2.z - 400 && this.ball.z < this.p2.z + 200) {
                     let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
                     
-                    // IA VULNERÁVEL AO BALÃO! Se a bola for mais alta que a IA consegue pular, ela erra.
-                    if (this.ball.y < this.p2.y - 250) {
-                        // Bola passou MUITO por cima! 95% de chance da IA tomar encobrida.
-                        if (Math.random() < 0.95) return; 
+                    // IA VULNERÁVEL A BALÃO EXTREMO E CORTADA VELOZ
+                    if (this.ball.y < this.p2.y - 400) {
+                        if (Math.random() < 0.90) return; // IA pula e não alcança
                     }
 
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX * 0.8) { // IA tem hitbox um pouco menor
-                        let aiSpeed = 40 + Math.random() * 60; // Velocidade "humana" da IA
+                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX * 0.8) { 
+                        let aiSpeed = 40 + Math.random() * 80 + (this.rallyCount * 5); 
                         this.executeAimAssistHit('p2', dx, dy, aiSpeed);
                     }
                 }
@@ -786,9 +813,7 @@
             this.aiFrame++; if (this.aiFrame % 2 !== 0) return;
 
             const ai = this.p2; 
-            
-            // Limitador de velocidade da IA: Se a bola for uma cortada rápida pro canto, a IA não alcança!
-            let maxSpeedX = 40; let maxSpeedY = 30;
+            let maxSpeedX = 45; let maxSpeedY = 35;
             
             let dx = (ai.targetX || 0) - ai.x;
             let dy = (ai.targetY || -200) - ai.y;
@@ -802,15 +827,14 @@
 
             ai.x += ai.vx; ai.y += ai.vy;
             
-            // A IA NÃO VOA! Fica presa na altura de uma pessoa pra tomar balão
-            if (ai.y < -550) ai.y = -550; 
+            if (ai.y < -650) ai.y = -650; 
             if (ai.y > 0) ai.y = 0; 
 
             if (this.ball.vz < 0) { ai.targetX = 0; ai.targetY = -200; }
         },
 
         scorePoint: function(winner, txt) {
-            if (this.state !== 'RALLY') return; // PROTEÇÃO VITAL: Fix do Bug dos 2 Toques Presos
+            if (this.state !== 'RALLY') return; 
             
             this.score[winner]++; 
             this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
@@ -836,9 +860,6 @@
             this.lastHitter = null; this.aiRecalcCounter = 0;
         },
 
-        // =================================================================
-        // DESENHOS BLINDADOS E O GINÁSIO 3D (O CENÁRIO ESTÁ DE VOLTA)
-        // =================================================================
         safeCircle: function(ctx, x, y, r, color) {
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0.1) {
                 ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
@@ -858,24 +879,20 @@
         },
 
         drawEnvironment: function(ctx, w, h) {
-            // Teto do Ginásio
             ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,w,h);
 
-            // Parede de Fundo 
             let wTL = MathCore.project(-8000, -4000, 6000, w, h);
             let wTR = MathCore.project(8000, -4000, 6000, w, h);
             let wBL = MathCore.project(-8000, CONF.FLOOR_Y, 6000, w, h);
             let wBR = MathCore.project(8000, CONF.FLOOR_Y, 6000, w, h);
             this.safeDrawPoly(ctx, [wTL, wTR, wBR, wBL], "#1e293b");
 
-            // Piso de Madeira Clássico
             const f1 = MathCore.project(-8000, CONF.FLOOR_Y, 6000, w, h);
             const f2 = MathCore.project(8000, CONF.FLOOR_Y, 6000, w, h);
             const f3 = MathCore.project(8000, CONF.FLOOR_Y, -4000, w, h);
             const f4 = MathCore.project(-8000, CONF.FLOOR_Y, -4000, w, h);
             this.safeDrawPoly(ctx, [f1, f2, f3, f4], "#8b5a2b");
 
-            // Tapete Olímpico de Ping Pong
             const c1 = MathCore.project(-3000, CONF.FLOOR_Y, 4000, w, h);
             const c2 = MathCore.project(3000, CONF.FLOOR_Y, 4000, w, h);
             const c3 = MathCore.project(3000, CONF.FLOOR_Y, -3000, w, h);
@@ -892,7 +909,7 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V14", w/2, h * 0.15);
+            ctx.fillText("PING PONG V15", w/2, h * 0.15);
             
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.25, 320, 50);
             ctx.fillStyle = "#d35400"; ctx.fillRect(w/2 - 160, h * 0.40, 320, 50);
@@ -936,6 +953,13 @@
 
         renderScene: function(ctx, w, h) {
             this.drawEnvironment(ctx, w, h);
+
+            if (this.state === 'RALLY' && this.rallyCount > 2) {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+                ctx.font = "bold 200px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText(this.rallyCount, w/2, h/2 + 70);
+            }
 
             this.drawTable(ctx, w, h);
             this.drawPaddle(ctx, this.p2, false, w, h);
@@ -1030,7 +1054,9 @@
                 }
             }
 
-            ctx.strokeStyle = "rgba(255, 200, 0, 0.4)"; ctx.lineWidth = 15; ctx.lineCap = "round";
+            ctx.strokeStyle = "rgba(255, 200, 0, 0.4)"; 
+            ctx.lineWidth = Math.min(25, 10 + (this.rallyCount * 2)); 
+            ctx.lineCap = "round";
             ctx.beginPath();
             this.ball.trail.forEach((t, i) => {
                 const tp = MathCore.project(t.x, t.y, t.z, w, h);
