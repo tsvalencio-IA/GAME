@@ -1,7 +1,7 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: V12.0 - GOLD MASTER (PLAYSTATION / NINTENDO FEEL)
+// THIAGUINHO WII PING PONG: V13.0 - GOLD MASTER (PLAYSTATION / NINTENDO FEEL)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT (Wii Sports Logic)
-// STATUS: AIM ASSIST PARABÓLICO, GINÁSIO 3D, HITBOX MAGNÉTICA, ANTI-CRASH 100%
+// STATUS: GINÁSIO 3D, HITBOX MAGNÉTICA, BUG DO "SAQUE PRESO" CORRIGIDO, ANTI-CRASH
 // =============================================================================
 
 (function() {
@@ -41,7 +41,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & ESCUDO ANTI-CRASH
+    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO SUPREMO
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -130,7 +130,7 @@
             this.msgs = [];
             this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V12 PRONTO");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V13");
             this.setupInput();
         },
 
@@ -183,7 +183,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_v12');
+                const s = localStorage.getItem('tennis_calib_v13');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -235,7 +235,7 @@
                 }
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
                     this.p1.vx = 0; this.p1.vy = -100;
-                    this.executeAimAssistHit('p1');
+                    this.executeAimAssistHit('p1', 0, 0);
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -310,7 +310,7 @@
                 });
                 if (this.isHost) {
                     this.roomRef.update({
-                        ball: { x: this.ball.x, y: this.ball.y, z: this.ball.z, vx: this.ball.vx, vy: this.ball.vy, vz: this.ball.vz, spinX: this.ball.spinX, spinY: this.ball.spinY, active: this.ball.active, lastHitBy: this.ball.lastHitBy },
+                        ball: { x: this.ball.x||0, y: this.ball.y||-300, z: this.ball.z||0, vx: this.ball.vx||0, vy: this.ball.vy||0, vz: this.ball.vz||0, spinX: this.ball.spinX||0, spinY: this.ball.spinY||0, active: this.ball.active, lastHitBy: this.ball.lastHitBy },
                         score: this.score, gameState: this.state
                     });
                 }
@@ -402,7 +402,7 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V12.0: Crash Prevented ", e);
+                console.error("SHIELD V13.0: Crash Prevented ", e);
             }
             return this.score.p1 || 0;
         },
@@ -436,7 +436,7 @@
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 150) this.calib.brX = this.calib.tlX + 250;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 150) this.calib.brY = this.calib.tlY + 250;
                         
-                        try { localStorage.setItem('tennis_calib_v12', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        try { localStorage.setItem('tennis_calib_v13', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
                         
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
@@ -449,12 +449,16 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
+            // ==============================================================
+            // MODO MOUSE/TOUCH (Correção da visualização encobrindo CPU)
+            // ==============================================================
             if (this.useMouse) {
                 let nx = MathCore.clamp(this.mouseX / w, 0, 1);
                 let ny = MathCore.clamp(this.mouseY / h, 0, 1);
                 
+                // Limitei o eixo Y para o jogador não arrastar a raquete até o teto e encobrir a visão
                 const targetX = MathCore.lerp(-CONF.TABLE_W * 1.2, CONF.TABLE_W * 1.2, nx); 
-                const targetY = MathCore.lerp(-1000, 300, ny); 
+                const targetY = MathCore.lerp(-400, 300, ny); 
 
                 this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
                 this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.85);
@@ -469,7 +473,7 @@
                 this.p1.vy = MathCore.clamp(Number.isFinite(calcVY) ? calcVY : 0, -300, 300);
                 this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
-                if (this.state === 'SERVE' && this.server === 'p1' && this.p1.vy < -20) this.executeAimAssistHit('p1');
+                if (this.state === 'SERVE' && this.server === 'p1' && this.p1.vy < -20) this.executeAimAssistHit('p1', 0, 0);
                 return;
             }
 
@@ -506,7 +510,8 @@
                     let ny = MathCore.clamp((this.p1.rawY - minY) / rangeY, -0.5, 1.5);
 
                     let targetX = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nx); 
-                    let targetY = MathCore.lerp(-800, 300, ny); 
+                    // Limita também o movimento vertical da câmera para não entrar na visão da CPU
+                    let targetY = MathCore.lerp(-500, 300, ny); 
                     if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
                     this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
@@ -517,7 +522,7 @@
                         let nex = MathCore.clamp((640 - elbow.x - minX) / rangeX, -0.5, 1.5); 
                         let ney = MathCore.clamp((elbow.y - minY) / rangeY, -0.5, 1.5);
                         let targetEx = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nex);
-                        let targetEy = MathCore.lerp(-800, 300, ney);
+                        let targetEy = MathCore.lerp(-500, 300, ney);
                         this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, Number.isFinite(targetEx) ? targetEx : targetX, 0.85);
                         this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, Number.isFinite(targetEy) ? targetEy : targetY, 0.85);
                     } else {
@@ -532,7 +537,7 @@
                     this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
                     if (this.state === 'SERVE' && this.server === 'p1') {
-                        if (this.p1.vy < -25) this.executeAimAssistHit('p1'); 
+                        if (this.p1.vy < -25) this.executeAimAssistHit('p1', 0, 0); 
                     }
                 }
             }
@@ -540,8 +545,9 @@
 
         // =====================================================================
         // O SEGREDO NINTENDO: AIM ASSIST (BOLA PARABÓLICA PRESA À MESA)
+        // BUG DA FUNÇÃO "offX" CORRIGIDO AQUI!
         // =====================================================================
-        executeAimAssistHit: function(who) {
+        executeAimAssistHit: function(who, offX=0, offY=0) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
             
@@ -559,19 +565,20 @@
             this.ball.active = true;
             this.ball.lastHitBy = who;
 
-            // MÁGICA 1: DEFINE O ALVO EXATO NA MESA DO ADVERSÁRIO (A bola NUNCA voa fora da tela)
+            // MÁGICA 1: DEFINE O ALVO EXATO NA MESA DO ADVERSÁRIO
             let targetZ = isP1 ? (CONF.TABLE_L/2 - 200) : (-CONF.TABLE_L/2 + 200);
             
             // O X depende da sua mão, mas é "Clampado" dentro da mesa
-            let targetX = (paddle.x / (CONF.TABLE_W/2)) * (CONF.TABLE_W * 0.4); 
-            targetX += velX * 1.5; // Efeito da raquetada
+            let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.0, 1.0); 
+            let targetX = (impactFactor * (CONF.TABLE_W * 0.4)) + (velX * 1.5); 
             targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100); 
 
-            // MÁGICA 2: TEMPO DE VOO. Bolas fortes chegam mais rápido.
+            // MÁGICA 2: TEMPO DE VOO
             let timeToReach = MathCore.lerp(70, 25, (force - 60) / 90); 
             if (isSmash) timeToReach = 20;
+            timeToReach = Math.max(10, timeToReach); // Proteção matemática extra
 
-            // MÁGICA 3: FÍSICA DE PROJÉTIL (Garante que a bola caia no targetZ e targetX no tempo exato)
+            // MÁGICA 3: FÍSICA DE PROJÉTIL (Cálculo da parábola)
             let dx = targetX - this.ball.x;
             let dz = targetZ - this.ball.z;
             let dy = CONF.TABLE_Y - this.ball.y;
@@ -582,7 +589,7 @@
             // Vy = (Dy - 0.5 * G * T^2) / T
             this.ball.vy = (dy - (0.5 * CONF.GRAVITY * timeToReach * timeToReach)) / timeToReach;
 
-            // Efeito visual apenas
+            // Efeito visual 
             this.ball.spinY = velX * 0.8; 
             this.ball.spinX = velY * 0.8;
 
@@ -617,7 +624,7 @@
 
             b.prevY = b.y;
 
-            // SEM ATRITO DO AR NO EIXO Z PRA NÃO ESTRAGAR A PARÁBOLA
+            // GRAVIDADE PURA (Mantém a precisão parabólica intacta)
             b.vy += CONF.GRAVITY;
 
             const currentSpeed = Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2);
@@ -684,17 +691,16 @@
         },
 
         checkPaddleHit: function() {
-            // HITBOX MAGNÉTICA (O FIM DO GHOST HIT)
+            // JANELA DE IMPACTO MAGNÉTICA (Evita que o jogador "fure" a bola pela velocidade do braço)
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                // A janela de Z é grande para dar tempo do celular ler o braço
                 if (this.ball.z < this.p1.z + 400 && this.ball.z > this.p1.z - 200) {
                     let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
                     let dist = Math.sqrt(dx*dx + dy*dy);
                     let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
                     
-                    // Se bater em cheio, ou se passar a mão rápido perto da bola
+                    // Bateu no raio da raquete, OU balançou a mão de forma intencional quando a bola estava perto
                     if (dist < CONF.PADDLE_HITBOX || (speed > 20 && dist < CONF.PADDLE_HITBOX * 1.5) || this.useMouse) {
-                        this.executeAimAssistHit('p1');
+                        this.executeAimAssistHit('p1', dx, dy);
                     }
                 }
             }
@@ -702,7 +708,7 @@
                 if (this.ball.z > this.p2.z - 400 && this.ball.z < this.p2.z + 200) {
                     let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
                     if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) {
-                        this.executeAimAssistHit('p2');
+                        this.executeAimAssistHit('p2', dx, dy);
                     }
                 }
             }
@@ -721,12 +727,14 @@
                     this.ball.z = CONF.TABLE_L/2 + 100;
                 }
 
-                // Força o saque depois de muito tempo parado
+                // Força o saque caso demore muito (Corrigido para evitar o loop infinito)
                 if (this.serveTimeout > 4000) {
                     if (this.server === 'p1') {
                         this.addMsg("SAQUE AUTOMÁTICO", "#fff");
-                        this.executeAimAssistHit('p1');
-                    } else { if (!this.isOnline || this.isHost) this.executeAimAssistHit('p2'); }
+                        this.executeAimAssistHit('p1', 0, 0);
+                    } else { 
+                        if (!this.isOnline || this.isHost) this.executeAimAssistHit('p2', 0, 0); 
+                    }
                     this.serveTimeout = 0;
                 }
             }
@@ -761,8 +769,7 @@
         },
 
         scorePoint: function(winner, txt) {
-            // BLINDAGEM DO BUG DE "DOIS TOQUES PRESOS"
-            if (this.state !== 'RALLY') return; // Se já pontuou, não pontua de novo no mesmo frame
+            if (this.state !== 'RALLY') return; // PROTEÇÃO VITAL: Evita pontuar duas vezes e bugar a partida!
             
             this.score[winner]++; 
             this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
@@ -789,7 +796,7 @@
         },
 
         // =================================================================
-        // DESENHOS BLINDADOS E O GINÁSIO 3D
+        // DESENHO 3D DO GINÁSIO, MESA E JOGADORES (ANTI-CRASH)
         // =================================================================
         safeCircle: function(ctx, x, y, r, color) {
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0.1) {
@@ -809,10 +816,53 @@
             if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = Math.max(1, 3 * points[0].s); ctx.stroke(); }
         },
 
+        drawEnvironment: function(ctx, w, h) {
+            // Teto escuro de ginásio
+            ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,w,h);
+
+            // Parede de Fundo (Gym Wall)
+            let wTL = MathCore.project(-8000, -4000, 6000, w, h);
+            let wTR = MathCore.project(8000, -4000, 6000, w, h);
+            let wBL = MathCore.project(-8000, CONF.FLOOR_Y, 6000, w, h);
+            let wBR = MathCore.project(8000, CONF.FLOOR_Y, 6000, w, h);
+            this.safeDrawPoly(ctx, [wTL, wTR, wBR, wBL], "#1e293b");
+
+            // Luzes no teto do ginásio
+            let l1 = MathCore.project(-2000, -3900, 5000, w, h);
+            let l2 = MathCore.project(2000, -3900, 5000, w, h);
+            if (l1.visible && l2.visible) {
+                ctx.shadowBlur = 30; ctx.shadowColor = "#fff";
+                this.safeEllipse(ctx, l1.x, l1.y, 150*l1.s, 40*l1.s, "#fff");
+                this.safeEllipse(ctx, l2.x, l2.y, 150*l2.s, 40*l2.s, "#fff");
+                ctx.shadowBlur = 0;
+            }
+
+            // Piso de Madeira
+            const f1 = MathCore.project(-8000, CONF.FLOOR_Y, 6000, w, h);
+            const f2 = MathCore.project(8000, CONF.FLOOR_Y, 6000, w, h);
+            const f3 = MathCore.project(8000, CONF.FLOOR_Y, -4000, w, h);
+            const f4 = MathCore.project(-8000, CONF.FLOOR_Y, -4000, w, h);
+            this.safeDrawPoly(ctx, [f1, f2, f3, f4], "#8b5a2b");
+
+            // Tapete Olímpico (Área de jogo - Vermelho vibrante)
+            const c1 = MathCore.project(-3000, CONF.FLOOR_Y, 4000, w, h);
+            const c2 = MathCore.project(3000, CONF.FLOOR_Y, 4000, w, h);
+            const c3 = MathCore.project(3000, CONF.FLOOR_Y, -3000, w, h);
+            const c4 = MathCore.project(-3000, CONF.FLOOR_Y, -3000, w, h);
+            this.safeDrawPoly(ctx, [c1, c2, c3, c4], "#c0392b"); 
+            
+            // Linhas brancas do tapete
+            if (c1.visible && c2.visible && c3.visible && c4.visible) {
+                ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = Math.max(2, 4 * c1.s);
+                ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y);
+                ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y); ctx.closePath(); ctx.stroke();
+            }
+        },
+
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V12", w/2, h * 0.15);
+            ctx.fillText("PING PONG V13", w/2, h * 0.15);
             
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.25, 320, 50);
             ctx.fillStyle = "#d35400"; ctx.fillRect(w/2 - 160, h * 0.40, 320, 50);
@@ -855,22 +905,7 @@
         },
 
         renderScene: function(ctx, w, h) {
-            // GINÁSIO 3D (PAREDES)
-            ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,w,h); 
-
-            // PISO DE MADEIRA DO GINÁSIO
-            const f1 = MathCore.project(-8000, CONF.FLOOR_Y, 8000, w, h);
-            const f2 = MathCore.project(8000, CONF.FLOOR_Y, 8000, w, h);
-            const f3 = MathCore.project(8000, CONF.FLOOR_Y, -8000, w, h);
-            const f4 = MathCore.project(-8000, CONF.FLOOR_Y, -8000, w, h);
-            this.safeDrawPoly(ctx, [f1, f2, f3, f4], "#8b5a2b"); 
-
-            // LINHAS DO GINÁSIO NO CHÃO
-            const l1 = MathCore.project(-3000, CONF.FLOOR_Y, -4000, w, h);
-            const l2 = MathCore.project(-3000, CONF.FLOOR_Y, 4000, w, h);
-            if (l1.visible && l2.visible && Number.isFinite(l1.x) && Number.isFinite(l2.x)) {
-                ctx.strokeStyle = "rgba(255,255,255,0.3)"; ctx.lineWidth = 4 * l1.s; ctx.beginPath(); ctx.moveTo(l1.x, l1.y); ctx.lineTo(l2.x, l2.y); ctx.stroke();
-            }
+            this.drawEnvironment(ctx, w, h);
 
             this.drawTable(ctx, w, h);
             this.drawPaddle(ctx, this.p2, false, w, h);
@@ -898,12 +933,11 @@
         drawTable: function(ctx, w, h) {
             const hw = CONF.TABLE_W/2; const hl = CONF.TABLE_L/2; const th = 60; const legH = CONF.FLOOR_Y; 
             
-            // PÉS DA MESA EM 3D ROBUSTO
             const drawLeg = (x, z) => {
                 const legW = 30;
                 const p1 = MathCore.project(x-legW, th, z-legW, w, h); const p2 = MathCore.project(x+legW, th, z-legW, w, h);
                 const p3 = MathCore.project(x+legW, legH, z-legW, w, h); const p4 = MathCore.project(x-legW, legH, z-legW, w, h);
-                this.safeDrawPoly(ctx, [p1, p2, p3, p4], "#333");
+                this.safeDrawPoly(ctx, [p1, p2, p3, p4], "#111");
             };
             drawLeg(-hw+150, -hl+300); drawLeg(hw-150, -hl+300); drawLeg(-hw+150, hl-300); drawLeg(hw-150, hl-300);
 
@@ -914,11 +948,13 @@
 
             if (!c1.visible || !Number.isFinite(c1.x)) return;
 
-            this.safeDrawPoly(ctx, [c1, c2, c2b, c1b], "#0c2a4d"); // Borda Frente
-            this.safeDrawPoly(ctx, [c2, c3, c3b, c2b], "#0a3d62"); // Borda Lado
-            this.safeDrawPoly(ctx, [c4, c1, c1b, c4b], "#0a3d62"); // Borda Lado
+            this.safeDrawPoly(ctx, [c1, c2, c2b, c1b], "#0c2a4d"); 
+            this.safeDrawPoly(ctx, [c2, c3, c3b, c2b], "#0a3d62"); 
+            this.safeDrawPoly(ctx, [c4, c1, c1b, c4b], "#0a3d62"); 
             
-            this.safeDrawPoly(ctx, [c1, c2, c3, c4], "#1e6091", "#fff"); // Tampo
+            const topGrad = ctx.createLinearGradient(0, c1.y, 0, c3.y);
+            topGrad.addColorStop(0, '#1e6091'); topGrad.addColorStop(1, '#184e77');
+            this.safeDrawPoly(ctx, [c1, c2, c3, c4], topGrad, "#fff");
             
             const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
             if (m1.visible && m2.visible && Number.isFinite(m1.x) && Number.isFinite(m2.x)) {
@@ -927,7 +963,7 @@
 
             const n1 = MathCore.project(-hw-80, 0, 0, w, h); const n2 = MathCore.project(hw+80, 0, 0, w, h);
             const n1t = MathCore.project(-hw-80, -CONF.NET_H, 0, w, h); const n2t = MathCore.project(hw+80, -CONF.NET_H, 0, w, h);
-            this.safeDrawPoly(ctx, [n1, n2, n2t, n1t], "rgba(0, 0, 0, 0.5)", "#ecf0f1");
+            this.safeDrawPoly(ctx, [n1, n2, n2t, n1t], "rgba(255, 255, 255, 0.4)", "#ecf0f1"); // Rede mais clara
         },
 
         drawPaddle: function(ctx, paddle, isPlayer, w, h) {
@@ -937,14 +973,15 @@
             
             const sPos = MathCore.project(paddle.x, CONF.FLOOR_Y, paddle.z, w, h);
             if (sPos.visible && Number.isFinite(sPos.x)) {
-                this.safeEllipse(ctx, sPos.x, sPos.y, 45*sPos.s, 15*sPos.s, "rgba(0,0,0,0.4)");
+                this.safeEllipse(ctx, sPos.x, sPos.y, 45*sPos.s, 15*sPos.s, "rgba(0,0,0,0.5)");
             }
 
             if(Number.isFinite(scale) && scale > 0.1) {
-                ctx.fillStyle = "#8d6e63"; ctx.fillRect(pos.x - 10*scale, pos.y + 35*scale, 20*scale, 55*scale);
-                this.safeEllipse(ctx, pos.x, pos.y + 3*scale, 52*scale, 57*scale, "#ecf0f1");
-                this.safeEllipse(ctx, pos.x, pos.y, 50*scale, 55*scale, isPlayer ? "#c0392b" : "#2c3e50");
-                this.safeEllipse(ctx, pos.x - 15*scale, pos.y - 15*scale, 20*scale, 25*scale, "rgba(255,255,255,0.15)");
+                // Desenha a Raquete Detalhada
+                ctx.fillStyle = "#8d6e63"; ctx.fillRect(pos.x - 8*scale, pos.y + 20*scale, 16*scale, 60*scale); // Cabo
+                this.safeEllipse(ctx, pos.x, pos.y, 48*scale, 52*scale, "#ecf0f1"); // Esponja
+                this.safeEllipse(ctx, pos.x, pos.y, 45*scale, 50*scale, isPlayer ? "#c0392b" : "#2c3e50"); // Borracha
+                this.safeEllipse(ctx, pos.x - 12*scale, pos.y - 12*scale, 15*scale, 20*scale, "rgba(255,255,255,0.15)"); // Brilho
             }
         },
 
@@ -977,7 +1014,7 @@
             if(pos.visible && Number.isFinite(pos.x)) {
                 let r = Math.max(0.1, Math.abs(CONF.BALL_R * pos.s));
                 this.safeCircle(ctx, pos.x, pos.y, r, "#f1c40f"); 
-                this.safeCircle(ctx, pos.x - r*0.3, pos.y - r*0.3, r*0.3, "rgba(255,255,255,0.6)"); 
+                this.safeCircle(ctx, pos.x - r*0.3, pos.y - r*0.3, r*0.3, "rgba(255,255,255,0.8)"); 
             }
         },
 
@@ -997,22 +1034,22 @@
 
         renderHUD: function(ctx, w, h) {
             const cx = w/2;
-            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
-            if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-100, 10, 200, 50, 10); ctx.fill(); ctx.stroke(); } 
-            else { ctx.fillRect(cx-100, 10, 200, 50); ctx.strokeRect(cx-100, 10, 200, 50); }
+            ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; 
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)"; ctx.lineWidth = 2;
+            if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-120, 15, 240, 60, 15); ctx.fill(); ctx.stroke(); } 
+            else { ctx.fillRect(cx-120, 15, 240, 60); ctx.strokeRect(cx-120, 15, 240, 60); }
             
-            ctx.font = "bold 35px 'Russo One'"; ctx.textAlign = "center";
-            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p1, cx-50, 48); 
-            ctx.fillStyle = "#555"; ctx.fillText("-", cx, 48);
-            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p2, cx+50, 48); 
+            ctx.font = "bold 40px 'Russo One'"; ctx.textAlign = "center";
+            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p1, cx-60, 58); 
+            ctx.fillStyle = "#fff"; ctx.fillText("-", cx, 58);
+            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p2, cx+60, 58); 
 
             if (this.msgs && this.msgs.length > 0) {
                 this.msgs.forEach(m => {
                     m.y -= 2; m.a -= 0.02; m.s += 0.01;
                     if(m.a > 0) {
                         ctx.save(); ctx.globalAlpha = Math.min(1, m.a); ctx.translate(cx, m.y); ctx.scale(m.s, m.s);
-                        ctx.font = "bold 35px 'Russo One'"; ctx.strokeStyle = "black"; ctx.lineWidth = 5; ctx.strokeText(m.t, 0, 0); ctx.fillStyle = m.c; ctx.fillText(m.t, 0, 0);
+                        ctx.font = "bold 40px 'Russo One'"; ctx.strokeStyle = "black"; ctx.lineWidth = 6; ctx.strokeText(m.t, 0, 0); ctx.fillStyle = m.c; ctx.fillText(m.t, 0, 0);
                         ctx.restore();
                     }
                 });
@@ -1021,18 +1058,18 @@
             ctx.globalAlpha = 1;
 
             if (this.state === 'SERVE' && this.server === 'p1') {
-                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.strokeStyle = "transparent";
-                if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-150, h-70, 300, 50, 10); ctx.fill(); }
-                else { ctx.fillRect(cx-150, h-70, 300, 50); }
-                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE O BRAÇO PARA SACAR";
-                ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(textoSaque, cx, h-40);
+                ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.strokeStyle = "transparent";
+                if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-180, h-80, 360, 60, 10); ctx.fill(); }
+                else { ctx.fillRect(cx-180, h-80, 360, 60); }
+                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE A MÃO PARA SACAR";
+                ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif"; ctx.fillText(textoSaque, cx, h-45);
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
-                ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-140, h-25, 280*progress, 5);
+                ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-160, h-25, 320*progress, 8);
             }
         },
 
         renderCalibration: function(ctx, w, h) {
-            ctx.fillStyle = "#111"; ctx.fillRect(0,0,w,h);
+            ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,w,h);
             
             if (this.pose && this.pose.keypoints) {
                 this.drawSkeleton(ctx, w, h);
@@ -1041,22 +1078,22 @@
                     const cx = (this.p1.rawX / 640) * w; const cy = (this.p1.rawY / 480) * h;
                     if(Number.isFinite(cx) && Number.isFinite(cy)) {
                         ctx.translate(cx, cy); ctx.rotate(-0.2);
-                        ctx.fillStyle = "#8d6e63"; ctx.fillRect(-5, 0, 10, 30); 
-                        this.safeCircle(ctx, 0, -20, 25, "#e74c3c"); 
+                        ctx.fillStyle = "#8d6e63"; ctx.fillRect(-8, 0, 16, 40); 
+                        this.safeCircle(ctx, 0, -20, 30, "#e74c3c"); 
                         ctx.rotate(0.2); ctx.translate(-cx, -cy);
                         
                         if (this.calibTimer > 0 && (this.state === 'CALIB_TL' || this.state === 'CALIB_BR')) {
                             const progress = Math.min(1, this.calibTimer / CONF.CALIB_TIME);
                             ctx.strokeStyle = "#0f0"; ctx.lineWidth = 6;
-                            ctx.beginPath(); ctx.arc(cx, cy, 40, -Math.PI/2, (-Math.PI/2) + (Math.PI*2*progress)); ctx.stroke();
+                            ctx.beginPath(); ctx.arc(cx, cy, 50, -Math.PI/2, (-Math.PI/2) + (Math.PI*2*progress)); ctx.stroke();
                         }
                     }
                 }
             } else {
                 ctx.fillStyle = "#fff"; ctx.font = "bold 30px sans-serif"; ctx.textAlign = "center";
-                ctx.fillText("PROCURANDO CÂMERA...", w/2, h*0.5);
+                ctx.fillText("PROCURANDO CÂMERA...", w/2, h*0.45);
                 ctx.font = "18px sans-serif"; ctx.fillStyle = "#aaa";
-                ctx.fillText("Fique de frente para a câmera no meio da tela.", w/2, h*0.6);
+                ctx.fillText("Sem câmera? Toque na tela para usar o dedo.", w/2, h*0.55);
             }
 
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
