@@ -1,7 +1,7 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: VERSÃO 4.0 DEFINITIVA (MÁXIMA ESTABILIDADE)
+// THIAGUINHO WII PING PONG: VERSÃO 5.0 (CÂMERA MOBILE FIX + ANTI-CRASH V2)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: ANTI-CRASH BLINDADO, FÍSICA FIEL (IMPACTO), CÂMERA AFASTADA, REGRAS REAIS
+// STATUS: TELA ADAPTATIVA (FIM DA MESA COLADA), DESENHO SEGURO (NUNCA TRAVA)
 // =============================================================================
 
 (function() {
@@ -25,16 +25,16 @@
         MAX_TOTAL_SPEED: 85, 
         
         AUTO_SERVE_DELAY: 2000,
-        PADDLE_SCALE: 3.0,   // Raquete gigante para garantir acerto de longe
+        PADDLE_SCALE: 3.0,   
         PADDLE_HITBOX: 350,  
         SWING_FORCE: 4.0,    
         SMASH_THRESH: 35,    
 
-        // === CÂMERA VERSÃO 4.0: MAIS AFASTADA E ENQUADRADA ===
+        // Variáveis que serão atualizadas pela Câmera Dinâmica (Mobile/PC)
         CAM_X: 0,           
-        CAM_Y: -1600,       // Mais alta para ver as quinas
-        CAM_Z: -4200,       // BEM mais longe (visão panorâmica)
-        CAM_PITCH: 0.28,    // Ângulo perfeito olhando a mesa
+        CAM_Y: -1600,       
+        CAM_Z: -4200,       
+        CAM_PITCH: 0.28,    
         FOV: 900,           
 
         CALIB_TIME: 1500,      
@@ -46,7 +46,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & ESCUDO ANTI-CRASH 4.0
+    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -59,14 +59,12 @@
             let ry = cy * cosP - cz * sinP;
             let rz = cy * sinP + cz * cosP;
 
-            // Escudo 1: Se estiver atrás da câmera, não desenha (Evita Crash)
             if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             
             const scale = CONF.FOV / rz;
             let screenX = (cx * scale) + w/2;
             let screenY = (ry * scale) + h/2;
 
-            // Escudo 2: Previne estouro numérico no Canvas (Impede congelamento de tela)
             if (!Number.isFinite(screenX) || !Number.isFinite(screenY) || Math.abs(screenX) > 20000 || Math.abs(screenY) > 20000) {
                 return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             }
@@ -102,7 +100,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO (COM INTEGRAÇÃO CORE.JS E FIREBASE)
+    // 3. ENGINE DO JOGO 
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -116,10 +114,9 @@
         aiFrame: 0, aiRecalcCounter: 0, 
         useMouse: false, mouseX: 320, mouseY: 240,
 
-        isOnline: false, isHost: false, roomId: 'thiaguinho_pingpong_v4',
+        isOnline: false, isHost: false, roomId: 'thiaguinho_pingpong_v5',
         dbRef: null, roomRef: null, remotePlayersData: {}, lastSync: 0, maintenanceInterval: null,
         
-        // Posição Z baseada na nova câmera: Ficam bem na frente da tela (-2000 é bem longe da mesa que acaba no -1370)
         p1: { x: 0, y: -200, z: -CONF.TABLE_L/2 - 600, vx: 0, vy: 0, prevX: 0, prevY: 0, elbowX: 0, elbowY: 0, rawX: 0, rawY: 0 },
         p2: { x: 0, y: -200, z: CONF.TABLE_L/2 + 600, targetX: 0, targetY: -200, vx: 0, vz: 0 },
         ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, active: false, lastHitBy: null, bounceCount: 0, trail: [] },
@@ -133,7 +130,7 @@
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V4.0");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V5.0");
             this.setupInput();
         },
 
@@ -164,7 +161,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_v4');
+                const s = localStorage.getItem('tennis_calib_v5');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -207,7 +204,7 @@
                     this.calibTimer = 0; this.sfx('click');
                 } 
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
-                    this.hitBall('p1', 0, -30);
+                    this.hitBall('p1', 0, -30); // Saque no click/touch
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -219,9 +216,6 @@
             };
         },
 
-        // =====================================================================
-        // MULTIPLAYER FIREBASE (IDÊNTICO AO KART/BOXE)
-        // =====================================================================
         connectMultiplayer: function() {
             this.state = 'LOBBY';
             try {
@@ -292,26 +286,37 @@
             }
         },
 
+        // =================================================================
+        // FUNÇÕES SEGURAS DE DESENHO PARA CANVAS (O ESCUDO ANTI-CRASH V2)
+        // =================================================================
+        safeArc: function(ctx, x, y, r) {
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r)) {
+                let safeR = Math.max(0.1, Math.abs(r));
+                ctx.beginPath(); ctx.arc(x, y, safeR, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        safeEllipse: function(ctx, x, y, rx, ry, rot=0) {
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(rx) && Number.isFinite(ry)) {
+                let safeRx = Math.max(0.1, Math.abs(rx));
+                let safeRy = Math.max(0.1, Math.abs(ry));
+                ctx.beginPath(); ctx.ellipse(x, y, safeRx, safeRy, rot, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        safeDrawPoly: function(ctx, points, color, strokeColor) {
+            let valid = true;
+            for(let p of points) { if(!p.visible || !Number.isFinite(p.x) || !Number.isFinite(p.y)) valid = false; }
+            if(!valid) return;
+            ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+            for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+            ctx.closePath(); ctx.fill();
+            if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = Math.max(1, 3 * points[0].s); ctx.stroke(); }
+        },
+
         spawnParticles: function(x, y, z, count, color) {
             for (let i = 0; i < count; i++) {
                 this.particles.push({ x, y, z, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, vz: (Math.random()-0.5)*15, life: 1.0, c: color });
             }
             if (this.particles.length > 150) this.particles = this.particles.slice(this.particles.length - 150);
-        },
-
-        playHitSound: function(speed) {
-            try {
-                if (!window.AudioContext && !window.webkitAudioContext) return;
-                if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
-                const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
-                osc.connect(gain); gain.connect(this.audioCtx.destination);
-                osc.frequency.value = 200 + Math.min(speed * 3, 600); osc.type = 'sine';
-                const vol = Math.min(speed / 300, 0.5);
-                gain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.1);
-                osc.start(); osc.stop(this.audioCtx.currentTime + 0.1);
-            } catch(e) {}
         },
 
         startGame: function() {
@@ -321,18 +326,23 @@
             this.resetRound();
         },
 
+        // ADAPTAÇÃO DA CÂMERA (CORREÇÃO DA MESA COLADA)
         updateCameraAdapter: function(w, h) {
-            // Câmera dinâmica baseada na versão 4.0: Afasta bem para não cortar a mesa
             if (h > w) { 
-                CONF.CAM_Z = -4200; CONF.CAM_Y = -1800; CONF.CAM_PITCH = 0.28; CONF.FOV = w * 1.8; 
+                // MODO CELULAR (TELA EM PÉ):
+                CONF.CAM_Z = -5500;  // Câmera muito mais pra trás para caber a largura inteira
+                CONF.CAM_Y = -2800;  // Sobe a câmera pra ver a mesa de cima e dar perspectiva
+                CONF.CAM_PITCH = 0.35; // Inclinação adequada
+                CONF.FOV = w * 1.6;  // FOV baseado na tela
             } else { 
-                CONF.CAM_Z = -3800; CONF.CAM_Y = -1500; CONF.CAM_PITCH = 0.25; CONF.FOV = 900; 
+                // MODO PC (TELA DEITADA):
+                CONF.CAM_Z = -4200; 
+                CONF.CAM_Y = -1800; 
+                CONF.CAM_PITCH = 0.28; 
+                CONF.FOV = 900; 
             }
         },
 
-        // =================================================================
-        // O GAME LOOP (O COFRE ANTI-CRASH APLICADO AQUI)
-        // =================================================================
         update: function(ctx, w, h, pose) {
             try { 
                 const now = performance.now();
@@ -341,11 +351,6 @@
                 if (dt > 100) dt = 16; 
 
                 this.updateCameraAdapter(w, h); 
-
-                if (!this.polyfillDone) {
-                    if (!ctx.roundRect) ctx.roundRect = function(x, y, w, h, r) { if(w<2*r)r=w/2; if(h<2*r)r=h/2; ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); };
-                    this.polyfillDone = true;
-                }
 
                 if (this.state === 'MODE_SELECT') { 
                     this.p1.x = Math.sin(now * 0.002) * 300; 
@@ -361,7 +366,7 @@
                     }
 
                     this.processPose(pose, w, h);
-                    if (this.state.startsWith('CALIB')) this.updateCalibration(dt);
+                    if (this.state.startsWith('CALIB')) this.updateAutoCalibration(dt);
 
                     if (this.state === 'RALLY' || this.state === 'SERVE') {
                         if (!this.isOnline || this.isHost) { this.updatePhysics(); if (!this.isOnline) this.updateAI(); this.updateRules(dt); } 
@@ -369,46 +374,35 @@
                     }
                 }
 
-                // ==========================================
-                // BLOCO DE DESENHO SEGURO (SEMPRE DÁ RESTORE)
-                // ==========================================
                 ctx.save();
-                try {
-                    if(this.shake > 0 && Number.isFinite(this.shake)) {
-                        ctx.translate((Math.random()-0.5)*this.shake, (Math.random()-0.5)*this.shake);
-                        this.shake *= 0.9; if(this.shake < 0.5) this.shake = 0;
-                    }
-
-                    this.renderScene(ctx, w, h);
-
-                    if (this.flash > 0 && Number.isFinite(this.flash)) {
-                        ctx.fillStyle = `rgba(255,255,255,${this.flash})`; ctx.fillRect(0,0,w,h);
-                        this.flash -= 0.05; if(this.flash < 0.01) this.flash = 0;
-                    }
-
-                    if (this.state === 'MODE_SELECT') this.renderModeSelect(ctx, w, h);
-                    else if (this.state === 'LOBBY') this.renderLobby(ctx, w, h);
-                    else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
-                    else if (this.state === 'END') this.renderEnd(ctx, w, h);
-                    else this.renderHUD(ctx, w, h);
-
-                } finally {
-                    // SE QUALQUER DESENHO FALHAR, A MATRIZ DE TELA VOLTA AO NORMAL AQUI. FIM DOS TRAVAMENTOS!
-                    ctx.restore();
+                if(this.shake > 0 && Number.isFinite(this.shake)) {
+                    ctx.translate((Math.random()-0.5)*this.shake, (Math.random()-0.5)*this.shake);
+                    this.shake *= 0.9; if(this.shake < 0.5) this.shake = 0;
                 }
+
+                this.renderScene(ctx, w, h);
+                ctx.restore();
+
+                if (this.flash > 0 && Number.isFinite(this.flash)) {
+                    ctx.fillStyle = `rgba(255,255,255,${this.flash})`; ctx.fillRect(0,0,w,h);
+                    this.flash -= 0.05; if(this.flash < 0.01) this.flash = 0;
+                }
+
+                if (this.state === 'MODE_SELECT') this.renderModeSelect(ctx, w, h);
+                else if (this.state === 'LOBBY') this.renderLobby(ctx, w, h);
+                else if (this.state.startsWith('CALIB')) this.renderCalibration(ctx, w, h);
+                else if (this.state === 'END') this.renderEnd(ctx, w, h);
+                else this.renderHUD(ctx, w, h);
 
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("V4.0 SHIELD: O Jogo não vai parar. Erro contornado: ", e);
+                console.error("ANTI-FREEZE SHIELD ATIVADO: ", e);
             }
             return this.score.p1 || 0;
         },
 
-        // =================================================================
-        // SISTEMA DE CALIBRAÇÃO (A CERCA VIRTUAL DO JOGADOR)
-        // =================================================================
-        updateCalibration: function(dt) {
+        updateAutoCalibration: function(dt) {
             const d = dt / 16;
             this.calibTimer = Math.max(0, this.calibTimer - (10 * d));
 
@@ -434,7 +428,6 @@
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.rawX; this.calib.brY = this.p1.rawY;
                         
-                        // Garante que a área calibrada tenha um tamanho mínimo pra não bugar a física
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 150) this.calib.brX = this.calib.tlX + 250;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 150) this.calib.brY = this.calib.tlY + 250;
                         
@@ -459,7 +452,6 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
-            // MODO TOQUE (Secundário)
             if (this.useMouse) {
                 let nx = MathCore.clamp(this.mouseX / w, 0, 1);
                 let ny = MathCore.clamp(this.mouseY / h, 0, 1);
@@ -467,9 +459,9 @@
                 const targetX = MathCore.lerp(-CONF.TABLE_W * 1.2, CONF.TABLE_W * 1.2, nx); 
                 const targetY = MathCore.lerp(-1000, 300, ny); 
 
-                this.p1.x = MathCore.lerp(this.p1.x, targetX, 0.85);
-                this.p1.y = MathCore.lerp(this.p1.y, targetY, 0.85);
-                this.p1.z = -CONF.TABLE_L/2 - 600; // Posiciona a raquete do jogador de forma perfeita na frente
+                this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
+                this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.85);
+                this.p1.z = -CONF.TABLE_L/2 - 600; 
                 this.p1.elbowX = this.p1.x + 100;
                 this.p1.elbowY = this.p1.y + 300;
 
@@ -484,7 +476,6 @@
                 return;
             }
 
-            // MODO CÂMERA (Usa a Calibração Salva)
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) { this.calibHandCandidate = null; return; }
                 const nose = pose.keypoints.find(k => k.name === 'nose');
@@ -508,7 +499,6 @@
                 this.p1.rawX = 640 - wrist.x; this.p1.rawY = wrist.y;
                 
                 if (!this.state.startsWith('CALIB')) {
-                    // O Mapeamento usa os pontos exatos que o jogador indicou
                     let minX = Math.min(this.calib.tlX, this.calib.brX); let maxX = Math.max(this.calib.tlX, this.calib.brX);
                     let minY = Math.min(this.calib.tlY, this.calib.brY); let maxY = Math.max(this.calib.tlY, this.calib.brY);
                     
@@ -518,14 +508,13 @@
                     let nx = MathCore.clamp((this.p1.rawX - minX) / rangeX, -0.5, 1.5);
                     let ny = MathCore.clamp((this.p1.rawY - minY) / rangeY, -0.5, 1.5);
 
-                    // Permite que o braço cubra uma área bem maior que a mesa para defesa
                     let targetX = MathCore.lerp(-CONF.TABLE_W*0.9, CONF.TABLE_W*0.9, nx); 
                     let targetY = MathCore.lerp(-800, 200, ny); 
                     if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
-                    this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.4); // Suavização elegante para não tremer
+                    this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.4); 
                     this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.4);
-                    this.p1.z = -CONF.TABLE_L/2 - 600; // Posicionado atrás da mesa perfeitamente
+                    this.p1.z = -CONF.TABLE_L/2 - 600; 
 
                     if (elbow) {
                         let nex = MathCore.clamp((640 - elbow.x - minX) / rangeX, -0.5, 1.5); 
@@ -547,15 +536,12 @@
                     this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
                     if (this.state === 'SERVE' && this.server === 'p1') {
-                        if (this.p1.vy < -15) this.hitBall('p1', 0, 0); // Movimento forte pra cima saca
+                        if (this.p1.vy < -15) this.hitBall('p1', 0, 0); 
                     }
                 }
             } else { this.handleLostTracking(); }
         },
 
-        // =================================================================
-        // FÍSICA FIEL E REGRAS ("PASSOU" E "FORA")
-        // =================================================================
         updatePhysicsClient: function() {
             if (!this.ball.active) return;
             const b = this.ball; b.prevY = b.y;
@@ -599,7 +585,6 @@
 
                 if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) b.lastHitBy = null;
 
-                // QUIQUE NA MESA
                 if (b.y >= 0 && previousY < 0) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                         b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
@@ -617,26 +602,20 @@
                 this.checkPaddleHit();
             }
 
-            // REGRA: A BOLA PASSOU! O PONTO ACABA AQUI
-            if (b.z < this.p1.z - 100) { // Bola passou da raquete do jogador
-                if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!"); // P2 jogou longe
-                else this.scorePoint('p2', "PASSOU!"); // P1 não pegou
-                return;
+            if (b.z < this.p1.z - 100) { 
+                if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
+                else this.scorePoint('p2', "PASSOU!"); return;
             }
-            if (b.z > this.p2.z + 100) { // Bola passou da raquete do CPU
+            if (b.z > this.p2.z + 100) { 
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') this.scorePoint('p2', "FORA!");
-                else this.scorePoint('p1', "SEU PONTO!"); 
-                return;
+                else this.scorePoint('p1', "SEU PONTO!"); return;
             }
 
-            // REGRA: CAIU DA MESA
             if (b.y > CONF.FLOOR_Y) {
                 if (this.ball.bounceCount === 0) this.scorePoint(this.lastHitter === 'p1' ? 'p2' : 'p1', "FORA!");
-                else this.scorePoint(this.lastHitter, "PONTO!"); 
-                return;
+                else this.scorePoint(this.lastHitter, "PONTO!"); return;
             }
 
-            // Bateu na rede
             if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
                 b.vz *= -0.2; b.vx *= 0.5; this.shake = 5; this.sfx('hit'); b.lastHitBy = null;
             }
@@ -649,16 +628,14 @@
 
             if (Math.abs(b.vz) > 20) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
-                if (this.ball.trail.length > 20) this.ball.trail.shift();
+                if (this.ball.trail.length > 30) this.ball.trail.shift();
             }
         },
 
         checkPaddleHitClient: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                // Checagem em forma de cilindro (Muito mais segura contra bugs de atravessar a raquete)
-                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
-                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) { 
+                if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.x, this.p1.y, this.p1.z) < CONF.PADDLE_HITBOX) {
+                    if (MathCore.dot3d(this.p1.x - this.ball.x, this.p1.y - this.ball.y, this.p1.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) { 
                         this.sfx('hit'); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
                     }
                 }
@@ -667,15 +644,17 @@
 
         checkPaddleHit: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
-                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) this.hitBall('p1', dx, dy);
+                if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.x, this.p1.y, this.p1.z) < CONF.PADDLE_HITBOX) {
+                    if (MathCore.dot3d(this.p1.x - this.ball.x, this.p1.y - this.ball.y, this.p1.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
+                        this.hitBall('p1', this.ball.x - this.p1.x, this.ball.y - this.p1.y);
+                    }
                 }
             }
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
-                if (this.ball.z > this.p2.z - 150 && this.ball.z < this.p2.z + 150) {
-                    let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) this.hitBall('p2', dx, dy);
+                if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p2.x, this.p2.y, this.p2.z) < CONF.PADDLE_HITBOX) {
+                    if (MathCore.dot3d(this.p2.x - this.ball.x, this.p2.y - this.ball.y, this.p2.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
+                        this.hitBall('p2', 0, 0);
+                    }
                 }
             }
         },
@@ -697,7 +676,6 @@
             this.ball.active = true; this.ball.lastHitBy = who;
             this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
             
-            // FÍSICA DE DIREÇÃO NINTENDO: A direção depende de onde a bola bate na raquete E da velocidade da mão.
             let impactFactor = offX / (CONF.PADDLE_HITBOX * 0.5); 
             this.ball.vx = (impactFactor * 40) + (velX * 0.15); 
             this.ball.vy = -18 + (velY * 0.2); 
@@ -714,7 +692,6 @@
         updateRules: function(dt) {
             if (this.state === 'SERVE') {
                 this.timer += dt || 16;
-                // Deixa a bolinha colada na raquete no saque
                 if (this.server === 'p1') {
                     this.ball.x = Number.isFinite(this.p1.x) ? this.p1.x : 0; 
                     this.ball.y = Number.isFinite(this.p1.y) ? this.p1.y - 50 : -200; 
@@ -786,23 +763,10 @@
             this.lastHitter = null; this.aiRecalcCounter = 0; this.timer = 0;
         },
 
-        // =================================================================
-        // DESENHOS BLINDADOS (O CANVAS NUNCA VAI TRAVAR)
-        // =================================================================
-        safeDrawPoly: function(ctx, points, color, strokeColor) {
-            let valid = true;
-            for(let p of points) { if(!p.visible || !Number.isFinite(p.x) || !Number.isFinite(p.y)) valid = false; }
-            if(!valid) return;
-            ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-            for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-            ctx.closePath(); ctx.fill();
-            if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = Math.max(1, 3 * points[0].s); ctx.stroke(); }
-        },
-
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V4.0", w/2, h * 0.20);
+            ctx.fillText("PING PONG V5.0", w/2, h * 0.20);
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.35, 320, 60);
             ctx.fillStyle = "#f39c12"; ctx.fillRect(w/2 - 160, h * 0.50, 320, 60);
             ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.65, 320, 60);
@@ -857,8 +821,7 @@
             if (pWrist.visible && pElbow.visible && Number.isFinite(pWrist.x) && Number.isFinite(pElbow.x)) {
                 ctx.strokeStyle = "#d2b48c"; ctx.lineWidth = Math.max(1, 20 * pWrist.s); ctx.lineCap = "round";
                 ctx.beginPath(); ctx.moveTo(pElbow.x, pElbow.y); ctx.lineTo(pWrist.x, pWrist.y); ctx.stroke();
-                let r = Math.max(1, 10 * pWrist.s);
-                if(Number.isFinite(r)) { ctx.fillStyle = "#d2b48c"; ctx.beginPath(); ctx.arc(pWrist.x, pWrist.y, r, 0, Math.PI*2); ctx.fill(); }
+                this.safeArc(ctx, pWrist.x, pWrist.y, 10 * pWrist.s);
             }
         },
 
@@ -896,15 +859,15 @@
             
             ctx.fillStyle = "rgba(0,0,0,0.4)";
             const sPos = MathCore.project(paddle.x, CONF.FLOOR_Y, paddle.z, w, h);
-            if (sPos.visible && Number.isFinite(sPos.x) && Number.isFinite(scale) && scale > 0) {
-                ctx.beginPath(); ctx.ellipse(sPos.x, sPos.y, Math.max(1, 45*sPos.s), Math.max(1, 15*sPos.s), 0, 0, Math.PI*2); ctx.fill();
+            if (sPos.visible && Number.isFinite(sPos.x)) {
+                this.safeEllipse(ctx, sPos.x, sPos.y, 45*sPos.s, 15*sPos.s);
             }
 
             if(Number.isFinite(scale) && scale > 0) {
                 ctx.fillStyle = "#8d6e63"; ctx.fillRect(pos.x - 10*scale, pos.y + 35*scale, 20*scale, 55*scale);
-                ctx.fillStyle = "#ecf0f1"; ctx.beginPath(); ctx.ellipse(pos.x, pos.y + 3*scale, Math.max(1, 52*scale), Math.max(1, 57*scale), 0, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = isPlayer ? "#c0392b" : "#2c3e50"; ctx.beginPath(); ctx.ellipse(pos.x, pos.y, Math.max(1, 50*scale), Math.max(1, 55*scale), 0, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = "rgba(255,255,255,0.15)"; ctx.beginPath(); ctx.ellipse(pos.x - 15*scale, pos.y - 15*scale, Math.max(1, 20*scale), Math.max(1, 25*scale), Math.PI/4, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = "#ecf0f1"; this.safeEllipse(ctx, pos.x, pos.y + 3*scale, 52*scale, 57*scale);
+                ctx.fillStyle = isPlayer ? "#c0392b" : "#2c3e50"; this.safeEllipse(ctx, pos.x, pos.y, 50*scale, 55*scale);
+                ctx.fillStyle = "rgba(255,255,255,0.15)"; this.safeEllipse(ctx, pos.x - 15*scale, pos.y - 15*scale, 20*scale, 25*scale, Math.PI/4);
             }
         },
 
@@ -921,8 +884,8 @@
                     const alpha = MathCore.clamp(1 - (distToShadow/1000), 0.1, 0.7);
                     ctx.fillStyle = `rgba(0,0,0,${alpha})`;
                     const bSr = CONF.BALL_R * shadowPos.s * (1 + distToShadow/2000);
-                    if(Number.isFinite(bSr) && bSr > 0) {
-                        ctx.beginPath(); ctx.ellipse(shadowPos.x, shadowPos.y, Math.max(1, bSr*1.5), Math.max(1, bSr*0.5), 0, 0, Math.PI*2); ctx.fill();
+                    if(Number.isFinite(bSr)) {
+                        this.safeEllipse(ctx, shadowPos.x, shadowPos.y, bSr*1.5, bSr*0.5);
                     }
                 }
             }
@@ -939,12 +902,12 @@
 
             const pos = MathCore.project(this.ball.x, this.ball.y, this.ball.z, w, h);
             if(pos.visible && Number.isFinite(pos.x)) {
-                let r = Math.max(1, Math.abs(CONF.BALL_R * pos.s));
-                if (Number.isFinite(r) && r > 0) {
+                let r = Math.max(0.1, Math.abs(CONF.BALL_R * pos.s));
+                if (Number.isFinite(r)) {
                     const grad = ctx.createRadialGradient(pos.x - r*0.3, pos.y - r*0.3, r*0.1, pos.x, pos.y, r);
                     grad.addColorStop(0, "#ffffff"); grad.addColorStop(0.3, "#f1c40f"); grad.addColorStop(1, "#d35400"); 
                     ctx.fillStyle = grad;
-                    ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, Math.PI*2); ctx.fill();
+                    this.safeArc(ctx, pos.x, pos.y, r);
                 }
             }
         },
@@ -954,11 +917,8 @@
                 p.x += p.vx; p.y += p.vy; p.z += p.vz; p.life -= 0.05;
                 const pos = MathCore.project(p.x, p.y, p.z, w, h);
                 if(pos.visible && Number.isFinite(pos.x)) {
-                    let r = Math.max(0.1, 4*pos.s);
-                    if(Number.isFinite(r)) {
-                        ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; 
-                        ctx.beginPath(); ctx.arc(pos.x, pos.y, r, 0, Math.PI*2); ctx.fill();
-                    }
+                    ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; 
+                    this.safeArc(ctx, pos.x, pos.y, 4*pos.s);
                 }
             });
             this.particles = this.particles.filter(p => p.life > 0);
@@ -971,6 +931,7 @@
             const cx = w/2;
             ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
             ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
+            
             if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-100, 10, 200, 50, 10); ctx.fill(); ctx.stroke(); } 
             else { ctx.fillRect(cx-100, 10, 200, 50); ctx.strokeRect(cx-100, 10, 200, 50); }
             
@@ -1012,7 +973,7 @@
                     if(Number.isFinite(cx) && Number.isFinite(cy)) {
                         ctx.translate(cx, cy); ctx.rotate(-0.2);
                         ctx.fillStyle = "#8d6e63"; ctx.fillRect(-5, 0, 10, 30); 
-                        ctx.fillStyle = "#e74c3c"; ctx.beginPath(); ctx.arc(0, -20, 25, 0, Math.PI*2); ctx.fill(); 
+                        ctx.fillStyle = "#e74c3c"; this.safeArc(ctx, 0, -20, 25); 
                         ctx.rotate(0.2); ctx.translate(-cx, -cy);
                         
                         if (this.calibTimer > 0 && (this.state === 'CALIB_TL' || this.state === 'CALIB_BR')) {
@@ -1081,6 +1042,26 @@
             }
         },
 
+        safeArc: function(ctx, x, y, r) {
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0) {
+                ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        safeEllipse: function(ctx, x, y, rx, ry, rot=0) {
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(rx) && Number.isFinite(ry) && rx > 0 && ry > 0) {
+                ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI*2); ctx.fill();
+            }
+        },
+        safeDrawPoly: function(ctx, points, color, strokeColor) {
+            let valid = true;
+            for(let p of points) { if(!p.visible || !Number.isFinite(p.x) || !Number.isFinite(p.y)) valid = false; }
+            if(!valid) return;
+            ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+            for(let i=1; i<points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+            ctx.closePath(); ctx.fill();
+            if (strokeColor) { ctx.strokeStyle = strokeColor; ctx.lineWidth = Math.max(1, 3 * points[0].s); ctx.stroke(); }
+        },
+
         drawSkeleton: function(ctx, w, h) {
              const kps = this.pose.keypoints; const find = (n) => kps.find(k => k.name === n && k.score > 0.3);
              const bones = [['nose', 'left_eye'], ['nose', 'right_eye'], ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'], ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip']];
@@ -1097,7 +1078,7 @@
                  if(k.score > 0.3) {
                      const x = ((640 - k.x) / 640) * w; const y = (k.y / 480) * h;
                      if(Number.isFinite(x) && Number.isFinite(y)) { 
-                         ctx.fillStyle = "#0f0"; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill(); 
+                         this.safeArc(ctx, x, y, 5);
                      }
                  }
              });
