@@ -1,39 +1,40 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: PLATINUM MASTER EDITION
-// ARQUITETO: SENIOR GAME ENGINE ARCHITECT (RESTORED TO CONSOLE OS STANDARDS)
-// STATUS: 10/10 - MULTIPLAYER, CALIBRATION, ANTI-CRASH, MOBILE CAMERA FIXED
+// THIAGUINHO WII PING PONG: VERSÃO 3.0 (ESTÁVEL / FIREBASE / ANTI-CRASH)
+// ARQUITETO: SENIOR GAME ENGINE ARCHITECT
+// STATUS: MULTIPLAYER RESTAURADO, CÂMERA WII FIXED, ZERO CONGELAMENTOS
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS DA MESA E CÂMERA (MOBILE FOCUS)
+    // 1. CONFIGURAÇÕES FÍSICAS REAIS
     // -----------------------------------------------------------------
     const CONF = {
-        TABLE_W: 1400,       
-        TABLE_L: 2600,       
+        TABLE_W: 1525,       
+        TABLE_L: 2740,       
         TABLE_Y: 0,          
-        NET_H: 150,          
-        FLOOR_Y: 800,        
+        NET_H: 152,          
+        FLOOR_Y: 850,        
         
         BALL_R: 35,          
-        GRAVITY: 0.8,       
-        AIR_DRAG: 0.99,     
-        BOUNCE_LOSS: 0.85,   
-        MAGNUS_FORCE: 0.20,
+        GRAVITY: 0.70,       
+        AIR_DRAG: 0.993,     
+        BOUNCE_LOSS: 0.80,   
+        MAGNUS_FORCE: 0.18,
         MAX_TOTAL_SPEED: 85, 
         
         AUTO_SERVE_DELAY: 2000,
         PADDLE_SCALE: 2.5,   
-        PADDLE_HITBOX: 280,  
-        SWING_FORCE: 4.5,    
-        SMASH_THRESH: 45,    
+        PADDLE_HITBOX: 260,  
+        SWING_FORCE: 4.0,    
+        SMASH_THRESH: 35,    
 
-        // Câmera Fixa (Visão Superior Traseira para Celular)
+        // Câmera Fixa (Visão Superior Traseira para Celular e PC)
         CAM_X: 0,           
-        CAM_Y: -1600,       
-        CAM_Z: -3400,       
+        CAM_Y: -1200,       
+        CAM_Z: -3200,       
+        CAM_PITCH: 0.22,    
         FOV: 900,           
 
         CALIB_TIME: 1500,      
@@ -45,7 +46,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE (BLINDADO COM NUMBER.ISFINITE PARA ZERO CRASHES)
+    // 2. MATH CORE & ESCUDO ANTI-CRASH
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -53,29 +54,41 @@
             let cy = y - CONF.CAM_Y;
             let cz = z - CONF.CAM_Z;
 
-            // Evita divisão por zero ou objetos nas costas da câmera
-            if (cz <= 10 || !Number.isFinite(cz)) return { x: -9999, y: -9999, s: 0, visible: false };
-            
-            const scale = CONF.FOV / cz;
-            
-            // Falso Tilt Visual (Levanta um pouco o eixo Y baseado na profundidade)
-            let visualY = cy + (cz * 0.25);
+            let cosP = Math.cos(CONF.CAM_PITCH);
+            let sinP = Math.sin(CONF.CAM_PITCH);
+            let ry = cy * cosP - cz * sinP;
+            let rz = cy * sinP + cz * cosP;
 
+            // Escudo 1: Impede divisão por zero ou objetos nas costas da câmera
+            if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
+            
+            const scale = CONF.FOV / rz;
             let screenX = (cx * scale) + w/2;
-            let screenY = (visualY * scale) + h/2;
+            let screenY = (ry * scale) + h/2;
 
-            if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return { x: -9999, y: -9999, s: 0, visible: false };
+            // Escudo 2: Impede coordenadas infinitas que congelam o Canvas
+            if (!Number.isFinite(screenX) || !Number.isFinite(screenY) || Math.abs(screenX) > 15000 || Math.abs(screenY) > 15000) {
+                return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
+            }
 
-            return { x: screenX, y: screenY, s: scale, visible: true, depth: cz };
+            return { x: screenX, y: screenY, s: scale, visible: true, depth: rz };
         },
         lerp: (a, b, t) => {
             if (!Number.isFinite(a)) a = 0; if (!Number.isFinite(b)) b = 0;
             return a + (b - a) * t;
         },
-        clamp: (v, min, max) => Math.max(min, Math.min(max, v)),
-        dist3d: (x1, y1, z1, x2, y2, z2) => Math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2),
-        dot3d: (x1, y1, z1, x2, y2, z2) => x1*x2 + y1*y2 + z1*z2,
-        
+        clamp: (v, min, max) => {
+            if (!Number.isFinite(v)) return min;
+            return Math.max(min, Math.min(max, v));
+        },
+        dist3d: (x1, y1, z1, x2, y2, z2) => {
+            let d = Math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2);
+            return Number.isFinite(d) ? d : 9999;
+        },
+        dot3d: (x1, y1, z1, x2, y2, z2) => {
+            let dt = x1*x2 + y1*y2 + z1*z2;
+            return Number.isFinite(dt) ? dt : 0;
+        },
         predict: (b, targetZ) => {
             let sx = b.x, sy = b.y, sz = b.z;
             let svx = b.vx, svy = b.vy, svz = b.vz;
@@ -93,7 +106,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO (BASEADO NO PADRÃO DO BOXE/KART)
+    // 3. ENGINE DO JOGO (INTEGRADA COM SEU CORE.JS)
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -107,13 +120,13 @@
         aiFrame: 0, aiRecalcCounter: 0, 
         useMouse: false, mouseX: 320, mouseY: 240,
 
-        // INTEGRAÇÃO MULTIPLAYER FIREBASE
+        // INTEGRAÇÃO MULTIPLAYER FIREBASE (IDÊNTICO AO KART)
         isOnline: false, isHost: false, roomId: 'thiaguinho_pingpong_1',
         dbRef: null, roomRef: null, remotePlayersData: {}, lastSync: 0, maintenanceInterval: null,
         
         p1: { x: 0, y: -200, z: -CONF.TABLE_L/2 - 200, vx: 0, vy: 0, prevX: 0, prevY: 0, elbowX: 0, elbowY: 0, rawX: 0, rawY: 0 },
         p2: { x: 0, y: -200, z: CONF.TABLE_L/2 + 200, targetX: 0, targetY: -200, vx: 0, vz: 0 },
-        ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, active: false, bounceCount: 0, trail: [] },
+        ball: { x: 0, y: -300, z: -CONF.TABLE_L/2, vx: 0, vy: 0, vz: 0, spinX: 0, spinY: 0, active: false, lastHitBy: null, bounceCount: 0, trail: [] },
 
         score: { p1: 0, p2: 0 }, server: 'p1', lastHitter: null, rallyCount: 0,
         shake: 0, shakeX: 0, shakeY: 0, flash: 0, particles: [], msgs: [],
@@ -155,7 +168,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_v2');
+                const s = localStorage.getItem('tennis_calib_v3');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -210,9 +223,9 @@
             };
         },
 
-        // =================================================================
+        // =====================================================================
         // MULTIPLAYER FIREBASE (Padrão Kart / Boxe)
-        // =================================================================
+        // =====================================================================
         connectMultiplayer: function() {
             this.state = 'LOBBY';
             try {
@@ -241,6 +254,7 @@
                 this.roomRef.child('ball').on('value', (snap) => {
                     if (this.isHost || !this.isOnline || !snap.exists()) return;
                     const b = snap.val();
+                    // Inverte a visão da bola para o Player 2
                     this.ball.x = -b.x; this.ball.y = b.y; this.ball.z = -b.z; 
                     this.ball.vx = -b.vx; this.ball.vy = b.vy; this.ball.vz = -b.vz;
                     this.ball.spinX = -b.spinX; this.ball.spinY = -b.spinY;
@@ -276,11 +290,33 @@
                 });
                 if (this.isHost) {
                     this.roomRef.update({
-                        ball: { x: this.ball.x, y: this.ball.y, z: this.ball.z, vx: this.ball.vx, vy: this.ball.vy, vz: this.ball.vz, spinX: this.ball.spinX, spinY: this.ball.spinY, active: this.ball.active, lastHitBy: this.ball.lastHitBy },
+                        ball: { x: this.ball.x||0, y: this.ball.y||-300, z: this.ball.z||0, vx: this.ball.vx||0, vy: this.ball.vy||0, vz: this.ball.vz||0, spinX: this.ball.spinX||0, spinY: this.ball.spinY||0, active: this.ball.active, lastHitBy: this.ball.lastHitBy },
                         score: this.score, gameState: this.state
                     });
                 }
             }
+        },
+
+        spawnParticles: function(x, y, z, count, color) {
+            for (let i = 0; i < count; i++) {
+                this.particles.push({ x, y, z, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, vz: (Math.random()-0.5)*15, life: 1.0, c: color });
+            }
+            if (this.particles.length > 150) this.particles = this.particles.slice(this.particles.length - 150);
+        },
+
+        playHitSound: function(speed) {
+            try {
+                if (!window.AudioContext && !window.webkitAudioContext) return;
+                if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+                const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
+                osc.connect(gain); gain.connect(this.audioCtx.destination);
+                osc.frequency.value = 200 + Math.min(speed * 3, 600); osc.type = 'sine';
+                const vol = Math.min(speed / 300, 0.5);
+                gain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(this.audioCtx.currentTime + 0.1);
+            } catch(e) {}
         },
 
         startGame: function() {
@@ -293,9 +329,9 @@
         updateCameraAdapter: function(w, h) {
             // A câmera ajusta dinamicamente para garantir visão 100% no celular
             if (h > w) { 
-                CONF.CAM_Z = -3400; CONF.CAM_Y = -1800; CONF.FOV = w * 1.6; 
+                CONF.CAM_Z = -3400; CONF.CAM_Y = -1600; CONF.CAM_PITCH = 0.28; CONF.FOV = w * 1.8; 
             } else { 
-                CONF.CAM_Z = -3200; CONF.CAM_Y = -1200; CONF.FOV = 900; 
+                CONF.CAM_Z = -3200; CONF.CAM_Y = -1200; CONF.CAM_PITCH = 0.22; CONF.FOV = 900; 
             }
         },
 
@@ -368,7 +404,7 @@
         },
 
         // =================================================================
-        // SISTEMA DE CALIBRAÇÃO (O SEGREDO PARA A CÂMERA FUNCIONAR)
+        // SISTEMA DE CALIBRAÇÃO (A CERCA VIRTUAL DO JOGADOR)
         // =================================================================
         updateCalibration: function(dt) {
             const d = dt / 16;
@@ -395,11 +431,12 @@
                     this.calibTimer += 25 * d;
                     if (this.calibTimer > CONF.CALIB_TIME) {
                         this.calib.brX = this.p1.rawX; this.calib.brY = this.p1.rawY;
+                        
                         // Garante um tamanho mínimo para não quebrar a escala
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 80) this.calib.brX = this.calib.tlX + 150;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 80) this.calib.brY = this.calib.tlY + 150;
                         
-                        try { localStorage.setItem('tennis_calib_v2', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        try { localStorage.setItem('tennis_calib_v3', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
                         
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
@@ -524,6 +561,8 @@
             if (!this.ball.active) return;
             
             const b = this.ball;
+            if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.z)) { this.resetRound(); return; }
+
             b.prevY = b.y;
 
             let magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
@@ -612,7 +651,9 @@
             }
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
                 if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p2.x, this.p2.y, this.p2.z) < CONF.PADDLE_HITBOX) {
-                    if (MathCore.dot3d(this.p2.x - this.ball.x, this.p2.y - this.ball.y, this.p2.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) this.hitBall('p2', 0, 0);
+                    if (MathCore.dot3d(this.p2.x - this.ball.x, this.p2.y - this.ball.y, this.p2.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
+                        this.hitBall('p2', 0, 0);
+                    }
                 }
             }
         },
@@ -717,7 +758,7 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG WII", w/2, h * 0.20);
+            ctx.fillText("PING PONG V3.0", w/2, h * 0.20);
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.35, 320, 60);
             ctx.fillStyle = "#f39c12"; ctx.fillRect(w/2 - 160, h * 0.50, 320, 60);
             ctx.fillStyle = "#27ae60"; ctx.fillRect(w/2 - 160, h * 0.65, 320, 60);
@@ -876,7 +917,8 @@
 
         renderHUD: function(ctx, w, h) {
             const cx = w/2;
-            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
             if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-100, 10, 200, 50, 10); ctx.fill(); ctx.stroke(); } 
             else { ctx.fillRect(cx-100, 10, 200, 50); ctx.strokeRect(cx-100, 10, 200, 50); }
             
@@ -900,7 +942,7 @@
                 ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.strokeStyle = "transparent";
                 if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-150, h-70, 300, 50, 10); ctx.fill(); }
                 else { ctx.fillRect(cx-150, h-70, 300, 50); }
-                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE O BRAÇO PARA SACAR";
+                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE A MÃO PARA SACAR";
                 ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(textoSaque, cx, h-40);
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
                 ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-140, h-25, 280*progress, 5);
@@ -912,7 +954,8 @@
             
             if (this.pose && this.pose.keypoints) {
                 this.drawSkeleton(ctx, w, h);
-                if (this.handedness && Number.isFinite(this.p1.currRawX)) {
+                
+                if (this.handedness && this.p1.currRawX !== undefined && this.p1.currRawX !== null && !Number.isNaN(this.p1.currRawX)) {
                     const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
                     ctx.translate(cx, cy); ctx.rotate(-0.2);
                     ctx.fillStyle = "#8d6e63"; ctx.fillRect(-5, 0, 10, 30); 
@@ -929,17 +972,19 @@
                 ctx.fillStyle = "#fff"; ctx.font = "bold 30px sans-serif"; ctx.textAlign = "center";
                 ctx.fillText("PROCURANDO JOGADOR...", w/2, h*0.5);
                 ctx.font = "18px sans-serif"; ctx.fillStyle = "#aaa";
-                ctx.fillText("Fique de frente para a câmera.", w/2, h*0.6);
+                ctx.fillText("Fique de frente para a câmera no meio da tela.", w/2, h*0.6);
             }
 
             ctx.fillStyle = "#fff"; ctx.textAlign = "center";
 
             if (this.state === 'CALIB_HAND_SELECT') {
                 ctx.font = "bold 35px sans-serif"; ctx.fillText("ESCOLHA SUA MÃO", w/2, h*0.15);
-                ctx.font = "20px sans-serif"; ctx.fillStyle = "#aaa"; ctx.fillText("Levante uma mão p/ selecionar", w/2, h*0.22);
+                ctx.font = "20px sans-serif"; ctx.fillStyle = "#aaa";
+                ctx.fillText("Levante uma mão p/ selecionar", w/2, h*0.22);
                 
                 const drawSelectRing = (x, y, hand) => {
-                    ctx.fillStyle = "#fff"; ctx.font = "bold 25px sans-serif"; ctx.fillText(hand === 'left' ? "✋ Esq" : "Dir ✋", x, y);
+                    ctx.fillStyle = "#fff"; ctx.font = "bold 25px sans-serif";
+                    ctx.fillText(hand === 'left' ? "✋ Esq" : "Dir ✋", x, y);
                     if (this.calibHandCandidate === hand) {
                         const progress = Math.min(1, this.calibTimer / CONF.HAND_SELECT_TIME);
                         ctx.strokeStyle = "#0f0"; ctx.lineWidth = 5;
@@ -949,21 +994,31 @@
                 drawSelectRing(w*0.25, h*0.5, 'left'); drawSelectRing(w*0.75, h*0.5, 'right');
             } 
             else if (this.state === 'CALIB_TL') {
-                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText("MANTENHA A MÃO NO ALVO VERMELHO", w/2, h*0.15);
-                ctx.strokeStyle = "#f00"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(80, 80, 40, 0, Math.PI*2); ctx.stroke();
-                if(Number.isFinite(this.p1.currRawX)) {
+                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("MANTENHA A MÃO NO ALVO VERMELHO (ESQ/CIMA)", w/2, h*0.15);
+                
+                const tx = 80; const ty = 80;
+                ctx.strokeStyle = "#f00"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
+                
+                if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !Number.isNaN(this.p1.currRawX)) {
                     const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
                     ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
-                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(80, 80); ctx.stroke(); ctx.setLineDash([]);
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
                 }
             }
             else if (this.state === 'CALIB_BR') {
-                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff"; ctx.fillText("MANTENHA A MÃO NO ALVO VERDE", w/2, h*0.15);
-                ctx.strokeStyle = "#0f0"; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(w-80, h-80, 40, 0, Math.PI*2); ctx.stroke();
-                if(Number.isFinite(this.p1.currRawX)) {
+                ctx.font = "bold 20px sans-serif"; ctx.fillStyle = "#fff";
+                ctx.fillText("MANTENHA A MÃO NO ALVO VERDE (DIR/BAIXO)", w/2, h*0.15);
+                
+                const tx = w-80; const ty = h-80;
+                ctx.strokeStyle = "#0f0"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(tx, ty, 40, 0, Math.PI*2); ctx.stroke();
+                
+                if(this.p1.currRawX !== undefined && this.p1.currRawX !== null && !Number.isNaN(this.p1.currRawX)) {
                     const cx = (this.p1.currRawX / 640) * w; const cy = (this.p1.currRawY / 480) * h;
                     ctx.setLineDash([10, 10]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
-                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(w-80, h-80); ctx.stroke(); ctx.setLineDash([]);
+                    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
                 }
             }
         },
