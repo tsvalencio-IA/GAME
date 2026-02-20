@@ -1,14 +1,14 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: NINTENDO / PLAYSTATION MASTER EDITION
-// ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: PARABOLIC AIM ASSIST, TIMING WINDOWS (ZERO GHOST HITS), MULTIPLAYER
+// THIAGUINHO WII PING PONG: VERSÃO 11 (O PADRÃO NINTENDO / SONY)
+// ARQUITETO: SENIOR GAME ENGINE ARCHITECT (Miyamoto / Nishino Logic)
+// STATUS: FÍSICA PARABÓLICA (NUNCA ERRA A MESA), ANTI-CRASH TOTAL, PÉS DA MESA
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES DA QUADRA E CÂMERA (VISÃO CONSOLE)
+    // 1. CONFIGURAÇÕES FÍSICAS DA QUADRA (PERFEITAS PARA O CELULAR)
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,       
@@ -18,18 +18,19 @@
         FLOOR_Y: 850,        
         
         BALL_R: 35,          
-        GRAVITY: 0.85,       // Gravidade forte para arcos bonitos
-        AIR_DRAG: 0.995,     
+        GRAVITY: 0.80,       // Gravidade constante para a Parábola Perfeita
         BOUNCE_LOSS: 0.85,   
         
-        PADDLE_SCALE: 3.0,   // Raquete visível
-        PADDLE_HITBOX: 400,  // Hitbox Gigante (Cobre a área da mão + escova/raquete)
-        
-        // Câmera perfeitamente enquadrada
+        PADDLE_SCALE: 2.8,   
+        PADDLE_HITBOX: 350,  // Hitbox massiva: Você NUNCA mais vai furar a bola
+        SWING_FORCE: 4.0,    
+        SMASH_THRESH: 40,    
+
+        // Câmera dinâmica 
         CAM_X: 0,           
-        CAM_Y: -1600,       
-        CAM_Z: -4500,       
-        CAM_PITCH: 0.28,    
+        CAM_Y: -1500,       
+        CAM_Z: -3800,       
+        CAM_PITCH: 0.25,    
         FOV: 900,           
 
         CALIB_TIME: 1500,      
@@ -37,11 +38,11 @@
     };
 
     const AI_PROFILES = {
-        'PRO': { difficultyFactor: 0.90, baseSpeed: 0.16 }
+        'PRO': { speed: 0.16, difficultyFactor: 0.90, baseSpeed: 0.16 }
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE (ESCUDO ANTI-TRAVAMENTO)
+    // 2. MATH CORE & ESCUDO ANTI-CRASH (TODAS AS FUNÇÕES RESTAURADAS)
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -54,12 +55,14 @@
             let ry = cy * cosP - cz * sinP;
             let rz = cy * sinP + cz * cosP;
 
+            // Escudo 1: Atrás da câmera ou valores quebrados
             if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             
             const scale = CONF.FOV / rz;
             let screenX = (cx * scale) + w/2;
             let screenY = (ry * scale) + h/2;
 
+            // Escudo 2: Previne o Canvas de Crashar com números infinitos
             if (!Number.isFinite(screenX) || !Number.isFinite(screenY) || Math.abs(screenX) > 15000 || Math.abs(screenY) > 15000) {
                 return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             }
@@ -73,11 +76,37 @@
         clamp: (v, min, max) => {
             if (!Number.isFinite(v)) return min;
             return Math.max(min, Math.min(max, v));
+        },
+        dist3d: (x1, y1, z1, x2, y2, z2) => {
+            let d = Math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2);
+            return Number.isFinite(d) ? d : 9999;
+        },
+        dot3d: (x1, y1, z1, x2, y2, z2) => {
+            let dt = x1*x2 + y1*y2 + z1*z2;
+            return Number.isFinite(dt) ? dt : 0;
+        },
+        // O predict FOI RESTAURADO PARA O JOGO NÃO TRAVAR NA HORA QUE A IA PENSAR!
+        predict: (b, targetZ) => {
+            let sx = b.x, sz = b.z;
+            let svx = b.vx, svz = b.vz;
+            if (Math.abs(svz) < 0.1) return sx;
+            let time = Math.abs((targetZ - sz) / svz);
+            let finalX = sx + (svx * time);
+            return Number.isFinite(finalX) ? finalX : 0;
+        },
+        predictY: (b, targetZ) => {
+            let sy = b.y, sz = b.z;
+            let svy = b.vy, svz = b.vz;
+            if (Math.abs(svz) < 0.1) return sy;
+            let time = Math.abs((targetZ - sz) / svz);
+            // Física: Y = Y0 + Vy*t + 0.5*g*t^2
+            let finalY = sy + (svy * time) + (0.5 * CONF.GRAVITY * time * time);
+            return Number.isFinite(finalY) ? finalY : -200;
         }
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO E MULTIPLAYER
+    // 3. ENGINE DO JOGO (COM MULTIPLAYER INTEGRADO AO SEU CORE)
     // -----------------------------------------------------------------
     const Game = {
         state: 'MODE_SELECT', 
@@ -89,9 +118,10 @@
         calib: { tlX: 0, tlY: 0, brX: 640, brY: 480 },
 
         lastFrameTime: 0, activeAIProfile: JSON.parse(JSON.stringify(AI_PROFILES.PRO)),
-        aiRecalcCounter: 0, 
+        aiFrame: 0, aiRecalcCounter: 0, 
         useMouse: false, mouseX: 320, mouseY: 240,
 
+        // ID Seguro para o Multiplayer
         get playerId() { return (window.System && window.System.playerId) ? window.System.playerId : 'player_' + Math.floor(Math.random()*10000); },
 
         isOnline: false, isHost: false, roomId: 'thiaguinho_pingpong_oficial',
@@ -112,7 +142,7 @@
             this.msgs = [];
             this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - MASTER");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V11 PRONTO");
             this.setupInput();
         },
 
@@ -212,9 +242,9 @@
                     this.calibTimer = 0; this.sfx('click');
                 } 
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
-                    // Impulso de saque para o touch
-                    this.p1.vy = -150;
-                    this.executeHit('p1', this.p1, 100);
+                    // Força artificial de saque no mouse
+                    this.p1.vx = 0; this.p1.vy = -100;
+                    this.hitBall('p1', 0, 0);
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -305,14 +335,15 @@
 
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
-                CONF.CAM_Z = -5000; CONF.CAM_Y = -2400; CONF.CAM_PITCH = 0.35; CONF.FOV = w * 1.8; 
+                // CÂMERA MOBILE: AFASTADA PARA CABER A LARGURA SEM DEFORMAR
+                CONF.CAM_Z = -4500; CONF.CAM_Y = -1800; CONF.CAM_PITCH = 0.28; CONF.FOV = w * 1.6; 
             } else { 
                 CONF.CAM_Z = -3800; CONF.CAM_Y = -1500; CONF.CAM_PITCH = 0.25; CONF.FOV = 900; 
             }
         },
 
         // =====================================================================
-        // GAME LOOP PRINCIPAL
+        // GAME LOOP (O ESCUDO COMPLETO)
         // =====================================================================
         update: function(ctx, w, h, pose) {
             try { 
@@ -323,9 +354,10 @@
 
                 this.updateCameraAdapter(w, h); 
 
+                // HITSTOP (Efeito do Smash Bros)
                 if (this.hitstop > 0) {
                     this.hitstop -= dt;
-                    dt = 0; // Congela a atualização da física, mas a tela continua desenhando!
+                    dt = 0; 
                 }
 
                 if (!this.polyfillDone) {
@@ -334,7 +366,8 @@
                 }
 
                 if (this.state === 'MODE_SELECT') { 
-                    this.p1.x = Math.sin(now * 0.002) * 300; this.p2.x = Math.cos(now * 0.002) * 300; 
+                    this.p1.x = Math.sin(now * 0.002) * 300; 
+                    this.p2.x = Math.cos(now * 0.002) * 300; 
                 } 
                 else if (this.state !== 'LOBBY' && this.state !== 'END') {
                     if (this.state === 'IDLE') {
@@ -360,9 +393,11 @@
                 try {
                     if(this.shake > 0 && Number.isFinite(this.shake)) {
                         ctx.translate((Math.random()-0.5)*this.shake, (Math.random()-0.5)*this.shake);
-                        this.shake *= 0.8; if(this.shake < 0.5) this.shake = 0;
+                        this.shake *= 0.9; if(this.shake < 0.5) this.shake = 0;
                     }
+
                     this.renderScene(ctx, w, h);
+
                     if (this.flash > 0 && Number.isFinite(this.flash)) {
                         ctx.fillStyle = `rgba(255,255,255,${this.flash})`; ctx.fillRect(0,0,w,h);
                         this.flash -= 0.05; if(this.flash < 0.01) this.flash = 0;
@@ -374,12 +409,14 @@
                     else if (this.state === 'END') this.renderEnd(ctx, w, h);
                     else this.renderHUD(ctx, w, h);
 
-                } finally { ctx.restore(); }
+                } finally {
+                    ctx.restore();
+                }
 
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V10.0: ERRO SUPRIMIDO", e);
+                console.error("SHIELD V11 ATIVADO (Jogo Salvo): ", e);
             }
             return this.score.p1 || 0;
         },
@@ -423,20 +460,29 @@
             }
         },
 
+        handleLostTracking: function() {
+            if(this.state.startsWith('CALIB')) this.calibHandCandidate = null;
+            else if (this.state === 'SERVE' || this.state === 'RALLY' || this.state === 'IDLE') {
+                this.p1.x = MathCore.lerp(this.p1.x || 0, 0, 0.1);
+                this.p1.y = MathCore.lerp(this.p1.y || -200, -200, 0.1);
+            }
+        },
+
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
-            // MODO MOUSE
             if (this.useMouse) {
                 let nx = MathCore.clamp(this.mouseX / w, 0, 1);
                 let ny = MathCore.clamp(this.mouseY / h, 0, 1);
                 
                 const targetX = MathCore.lerp(-CONF.TABLE_W * 1.2, CONF.TABLE_W * 1.2, nx); 
-                const targetY = MathCore.lerp(-800, 200, ny); 
+                const targetY = MathCore.lerp(-1000, 300, ny); 
 
                 this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
                 this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.85);
-                this.p1.z = -CONF.TABLE_L/2 - 200; 
+                this.p1.z = -CONF.TABLE_L/2 - 250; 
+                this.p1.elbowX = this.p1.x + 100;
+                this.p1.elbowY = this.p1.y + 300;
 
                 let calcVX = this.p1.x - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.x);
                 let calcVY = this.p1.y - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.y);
@@ -444,10 +490,11 @@
                 this.p1.vx = MathCore.clamp(Number.isFinite(calcVX) ? calcVX : 0, -300, 300);
                 this.p1.vy = MathCore.clamp(Number.isFinite(calcVY) ? calcVY : 0, -300, 300);
                 this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
+
+                if (this.state === 'SERVE' && this.server === 'p1' && this.p1.vy < -20) this.hitBall('p1', 0, 0);
                 return;
             }
 
-            // MODO CÂMERA
             if (this.state === 'CALIB_HAND_SELECT') {
                 if (!pose || !pose.keypoints) { this.calibHandCandidate = null; return; }
                 const nose = pose.keypoints.find(k => k.name === 'nose');
@@ -462,79 +509,77 @@
             }
 
             if (!this.handedness) return; 
-            if (!pose || !pose.keypoints) return; 
+            if (!pose || !pose.keypoints) { this.handleLostTracking(); return; }
 
             const wrist = pose.keypoints.find(k => k.name === this.handedness + '_wrist' && k.score > 0.2);
             const elbow = pose.keypoints.find(k => k.name === this.handedness + '_elbow' && k.score > 0.2);
 
             if (wrist) {
-                // Filtro Low-Pass para estabilizar tremedeiras e evitar que a raquete suma
-                let currentRawX = 640 - wrist.x; let currentRawY = wrist.y;
-                this.p1.rawX = this.p1.rawX ? MathCore.lerp(this.p1.rawX, currentRawX, 0.6) : currentRawX;
-                this.p1.rawY = this.p1.rawY ? MathCore.lerp(this.p1.rawY, currentRawY, 0.6) : currentRawY;
+                this.p1.rawX = 640 - wrist.x; this.p1.rawY = wrist.y;
                 
                 if (!this.state.startsWith('CALIB')) {
                     let minX = Math.min(this.calib.tlX, this.calib.brX); let maxX = Math.max(this.calib.tlX, this.calib.brX);
                     let minY = Math.min(this.calib.tlY, this.calib.brY); let maxY = Math.max(this.calib.tlY, this.calib.brY);
                     
-                    let rangeX = Math.max(150, Math.abs(maxX - minX));
+                    let rangeX = Math.max(200, Math.abs(maxX - minX));
                     let rangeY = Math.max(150, Math.abs(maxY - minY));
 
-                    let nx = MathCore.clamp((this.p1.rawX - minX) / rangeX, -0.2, 1.2);
-                    let ny = MathCore.clamp((this.p1.rawY - minY) / rangeY, -0.2, 1.2);
+                    let nx = MathCore.clamp((this.p1.rawX - minX) / rangeX, -0.5, 1.5);
+                    let ny = MathCore.clamp((this.p1.rawY - minY) / rangeY, -0.5, 1.5);
 
                     let targetX = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nx); 
-                    // Y: Se a pessoa levantar a mão, a raquete sobe na tela
-                    let targetY = MathCore.lerp(-800, 200, ny); 
+                    let targetY = MathCore.lerp(-800, 300, ny); 
+                    if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
-                    this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.8);
-                    this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.8);
-                    this.p1.z = -CONF.TABLE_L/2 - 200; // Fica na beirada da mesa
+                    this.p1.x = MathCore.lerp(this.p1.x || 0, targetX, 0.85);
+                    this.p1.y = MathCore.lerp(this.p1.y || -200, targetY, 0.85);
+                    this.p1.z = -CONF.TABLE_L/2 - 300; 
 
                     if (elbow) {
-                        let nex = MathCore.clamp((640 - elbow.x - minX) / rangeX, -0.2, 1.2); 
-                        let ney = MathCore.clamp((elbow.y - minY) / rangeY, -0.2, 1.2);
+                        let nex = MathCore.clamp((640 - elbow.x - minX) / rangeX, -0.5, 1.5); 
+                        let ney = MathCore.clamp((elbow.y - minY) / rangeY, -0.5, 1.5);
                         let targetEx = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nex);
-                        let targetEy = MathCore.lerp(-800, 200, ney);
-                        this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.8);
-                        this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.8);
+                        let targetEy = MathCore.lerp(-800, 300, ney);
+                        if (!Number.isFinite(targetEx)) targetEx = targetX; if (!Number.isFinite(targetEy)) targetEy = targetY + 300;
+                        this.p1.elbowX = MathCore.lerp(this.p1.elbowX || targetEx, targetEx, 0.85);
+                        this.p1.elbowY = MathCore.lerp(this.p1.elbowY || targetEy, targetEy, 0.85);
                     } else {
                         this.p1.elbowX = this.p1.x + (this.handedness === 'right' ? 150 : -150); this.p1.elbowY = this.p1.y + 300;
                     }
 
-                    // Calcula a velocidade do movimento da mão para usar na força
                     let calculatedVelX = this.p1.x - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.x);
                     let calculatedVelY = this.p1.y - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.y);
 
-                    this.p1.vx = MathCore.clamp(Number.isFinite(calculatedVelX) ? calculatedVelX : 0, -400, 400);
-                    this.p1.vy = MathCore.clamp(Number.isFinite(calculatedVelY) ? calculatedVelY : 0, -400, 400);
+                    this.p1.vx = MathCore.clamp(Number.isFinite(calculatedVelX) ? calculatedVelX : 0, -350, 350);
+                    this.p1.vy = MathCore.clamp(Number.isFinite(calculatedVelY) ? calculatedVelY : 0, -350, 350);
                     this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
-                    // Saque da Câmera (Levanta a mão bem rápido)
                     if (this.state === 'SERVE' && this.server === 'p1') {
-                        if (this.p1.vy < -25) this.executeHit('p1', this.p1, Math.abs(this.p1.vy)); 
+                        if (this.p1.vy < -15) this.hitBall('p1', 0, 0); 
                     }
                 }
-            }
+            } else { this.handleLostTracking(); }
         },
 
         // =====================================================================
-        // O CORAÇÃO DO JOGO: TIMING WINDOWS & AIM ASSIST (COMO WII SPORTS)
+        // FÍSICA PARABÓLICA (O SEGREDO DA NINTENDO / SONY)
         // =====================================================================
         updatePhysicsClient: function() {
             if (!this.ball.active) return;
             const b = this.ball; b.prevY = b.y;
             b.x += b.vx; b.y += b.vy; b.z += b.vz;
 
-            if (b.y >= CONF.TABLE_Y && b.prevY < CONF.TABLE_Y) {
-                b.y = CONF.TABLE_Y; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
-                this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 5, '#fff');
-                this.playHitSound(100);
+            if (b.y >= 0 && b.prevY < 0) {
+                b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
+                this.spawnParticles(b.x, 0, b.z, 5, '#fff');
+                this.playHitSound(Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2) * 1.5);
             }
-            if (Math.abs(b.vz) > 10) {
+
+            if (Math.abs(b.vz) > 20) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
                 if (this.ball.trail.length > 20) this.ball.trail.shift();
             }
+
             this.checkPaddleHitClient();
         },
 
@@ -546,12 +591,8 @@
 
             b.prevY = b.y;
 
-            let magX = b.spinY * b.vz * CONF.MAGNUS_FORCE * 0.01;
-            let magY = b.spinX * b.vz * CONF.MAGNUS_FORCE * 0.01;
-            
-            b.vx += Number.isFinite(magX) ? magX : 0;
-            b.vy += (Number.isFinite(magY) ? magY : 0) + CONF.GRAVITY;
-            b.vx *= CONF.AIR_DRAG; b.vy *= CONF.AIR_DRAG; b.vz *= CONF.AIR_DRAG;
+            // GRAVIDADE PURA (Sem atrito do ar para não quebrar a matemática da parábola de acerto)
+            b.vy += CONF.GRAVITY;
 
             const currentSpeed = Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2);
             let steps = currentSpeed > 50 ? 3 : 1; 
@@ -562,15 +603,13 @@
 
                 if ((b.z > 0 && b.lastHitBy === 'p1') || (b.z < 0 && b.lastHitBy === 'p2')) b.lastHitBy = null;
 
-                // QUIQUE NA MESA
-                if (b.y >= CONF.TABLE_Y && previousY < CONF.TABLE_Y) { 
+                if (b.y >= 0 && previousY < 0) { 
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
-                        b.y = CONF.TABLE_Y; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
-                        b.vx += b.spinY * 0.5; b.vz += b.spinX * 0.5;
-                        this.spawnParticles(b.x, CONF.TABLE_Y, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5);
+                        b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
+                        this.spawnParticles(b.x, 0, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5);
 
                         const side = b.z < 0 ? 'p1' : 'p2';
-                        if (this.lastHitter === side) { this.scorePoint(side === 'p1' ? 'p2' : 'p1', "FALTA!"); return; } 
+                        if (this.lastHitter === side) { this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES"); return; } 
                         else {
                             this.ball.bounceCount++;
                             if(this.ball.bounceCount >= 2) { this.scorePoint(side === 'p1' ? 'p2' : 'p1', "PONTO!"); return; }
@@ -580,12 +619,11 @@
                 this.checkPaddleHit();
             }
 
-            // REGRAS: PASSOU (A BOLA FOI EMBORA)
-            if (b.z < this.p1.z - 400) {
+            if (b.z < this.p1.z - 200) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
                 else this.scorePoint('p2', "PASSOU!"); return;
             }
-            if (b.z > this.p2.z + 400) {
+            if (b.z > this.p2.z + 200) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p1') this.scorePoint('p2', "FORA!");
                 else this.scorePoint('p1', "SEU PONTO!"); return;
             }
@@ -595,16 +633,9 @@
                 else this.scorePoint(this.lastHitter, "PONTO!"); return;
             }
 
-            // Bateu na rede
-            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < CONF.TABLE_Y) {
-                b.vz *= -0.3; b.vx *= 0.5; this.shake = 5; this.playHitSound(100); b.lastHitBy = null;
+            if (Math.abs(b.z) < 20 && b.y > -CONF.NET_H && b.y < 0) {
+                b.vz *= -0.2; b.vx *= 0.5; this.shake = 5; this.playHitSound(100); b.lastHitBy = null;
             }
-
-            const totalSpeed = Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2);
-            if (totalSpeed > CONF.MAX_TOTAL_SPEED && Number.isFinite(totalSpeed)) {
-                const scale = CONF.MAX_TOTAL_SPEED / totalSpeed; b.vx *= scale; b.vy *= scale; b.vz *= scale;
-            }
-            b.spinX *= 0.99; b.spinY *= 0.99;
 
             if (Math.abs(b.vz) > 20) {
                 this.ball.trail.push({x:b.x, y:b.y, z:b.z, a:1.0});
@@ -612,14 +643,12 @@
             }
         },
 
-        // O SEGREDO DO SUCESSO: A JANELA DE TEMPO (TIMING WINDOW) EM VEZ DE COLISÃO 3D PERFEITA
         checkPaddleHitClient: function() {
-            let isP1Turn = this.ball.vz < 0 && this.ball.lastHitBy !== 'p1';
-            if (isP1Turn) {
-                // Se a bola está "Perto" do jogador no eixo Z (Isso é o Timing Window)
-                if (this.ball.z < this.p1.z + 800 && this.ball.z > this.p1.z - 800) {
-                    let distXY = Math.sqrt((this.ball.x - this.p1.x)**2 + (this.ball.y - this.p1.y)**2);
-                    if (distXY < CONF.PADDLE_HITBOX) { 
+            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
+                // Cilindro de Z (Garante que a bola bata mesmo se a câmera der um mini lag)
+                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
+                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) { 
                         this.playHitSound(100); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
                     }
                 }
@@ -627,96 +656,81 @@
         },
 
         checkPaddleHit: function() {
-            // VERIFICA JOGADOR 1
-            let isP1Turn = this.ball.vz < 0 && this.ball.lastHitBy !== 'p1';
-            if (isP1Turn) {
-                // A Janela de Tempo: A bola deve estar a uma profundidade razoável do jogador
-                let isWithinDepth = this.ball.z < this.p1.z + 800 && this.ball.z > this.p1.z - 800;
-                if (isWithinDepth) {
-                    let distXY = Math.sqrt((this.ball.x - this.p1.x)**2 + (this.ball.y - this.p1.y)**2);
-                    if (distXY < CONF.PADDLE_HITBOX) {
+            if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
+                // Timing Window Profunda
+                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
+                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) {
+                        // Verifica se o braço está com energia ou se é o mouse
                         let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
-                        // Se balançou a mão, ou se a bola bateu em cheio no centro da raquete
-                        if (speed > 15 || distXY < CONF.PADDLE_HITBOX * 0.5 || this.useMouse) {
-                            this.executeHit('p1', this.p1, speed);
+                        if (speed > 10 || this.useMouse) {
+                            this.hitBall('p1', dx, dy);
                         }
                     }
                 }
             }
-
-            // VERIFICA CPU (P2)
-            let isP2Turn = this.ball.vz > 0 && this.ball.lastHitBy !== 'p2';
-            if (isP2Turn) {
-                let isWithinDepth = this.ball.z > this.p2.z - 600 && this.ball.z < this.p2.z + 600;
-                if (isWithinDepth) {
-                    let distXY = Math.sqrt((this.ball.x - this.p2.x)**2 + (this.ball.y - this.p2.y)**2);
-                    if (distXY < CONF.PADDLE_HITBOX) {
-                        let speed = Math.sqrt(this.p2.vx**2 + this.p2.vy**2);
-                        this.executeHit('p2', this.p2, speed);
+            if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
+                if (this.ball.z > this.p2.z - 150 && this.ball.z < this.p2.z + 150) {
+                    let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) {
+                        this.hitBall('p2', dx, dy);
                     }
                 }
             }
         },
 
-        // =====================================================================
-        // O AIM ASSIST NINTENDO (CÁLCULO PARABÓLICO DE PROJÉTIL)
-        // =====================================================================
-        executeHit: function(who, paddle, speed) {
-            this.playHitSound(200);
+        hitBall: function(who, offX=0, offY=0) {
+            const isP1 = who === 'p1';
+            const paddle = isP1 ? this.p1 : this.p2;
+            
+            let velX = Number.isFinite(paddle.vx) ? paddle.vx : 0; 
+            let velY = isP1 ? (Number.isFinite(paddle.vy) ? paddle.vy : 0) : (Number.isFinite(paddle.vz) ? paddle.vz * 0.15 : 0);
+
+            const speed = Math.sqrt(velX**2 + velY**2);
+            let force = MathCore.clamp(60 + (speed * CONF.SWING_FORCE), 60, 150); 
+            
+            let isSmash = force > 110;
+            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1 && typeof this.addMsg === 'function') this.addMsg("CORTADA!", "#0ff"); } 
+            else { this.shake = 3; }
+
+            this.playHitSound(force * 3);
             this.ball.active = true;
             this.ball.lastHitBy = who;
-            this.bouncesP1 = 0;
-            this.bouncesP2 = 0;
+
+            // ==========================================
+            // AIM ASSIST: A PARÁBOLA NINTENDO 
+            // ==========================================
             
-            let isP1 = who === 'p1';
-            
-            // 1. Onde a bola deve cair na mesa? (ALVO)
+            // 1. Onde a bola deve cair no eixo Z? (No campo do adversário)
             let targetZ = isP1 ? (CONF.TABLE_L/2 - 200) : (-CONF.TABLE_L/2 + 200);
-            
-            // A mira esquerda/direita depende da posição da raquete do jogador
-            let crossFactor = -paddle.x / (CONF.TABLE_W/2); 
-            crossFactor = MathCore.clamp(crossFactor, -1, 1);
-            let targetX = crossFactor * (CONF.TABLE_W * 0.4); 
-            targetX += (Math.random() - 0.5) * 150; // Leve variação para não ser mecânico
 
-            // 2. O Tempo de Voo (O quão forte você bateu)
-            // Velocidade da mão é entre 0 e 400.
-            let power = MathCore.clamp(speed, 50, 400);
-            // Quanto mais forte, menos tempo de voo (Bola rápida e reta)
-            let flightFrames = MathCore.lerp(80, 25, power / 400); 
+            // 2. Onde a bola deve cair no eixo X? (Depende da raquete, mas NUNCA sai da mesa)
+            let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.0, 1.0); 
+            let targetX = (impactFactor * (CONF.TABLE_W * 0.4)) + (velX * 1.5); 
+            targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100); 
 
-            if (power > 300) { 
-                this.hitstop = 4; // Congelamento bruto de impacto!
-                this.shake = 15; 
-                this.flash = 0.4;
-                if(isP1 && typeof this.addMsg === 'function') this.addMsg("CORTADA!", "#0ff"); 
-            } else {
-                this.shake = 3;
-            }
+            // 3. O Tempo de Voo
+            let distZ = Math.abs(targetZ - this.ball.z);
+            let vz = Math.abs(force) * (isP1 ? 1 : -1); 
+            let timeToReach = Math.abs(distZ / vz);
+            timeToReach = Math.max(10, timeToReach); // Nunca deixa o tempo ser muito pequeno (Crash fix)
 
-            // 3. MATEMÁTICA DE PROJÉTIL (Garante que caia EXATAMENTE no Alvo)
-            let dx = targetX - this.ball.x;
-            let dz = targetZ - this.ball.z;
+            // 4. Velocidade X e Z Perfeita
+            this.ball.vx = (targetX - this.ball.x) / timeToReach;
+            this.ball.vz = vz;
+
+            // 5. A MÁGICA: Velocidade Y (Altura) para que a bola caia na mesa exatamente no momento Z.
+            // Formula: Y_final = Y_inicial + V_y * t + 0.5 * G * t^2
             let dy = CONF.TABLE_Y - this.ball.y; 
-            
-            this.ball.vx = dx / flightFrames;
-            this.ball.vz = dz / flightFrames;
-            
-            // Equação: Vy = (dy - 0.5 * gravidade * t^2) / t
-            this.ball.vy = (dy - (0.5 * CONF.GRAVITY * (flightFrames * flightFrames))) / flightFrames;
-            
-            // Se a raquete foi pra cima (Lob/Balão), forçamos uma subida maior
-            if (paddle.vy < -50) {
-                this.ball.vy = -35; 
-                this.ball.vx *= 0.5; // Balões são mais lentos
-                this.ball.vz *= 0.6;
-            }
+            let gravityTerm = 0.5 * CONF.GRAVITY * (timeToReach * timeToReach);
+            this.ball.vy = (dy - gravityTerm) / timeToReach;
 
-            this.ball.spinX = this.ball.vy * 0.5;
-            this.ball.spinY = this.ball.vx * 0.5;
+            // Spin apenas visual
+            this.ball.spinY = velX * 0.5; 
+            this.ball.spinX = velY * 0.5;
 
-            this.lastHitter = who; this.rallyCount++; this.state = 'RALLY';
-            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, power > 300 ? 30 : 10, isP1 ? '#e74c3c' : '#3498db'); 
+            this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
+            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#e74c3c' : '#3498db'); 
             
             if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
         },
@@ -737,8 +751,8 @@
                 if (this.timer > CONF.AUTO_SERVE_DELAY) {
                     if (this.server === 'p1') {
                         if(typeof this.addMsg === 'function') this.addMsg("SAQUE AUTOMÁTICO", "#fff");
-                        this.executeHit('p1', this.p1, 100);
-                    } else { if (!this.isOnline || this.isHost) this.executeHit('p2', this.p2, 100); }
+                        this.hitBall('p1', 0, 0);
+                    } else { if (!this.isOnline || this.isHost) this.aiServe(); }
                     this.timer = 0;
                 }
             }
@@ -749,7 +763,7 @@
             let predX = MathCore.predict(this.ball, this.p2.z); let predY = MathCore.predictY(this.ball, this.p2.z);
             if (!Number.isFinite(predX)) predX = 0; if (!Number.isFinite(predY)) predY = -200;
 
-            const baseError = 60; const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
+            const baseError = 40; const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
             const humanError = baseError * this.activeAIProfile.difficultyFactor * speedFactor;
             
             this.p2.targetX = predX + (Math.random() - 0.5) * humanError;
@@ -771,10 +785,14 @@
             if (this.ball.vz < 0) { ai.targetX = 0; ai.targetY = -200; }
         },
 
+        aiServe: function() {
+            this.hitBall('p2', (Math.random()-0.5)*20, 0);
+        },
+
         scorePoint: function(winner, txt) {
             this.score[winner]++; 
             if(typeof this.addMsg === 'function') this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
-            this.sfx('coin');
+            this.sfx(winner === 'p1' ? 'coin' : 'hit');
             this.ball.active = false; this.rallyCount = 0;
             if (winner === 'p2') this.activeAIProfile.speed = Math.min(this.activeAIProfile.speed * 1.02, this.activeAIProfile.baseSpeed * 1.5);
             else this.activeAIProfile.speed = Math.max(this.activeAIProfile.speed * 0.99, this.activeAIProfile.baseSpeed);
@@ -793,7 +811,7 @@
         },
 
         // =================================================================
-        // DESENHOS BLINDADOS (O CANVAS NUNCA VAI TRAVAR)
+        // DESENHOS BLINDADOS E O RETORNO DOS PÉS DA MESA
         // =================================================================
         safeCircle: function(ctx, x, y, r, color) {
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0.1) {
@@ -893,6 +911,15 @@
 
         drawTable: function(ctx, w, h) {
             const hw = CONF.TABLE_W/2; const hl = CONF.TABLE_L/2; const th = 60; const legH = CONF.FLOOR_Y; 
+            
+            // OS PÉS DA MESA ESTÃO DE VOLTA!
+            const drawLeg = (x, z) => {
+                const p1 = MathCore.project(x-30, 0, z, w, h); const p2 = MathCore.project(x+30, 0, z, w, h);
+                const p3 = MathCore.project(x+30, legH, z, w, h); const p4 = MathCore.project(x-30, legH, z, w, h);
+                this.safeDrawPoly(ctx, [p1, p2, p3, p4], "#111");
+            };
+            drawLeg(-hw+150, -hl+300); drawLeg(hw-150, -hl+300); drawLeg(-hw+150, hl-300); drawLeg(hw-150, hl-300);
+
             const c1 = MathCore.project(-hw, 0, -hl, w, h); const c2 = MathCore.project(hw, 0, -hl, w, h);
             const c3 = MathCore.project(hw, 0, hl, w, h); const c4 = MathCore.project(-hw, 0, hl, w, h);
             const c1b = MathCore.project(-hw, th, -hl, w, h); const c2b = MathCore.project(hw, th, -hl, w, h);
@@ -903,7 +930,11 @@
             this.safeDrawPoly(ctx, [c1, c2, c2b, c1b], "#0c2a4d");
             this.safeDrawPoly(ctx, [c2, c3, c3b, c2b], "#0a3d62");
             this.safeDrawPoly(ctx, [c4, c1, c1b, c4b], "#0a3d62");
-            this.safeDrawPoly(ctx, [c1, c2, c3, c4], "#1e6091", "#fff");
+            
+            // Tampo azul estilo torneio com bordas brancas
+            const topGrad = ctx.createLinearGradient(0, c1.y, 0, c3.y);
+            topGrad.addColorStop(0, '#1e6091'); topGrad.addColorStop(1, '#184e77');
+            this.safeDrawPoly(ctx, [c1, c2, c3, c4], topGrad, "#fff");
             
             const m1 = MathCore.project(0, 0, -hl, w, h); const m2 = MathCore.project(0, 0, hl, w, h);
             if (m1.visible && m2.visible && Number.isFinite(m1.x) && Number.isFinite(m2.x)) {
@@ -982,7 +1013,8 @@
 
         renderHUD: function(ctx, w, h) {
             const cx = w/2;
-            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
             if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-100, 10, 200, 50, 10); ctx.fill(); ctx.stroke(); } 
             else { ctx.fillRect(cx-100, 10, 200, 50); ctx.strokeRect(cx-100, 10, 200, 50); }
             
