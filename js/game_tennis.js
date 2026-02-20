@@ -1,7 +1,7 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: VERSÃO 9.0 - PLATINUM (FUNÇÕES RESTAURADAS)
+// THIAGUINHO WII PING PONG: VERSÃO 10.0 - PLATINUM (NINTENDO PHYSICS)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 100% ESTÁVEL, LOBBY MULTIPLAYER RESTAURADO, BUGS CORRIGIDOS E BLINDADOS
+// STATUS: AIM ASSIST INTEGRADO, BOLA PRESA NA MESA, LOBBY MULTIPLAYER ATIVO
 // =============================================================================
 
 (function() {
@@ -46,7 +46,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO (CORRIGIDO V9)
+    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -82,10 +82,6 @@
         dist3d: (x1, y1, z1, x2, y2, z2) => {
             let d = Math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2);
             return Number.isFinite(d) ? d : 9999;
-        },
-        dot3d: (x1, y1, z1, x2, y2, z2) => {
-            let dt = x1*x2 + y1*y2 + z1*z2;
-            return Number.isFinite(dt) ? dt : 0;
         },
         predict: (b, targetZ) => {
             let sx = b.x, sy = b.y, sz = b.z;
@@ -153,7 +149,7 @@
             this.msgs = [];
             this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V9.0");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V10.0");
             this.setupInput();
         },
 
@@ -171,7 +167,6 @@
             }
         },
 
-        // CORREÇÃO CRÍTICA V9: FUNÇÕES QUE HAVIAM SIDO DELETADAS FORAM RESTAURADAS
         addMsg: function(t, c) { 
             if (!this.msgs) this.msgs = [];
             this.msgs.push({t, c, y: 300, a: 1.5, s: 1.0}); 
@@ -213,7 +208,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_v9');
+                const s = localStorage.getItem('tennis_calib_v10');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -353,10 +348,11 @@
 
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
-                CONF.CAM_Z = -5000;  
-                CONF.CAM_Y = -2400;  
-                CONF.CAM_PITCH = 0.35; 
-                CONF.FOV = w * 1.8;  
+                // Câmera Mobile 10.0: Afastada corretamente para dar Visão de Quadra
+                CONF.CAM_Z = -4000;  
+                CONF.CAM_Y = -1800;  
+                CONF.CAM_PITCH = 0.30; 
+                CONF.FOV = w * 1.6;  
             } else { 
                 CONF.CAM_Z = -3800;
                 CONF.CAM_Y = -1500;
@@ -436,7 +432,7 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V9.0 ATIVADO (Sistema Seguro Salvou o Frame): ", e);
+                console.error("SHIELD V10.0 ATIVADO (Sistema Seguro Salvou o Frame): ", e);
             }
             return this.score.p1 || 0;
         },
@@ -470,7 +466,7 @@
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 150) this.calib.brX = this.calib.tlX + 250;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 150) this.calib.brY = this.calib.tlY + 250;
                         
-                        try { localStorage.setItem('tennis_calib_v9', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        try { localStorage.setItem('tennis_calib_v10', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
                         
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
@@ -674,9 +670,7 @@
         checkPaddleHitClient: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.x, this.p1.y, this.p1.z) < CONF.PADDLE_HITBOX) {
-                    if (MathCore.dot3d(this.p1.x - this.ball.x, this.p1.y - this.ball.y, this.p1.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) { 
-                        this.playHitSound(100); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
-                    }
+                    this.playHitSound(100); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
                 }
             }
         },
@@ -684,16 +678,14 @@
         checkPaddleHit: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.x, this.p1.y, this.p1.z) < CONF.PADDLE_HITBOX) {
-                    if (MathCore.dot3d(this.p1.x - this.ball.x, this.p1.y - this.ball.y, this.p1.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
-                        this.hitBall('p1', this.ball.x - this.p1.x, this.ball.y - this.p1.y);
-                    }
+                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
+                    this.hitBall('p1', dx, dy);
                 }
             }
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
                 if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p2.x, this.p2.y, this.p2.z) < CONF.PADDLE_HITBOX) {
-                    if (MathCore.dot3d(this.p2.x - this.ball.x, this.p2.y - this.ball.y, this.p2.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
-                        this.hitBall('p2', this.ball.x - this.p2.x, this.ball.y - this.p2.y);
-                    }
+                    let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
+                    this.hitBall('p2', dx, dy);
                 }
             }
         },
@@ -701,29 +693,47 @@
         hitBall: function(who, offX=0, offY=0) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
-            let velX = Number.isFinite(paddle.vx) ? paddle.vx : 0; 
-            let velY = isP1 ? (Number.isFinite(paddle.vy) ? paddle.vy : 0) : (Number.isFinite(paddle.vz) ? paddle.vz * 0.15 : 0);
+            
+            let velX = MathCore.clamp(Number.isFinite(paddle.vx) ? paddle.vx : 0, -150, 150);
+            let velY = isP1 ? MathCore.clamp(Number.isFinite(paddle.vy) ? paddle.vy : 0, -150, 150) : 0;
 
             const speed = Math.sqrt(velX**2 + velY**2);
-            let force = MathCore.clamp(60 + (speed * CONF.SWING_FORCE), 60, 140); 
+            let force = MathCore.clamp(60 + (speed * 0.3), 60, 130); 
             
-            let isSmash = force > 95;
-            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1 && typeof this.addMsg === 'function') this.addMsg("CORTADA!", "#0ff"); } 
+            let isSmash = force > 100;
+            if (isSmash) { force *= 1.2; this.shake = 10; this.flash = 0.2; this.hitstop = 20; if(isP1 && typeof this.addMsg === 'function') this.addMsg("CORTADA!", "#0ff"); } 
             else { this.shake = 3; }
 
-            this.playHitSound(force * 3);
-            this.ball.active = true; this.ball.lastHitBy = who;
+            this.sfx('hit');
+            this.ball.active = true;
+            this.ball.lastHitBy = who;
             this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
             
-            let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.5, 1.5); 
-            this.ball.vx = (impactFactor * 45) + (velX * 0.15); 
-            this.ball.vy = -18 + (velY * 0.2); 
+            // ==========================================
+            // AIM ASSIST (FÍSICA DE CONSOLE NINTENDO/SONY)
+            // A BOLA É MAGNÉTICA PARA A MESA E NUNCA VOA PARA O TETO
+            // ==========================================
             
-            this.ball.spinY = velX * 0.8; 
-            this.ball.spinX = velY * 0.8;
+            let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.0, 1.0);
+            let targetX = (impactFactor * (CONF.TABLE_W / 2)) + (velX * 1.5);
+            targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100);
+
+            let distZ = Math.abs((isP1 ? this.p2.z : this.p1.z) - this.ball.z);
+            let timeToReach = distZ / Math.abs(this.ball.vz);
+
+            this.ball.vx = (targetX - this.ball.x) / timeToReach;
+            this.ball.vx = MathCore.clamp(this.ball.vx, -25, 25); 
+
+            let arc = -20; 
+            if (velY > 40) arc = -12; 
+            if (velY < -40) arc = -35; 
+
+            this.ball.vy = arc;
+            this.ball.spinY = velX * 0.5; 
+            this.ball.spinX = velY * 0.5;
 
             this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
-            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#e74c3c' : '#3498db'); 
+            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, isSmash ? 25 : 10, isP1 ? '#e74c3c' : '#3498db'); 
             
             if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
         },
@@ -824,7 +834,7 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V9.0", w/2, h * 0.15);
+            ctx.fillText("PING PONG V10.0", w/2, h * 0.15);
             
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.25, 320, 50);
             ctx.fillStyle = "#d35400"; ctx.fillRect(w/2 - 160, h * 0.40, 320, 50);
@@ -985,6 +995,7 @@
         },
 
         drawParticles: function(ctx, w, h) {
+            if (!this.particles) return;
             this.particles.forEach(p => {
                 p.x += p.vx; p.y += p.vy; p.z += p.vz; p.life -= 0.05;
                 const pos = MathCore.project(p.x, p.y, p.z, w, h);
