@@ -1,14 +1,14 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: V13.0 - GOLD MASTER (PLAYSTATION / NINTENDO FEEL)
+// THIAGUINHO WII PING PONG: V14.0 - GOLD MASTER (PLAYSTATION / NINTENDO FEEL)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT (Wii Sports Logic)
-// STATUS: GINÁSIO 3D, HITBOX MAGNÉTICA, BUG DO "SAQUE PRESO" CORRIGIDO, ANTI-CRASH
+// STATUS: GINÁSIO 3D, DETECÇÃO REAL DE SWING, IA VULNERÁVEL A BALÃO, ANTI-CRASH
 // =============================================================================
 
 (function() {
     "use strict";
 
     // -----------------------------------------------------------------
-    // 1. CONFIGURAÇÕES FÍSICAS E DA QUADRA (DIMENSÕES REAIS)
+    // 1. CONFIGURAÇÕES FÍSICAS (VELOCIDADE AUMENTADA PARA MAIS EMOÇÃO)
     // -----------------------------------------------------------------
     const CONF = {
         TABLE_W: 1525,       
@@ -18,12 +18,12 @@
         FLOOR_Y: 850,        
         
         BALL_R: 35,          
-        GRAVITY: 0.85,       // Gravidade ajustada para a parábola perfeita
+        GRAVITY: 1.1,        // Gravidade maior faz o jogo ficar muito mais rápido e real
         BOUNCE_LOSS: 0.85,   
         
         PADDLE_SCALE: 2.8,   
-        PADDLE_HITBOX: 450,  // Hitbox Magnética (Puxa a bola se o movimento for próximo)
-        SWING_FORCE: 3.5,    
+        PADDLE_HITBOX: 400,  
+        SWING_FORCE: 5.0,    // Força bruta do seu movimento convertida em velocidade
         
         // Câmera Mobile Afastada (Visão de Quadra Inteira)
         CAM_X: 0,           
@@ -37,7 +37,7 @@
     };
 
     const AI_PROFILES = {
-        'PRO': { speed: 0.15, difficultyFactor: 0.90, baseSpeed: 0.15 }
+        'PRO': { speed: 0.12, difficultyFactor: 0.85, baseSpeed: 0.12 } // IA um pouco mais humana
     };
 
     // -----------------------------------------------------------------
@@ -54,14 +54,12 @@
             let ry = cy * cosP - cz * sinP;
             let rz = cy * sinP + cz * cosP;
 
-            // Escudo: Ignora objetos atrás da câmera
             if (rz <= 10 || !Number.isFinite(rz)) return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             
             const scale = CONF.FOV / rz;
             let screenX = (cx * scale) + w/2;
             let screenY = (ry * scale) + h/2;
 
-            // Escudo: Impede números absurdos que travam o Canvas no Celular
             if (!Number.isFinite(screenX) || !Number.isFinite(screenY) || Math.abs(screenX) > 15000 || Math.abs(screenY) > 15000) {
                 return { x: -9999, y: -9999, s: 0, visible: false, depth: rz };
             }
@@ -130,7 +128,7 @@
             this.msgs = [];
             this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V13");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V14");
             this.setupInput();
         },
 
@@ -235,7 +233,7 @@
                 }
                 else if (this.state === 'SERVE' && this.useMouse && this.server === 'p1') {
                     this.p1.vx = 0; this.p1.vy = -100;
-                    this.executeAimAssistHit('p1', 0, 0);
+                    this.executeAimAssistHit('p1', 0, 0, 150); // Manda uma velocidade forte virtual
                 }
                 else if (this.state === 'LOBBY') {
                     if (this.isHost) {
@@ -402,7 +400,7 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V13.0: Crash Prevented ", e);
+                console.error("SHIELD V14.0: Crash Prevented ", e);
             }
             return this.score.p1 || 0;
         },
@@ -449,14 +447,11 @@
         processPose: function(pose, w, h) {
             this.pose = pose; 
 
-            // ==============================================================
-            // MODO MOUSE/TOUCH (Correção da visualização encobrindo CPU)
-            // ==============================================================
+            // MODO MOUSE/TOUCH
             if (this.useMouse) {
                 let nx = MathCore.clamp(this.mouseX / w, 0, 1);
                 let ny = MathCore.clamp(this.mouseY / h, 0, 1);
                 
-                // Limitei o eixo Y para o jogador não arrastar a raquete até o teto e encobrir a visão
                 const targetX = MathCore.lerp(-CONF.TABLE_W * 1.2, CONF.TABLE_W * 1.2, nx); 
                 const targetY = MathCore.lerp(-400, 300, ny); 
 
@@ -472,8 +467,6 @@
                 this.p1.vx = MathCore.clamp(Number.isFinite(calcVX) ? calcVX : 0, -300, 300);
                 this.p1.vy = MathCore.clamp(Number.isFinite(calcVY) ? calcVY : 0, -300, 300);
                 this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
-
-                if (this.state === 'SERVE' && this.server === 'p1' && this.p1.vy < -20) this.executeAimAssistHit('p1', 0, 0);
                 return;
             }
 
@@ -510,7 +503,6 @@
                     let ny = MathCore.clamp((this.p1.rawY - minY) / rangeY, -0.5, 1.5);
 
                     let targetX = MathCore.lerp(-CONF.TABLE_W*1.2, CONF.TABLE_W*1.2, nx); 
-                    // Limita também o movimento vertical da câmera para não entrar na visão da CPU
                     let targetY = MathCore.lerp(-500, 300, ny); 
                     if (!Number.isFinite(targetX)) targetX = 0; if (!Number.isFinite(targetY)) targetY = -200;
 
@@ -529,6 +521,7 @@
                         this.p1.elbowX = this.p1.x + (this.handedness === 'right' ? 150 : -150); this.p1.elbowY = this.p1.y + 300;
                     }
 
+                    // A MAGIA DO SWING: Pega a velocidade real crua da sua mão na câmera!
                     let calculatedVelX = this.p1.x - (Number.isFinite(this.p1.prevX) ? this.p1.prevX : this.p1.x);
                     let calculatedVelY = this.p1.y - (Number.isFinite(this.p1.prevY) ? this.p1.prevY : this.p1.y);
 
@@ -536,65 +529,80 @@
                     this.p1.vy = MathCore.clamp(Number.isFinite(calculatedVelY) ? calculatedVelY : 0, -350, 350);
                     this.p1.prevX = this.p1.x; this.p1.prevY = this.p1.y;
 
+                    // Saque do jogador pela câmera: Movimento rápido para cima
                     if (this.state === 'SERVE' && this.server === 'p1') {
-                        if (this.p1.vy < -25) this.executeAimAssistHit('p1', 0, 0); 
+                        let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
+                        if (this.p1.vy < -25 && speed > 30) this.executeAimAssistHit('p1', 0, 0, speed); 
                     }
                 }
             }
         },
 
         // =====================================================================
-        // O SEGREDO NINTENDO: AIM ASSIST (BOLA PARABÓLICA PRESA À MESA)
-        // BUG DA FUNÇÃO "offX" CORRIGIDO AQUI!
+        // NOVO: SISTEMA DE INTENSIDADE DA RAQUETADA (O GAME FEEL NINTENDO)
         // =====================================================================
-        executeAimAssistHit: function(who, offX=0, offY=0) {
+        executeAimAssistHit: function(who, offX=0, offY=0, handSpeed=0) {
             const isP1 = who === 'p1';
             const paddle = isP1 ? this.p1 : this.p2;
             
             let velX = Number.isFinite(paddle.vx) ? paddle.vx : 0; 
             let velY = isP1 ? (Number.isFinite(paddle.vy) ? paddle.vy : 0) : (Number.isFinite(paddle.vz) ? paddle.vz * 0.15 : 0);
 
-            let speed = Math.sqrt(velX**2 + velY**2);
-            let force = MathCore.clamp(60 + (speed * CONF.SWING_FORCE), 60, 150); 
+            // Se o usuário estiver no mouse, simula uma velocidade média-alta
+            if (this.useMouse && isP1) handSpeed = handSpeed > 0 ? handSpeed : 80;
+
+            // FORÇA: Se a mão balançou pouco (< 25), é só um bloqueio. Se balançou muito, é porrada!
+            let safeSpeed = MathCore.clamp(handSpeed, 0, 300);
+            let force = MathCore.clamp(60 + (safeSpeed * CONF.SWING_FORCE), 60, 200); 
             
-            let isSmash = force > 110;
-            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1) this.addMsg("CORTADA!", "#0ff"); } 
-            else { this.shake = 3; }
+            let isSmash = force > 130 && safeSpeed > 60;
+            let isBlock = safeSpeed < 15; // Mão parada (Bloqueio)
+
+            if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1) this.addMsg(safeSpeed > 150 ? "CORTADA FATAL!" : "CORTADA!", "#0ff"); } 
+            else if (isBlock) { force = 45; if(isP1) this.addMsg("DEFESA!", "#aaa"); this.shake = 1; }
+            else { this.shake = 4; }
 
             this.playHitSound(force * 3);
             this.ball.active = true;
             this.ball.lastHitBy = who;
 
-            // MÁGICA 1: DEFINE O ALVO EXATO NA MESA DO ADVERSÁRIO
-            let targetZ = isP1 ? (CONF.TABLE_L/2 - 200) : (-CONF.TABLE_L/2 + 200);
-            
-            // O X depende da sua mão, mas é "Clampado" dentro da mesa
+            // MÁGICA 1: DEFINE O ALVO EXATO NA MESA (A BOLA NUNCA SAI PRA PAREDE)
+            let targetZ = isP1 ? (CONF.TABLE_L/2 - 100) : (-CONF.TABLE_L/2 + 100);
             let impactFactor = MathCore.clamp(offX / (CONF.PADDLE_HITBOX * 0.5), -1.0, 1.0); 
             let targetX = (impactFactor * (CONF.TABLE_W * 0.4)) + (velX * 1.5); 
             targetX = MathCore.clamp(targetX, -CONF.TABLE_W/2 + 100, CONF.TABLE_W/2 - 100); 
 
-            // MÁGICA 2: TEMPO DE VOO
-            let timeToReach = MathCore.lerp(70, 25, (force - 60) / 90); 
-            if (isSmash) timeToReach = 20;
-            timeToReach = Math.max(10, timeToReach); // Proteção matemática extra
+            // MÁGICA 2: TEMPO DE VOO (Voo rápido se bateu forte, Voo lento se bloqueou)
+            let timeToReach;
+            if (isBlock) timeToReach = 90; // Bloqueio faz a bola voltar super devagar
+            else timeToReach = MathCore.lerp(75, 12, safeSpeed / 300); // Mão super rápida = 12 frames (Bala)
+            
+            if (isSmash) timeToReach = Math.min(15, timeToReach);
+            timeToReach = Math.max(10, timeToReach); 
 
-            // MÁGICA 3: FÍSICA DE PROJÉTIL (Cálculo da parábola)
+            // MÁGICA 3: FÍSICA DE PROJÉTIL (Parábola Perfeita pro Alvo)
             let dx = targetX - this.ball.x;
             let dz = targetZ - this.ball.z;
             let dy = CONF.TABLE_Y - this.ball.y;
 
             this.ball.vx = dx / timeToReach;
             this.ball.vz = dz / timeToReach;
-            
-            // Vy = (Dy - 0.5 * G * T^2) / T
             this.ball.vy = (dy - (0.5 * CONF.GRAVITY * timeToReach * timeToReach)) / timeToReach;
 
-            // Efeito visual 
+            // LOB SYSTEM: Se balançar a mão bem forte PRA CIMA, dá um BALÃO!
+            if (velY < -50 && isP1 && !isBlock) {
+                timeToReach *= 1.8; // Fica o dobro do tempo no ar
+                this.ball.vx = dx / timeToReach;
+                this.ball.vz = dz / timeToReach;
+                this.ball.vy = (dy - (0.5 * CONF.GRAVITY * timeToReach * timeToReach)) / timeToReach;
+                if(isP1) this.addMsg("BALÃO!", "#f1c40f");
+            }
+
             this.ball.spinY = velX * 0.8; 
             this.ball.spinX = velY * 0.8;
 
             this.lastHitter = who; this.ball.bounceCount = 0; this.rallyCount++; this.state = 'RALLY';
-            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, isP1 ? '#e74c3c' : '#3498db'); 
+            this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, isSmash ? 25 : 10, isP1 ? '#e74c3c' : '#3498db'); 
             
             if (isP1 && (!this.isOnline || this.isHost)) this.calculateAITarget();
         },
@@ -624,7 +632,7 @@
 
             b.prevY = b.y;
 
-            // GRAVIDADE PURA (Mantém a precisão parabólica intacta)
+            // GRAVIDADE CONSTANTE PRA PARÁBOLA NÃO QUEBRAR
             b.vy += CONF.GRAVITY;
 
             const currentSpeed = Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2);
@@ -683,32 +691,48 @@
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 if (this.ball.z < this.p1.z + 400 && this.ball.z > this.p1.z - 200) {
                     let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
+                    let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
                     if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) { 
-                        this.playHitSound(100); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
+                        this.executeAimAssistHit('p1', dx, dy, speed + 50);
                     }
                 }
             }
         },
 
         checkPaddleHit: function() {
-            // JANELA DE IMPACTO MAGNÉTICA (Evita que o jogador "fure" a bola pela velocidade do braço)
+            // JANELA DE IMPACTO MAGNÉTICA (Detecta se você REALMENTE balançou a mão)
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
                 if (this.ball.z < this.p1.z + 400 && this.ball.z > this.p1.z - 200) {
                     let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
                     let dist = Math.sqrt(dx*dx + dy*dy);
-                    let speed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
+                    let handSpeed = Math.sqrt(this.p1.vx**2 + this.p1.vy**2);
                     
-                    // Bateu no raio da raquete, OU balançou a mão de forma intencional quando a bola estava perto
-                    if (dist < CONF.PADDLE_HITBOX || (speed > 20 && dist < CONF.PADDLE_HITBOX * 1.5) || this.useMouse) {
-                        this.executeAimAssistHit('p1', dx, dy);
+                    if (this.useMouse) {
+                        if (dist < CONF.PADDLE_HITBOX) this.executeAimAssistHit('p1', dx, dy, handSpeed + 80);
+                    } else {
+                        // Câmera: Você balançou a mão?
+                        if (handSpeed > 25 && dist < CONF.PADDLE_HITBOX * 1.5) {
+                            this.executeAimAssistHit('p1', dx, dy, handSpeed);
+                        } else if (dist < CONF.PADDLE_HITBOX * 0.4) {
+                            // Deixou a mão parada no meio da bola. Bloqueio fraco!
+                            this.executeAimAssistHit('p1', dx, dy, 5); 
+                        }
                     }
                 }
             }
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
                 if (this.ball.z > this.p2.z - 400 && this.ball.z < this.p2.z + 200) {
                     let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) {
-                        this.executeAimAssistHit('p2', dx, dy);
+                    
+                    // IA VULNERÁVEL AO BALÃO! Se a bola for mais alta que a IA consegue pular, ela erra.
+                    if (this.ball.y < this.p2.y - 250) {
+                        // Bola passou MUITO por cima! 95% de chance da IA tomar encobrida.
+                        if (Math.random() < 0.95) return; 
+                    }
+
+                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX * 0.8) { // IA tem hitbox um pouco menor
+                        let aiSpeed = 40 + Math.random() * 60; // Velocidade "humana" da IA
+                        this.executeAimAssistHit('p2', dx, dy, aiSpeed);
                     }
                 }
             }
@@ -727,13 +751,12 @@
                     this.ball.z = CONF.TABLE_L/2 + 100;
                 }
 
-                // Força o saque caso demore muito (Corrigido para evitar o loop infinito)
                 if (this.serveTimeout > 4000) {
                     if (this.server === 'p1') {
                         this.addMsg("SAQUE AUTOMÁTICO", "#fff");
-                        this.executeAimAssistHit('p1', 0, 0);
+                        this.executeAimAssistHit('p1', 0, 0, 100);
                     } else { 
-                        if (!this.isOnline || this.isHost) this.executeAimAssistHit('p2', 0, 0); 
+                        if (!this.isOnline || this.isHost) this.executeAimAssistHit('p2', 0, 0, 80); 
                     }
                     this.serveTimeout = 0;
                 }
@@ -746,11 +769,12 @@
             let predY = MathCore.predictY(this.ball, this.p2.z);
             if (!Number.isFinite(predX)) predX = 0; if (!Number.isFinite(predY)) predY = -200;
 
-            const baseError = 40; const speedFactor = Math.min(1, Math.abs(this.ball.vx || 0) / 25);
-            const humanError = baseError * this.activeAIProfile.difficultyFactor * speedFactor;
+            const baseError = 60; const speedFactor = Math.min(1, Math.abs(this.ball.vx) / 30);
+            const humanErrorX = baseError * this.activeAIProfile.difficultyFactor * speedFactor;
+            const humanErrorY = 50 * this.activeAIProfile.difficultyFactor * speedFactor;
             
-            this.p2.targetX = predX + (Math.random() - 0.5) * humanError;
-            this.p2.targetY = predY + (Math.random() - 0.5) * Math.abs(this.ball.vz || 0) * 0.15; 
+            this.p2.targetX = predX + (Math.random() - 0.5) * humanErrorX;
+            this.p2.targetY = predY + (Math.random() - 0.5) * humanErrorY; 
         },
 
         updateAI: function() {
@@ -762,14 +786,31 @@
             this.aiFrame++; if (this.aiFrame % 2 !== 0) return;
 
             const ai = this.p2; 
-            ai.vx = ((ai.targetX || 0) - ai.x) * this.activeAIProfile.speed;
-            ai.vy = ((ai.targetY || -200) - ai.y) * this.activeAIProfile.speed;
+            
+            // Limitador de velocidade da IA: Se a bola for uma cortada rápida pro canto, a IA não alcança!
+            let maxSpeedX = 40; let maxSpeedY = 30;
+            
+            let dx = (ai.targetX || 0) - ai.x;
+            let dy = (ai.targetY || -200) - ai.y;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+
+            if (dist > 0) {
+                let moveSpeed = Math.min(dist * this.activeAIProfile.speed, maxSpeedX);
+                ai.vx = (dx / dist) * moveSpeed;
+                ai.vy = Math.min((dy / dist) * moveSpeed, maxSpeedY);
+            } else { ai.vx = 0; ai.vy = 0; }
+
             ai.x += ai.vx; ai.y += ai.vy;
+            
+            // A IA NÃO VOA! Fica presa na altura de uma pessoa pra tomar balão
+            if (ai.y < -550) ai.y = -550; 
+            if (ai.y > 0) ai.y = 0; 
+
             if (this.ball.vz < 0) { ai.targetX = 0; ai.targetY = -200; }
         },
 
         scorePoint: function(winner, txt) {
-            if (this.state !== 'RALLY') return; // PROTEÇÃO VITAL: Evita pontuar duas vezes e bugar a partida!
+            if (this.state !== 'RALLY') return; // PROTEÇÃO VITAL: Fix do Bug dos 2 Toques Presos
             
             this.score[winner]++; 
             this.addMsg(txt, winner === 'p1' ? "#0f0" : "#f00");
@@ -796,7 +837,7 @@
         },
 
         // =================================================================
-        // DESENHO 3D DO GINÁSIO, MESA E JOGADORES (ANTI-CRASH)
+        // DESENHOS BLINDADOS E O GINÁSIO 3D (O CENÁRIO ESTÁ DE VOLTA)
         // =================================================================
         safeCircle: function(ctx, x, y, r, color) {
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0.1) {
@@ -817,41 +858,30 @@
         },
 
         drawEnvironment: function(ctx, w, h) {
-            // Teto escuro de ginásio
+            // Teto do Ginásio
             ctx.fillStyle = "#0f172a"; ctx.fillRect(0,0,w,h);
 
-            // Parede de Fundo (Gym Wall)
+            // Parede de Fundo 
             let wTL = MathCore.project(-8000, -4000, 6000, w, h);
             let wTR = MathCore.project(8000, -4000, 6000, w, h);
             let wBL = MathCore.project(-8000, CONF.FLOOR_Y, 6000, w, h);
             let wBR = MathCore.project(8000, CONF.FLOOR_Y, 6000, w, h);
             this.safeDrawPoly(ctx, [wTL, wTR, wBR, wBL], "#1e293b");
 
-            // Luzes no teto do ginásio
-            let l1 = MathCore.project(-2000, -3900, 5000, w, h);
-            let l2 = MathCore.project(2000, -3900, 5000, w, h);
-            if (l1.visible && l2.visible) {
-                ctx.shadowBlur = 30; ctx.shadowColor = "#fff";
-                this.safeEllipse(ctx, l1.x, l1.y, 150*l1.s, 40*l1.s, "#fff");
-                this.safeEllipse(ctx, l2.x, l2.y, 150*l2.s, 40*l2.s, "#fff");
-                ctx.shadowBlur = 0;
-            }
-
-            // Piso de Madeira
+            // Piso de Madeira Clássico
             const f1 = MathCore.project(-8000, CONF.FLOOR_Y, 6000, w, h);
             const f2 = MathCore.project(8000, CONF.FLOOR_Y, 6000, w, h);
             const f3 = MathCore.project(8000, CONF.FLOOR_Y, -4000, w, h);
             const f4 = MathCore.project(-8000, CONF.FLOOR_Y, -4000, w, h);
             this.safeDrawPoly(ctx, [f1, f2, f3, f4], "#8b5a2b");
 
-            // Tapete Olímpico (Área de jogo - Vermelho vibrante)
+            // Tapete Olímpico de Ping Pong
             const c1 = MathCore.project(-3000, CONF.FLOOR_Y, 4000, w, h);
             const c2 = MathCore.project(3000, CONF.FLOOR_Y, 4000, w, h);
             const c3 = MathCore.project(3000, CONF.FLOOR_Y, -3000, w, h);
             const c4 = MathCore.project(-3000, CONF.FLOOR_Y, -3000, w, h);
             this.safeDrawPoly(ctx, [c1, c2, c3, c4], "#c0392b"); 
             
-            // Linhas brancas do tapete
             if (c1.visible && c2.visible && c3.visible && c4.visible) {
                 ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = Math.max(2, 4 * c1.s);
                 ctx.beginPath(); ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y);
@@ -862,7 +892,7 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V13", w/2, h * 0.15);
+            ctx.fillText("PING PONG V14", w/2, h * 0.15);
             
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.25, 320, 50);
             ctx.fillStyle = "#d35400"; ctx.fillRect(w/2 - 160, h * 0.40, 320, 50);
@@ -963,7 +993,7 @@
 
             const n1 = MathCore.project(-hw-80, 0, 0, w, h); const n2 = MathCore.project(hw+80, 0, 0, w, h);
             const n1t = MathCore.project(-hw-80, -CONF.NET_H, 0, w, h); const n2t = MathCore.project(hw+80, -CONF.NET_H, 0, w, h);
-            this.safeDrawPoly(ctx, [n1, n2, n2t, n1t], "rgba(255, 255, 255, 0.4)", "#ecf0f1"); // Rede mais clara
+            this.safeDrawPoly(ctx, [n1, n2, n2t, n1t], "rgba(255, 255, 255, 0.4)", "#ecf0f1");
         },
 
         drawPaddle: function(ctx, paddle, isPlayer, w, h) {
@@ -977,11 +1007,10 @@
             }
 
             if(Number.isFinite(scale) && scale > 0.1) {
-                // Desenha a Raquete Detalhada
-                ctx.fillStyle = "#8d6e63"; ctx.fillRect(pos.x - 8*scale, pos.y + 20*scale, 16*scale, 60*scale); // Cabo
-                this.safeEllipse(ctx, pos.x, pos.y, 48*scale, 52*scale, "#ecf0f1"); // Esponja
-                this.safeEllipse(ctx, pos.x, pos.y, 45*scale, 50*scale, isPlayer ? "#c0392b" : "#2c3e50"); // Borracha
-                this.safeEllipse(ctx, pos.x - 12*scale, pos.y - 12*scale, 15*scale, 20*scale, "rgba(255,255,255,0.15)"); // Brilho
+                ctx.fillStyle = "#8d6e63"; ctx.fillRect(pos.x - 8*scale, pos.y + 20*scale, 16*scale, 60*scale); 
+                this.safeEllipse(ctx, pos.x, pos.y + 3*scale, 52*scale, 57*scale, "#ecf0f1"); 
+                this.safeEllipse(ctx, pos.x, pos.y, 50*scale, 55*scale, isPlayer ? "#c0392b" : "#2c3e50"); 
+                this.safeEllipse(ctx, pos.x - 12*scale, pos.y - 12*scale, 15*scale, 20*scale, "rgba(255,255,255,0.15)"); 
             }
         },
 
@@ -1034,22 +1063,22 @@
 
         renderHUD: function(ctx, w, h) {
             const cx = w/2;
-            ctx.fillStyle = "rgba(0, 0, 0, 0.6)"; 
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)"; ctx.lineWidth = 2;
-            if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-120, 15, 240, 60, 15); ctx.fill(); ctx.stroke(); } 
-            else { ctx.fillRect(cx-120, 15, 240, 60); ctx.strokeRect(cx-120, 15, 240, 60); }
+            ctx.fillStyle = "rgba(0, 0, 0, 0.4)"; 
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)"; ctx.lineWidth = 1;
+            if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-100, 10, 200, 50, 10); ctx.fill(); ctx.stroke(); } 
+            else { ctx.fillRect(cx-100, 10, 200, 50); ctx.strokeRect(cx-100, 10, 200, 50); }
             
-            ctx.font = "bold 40px 'Russo One'"; ctx.textAlign = "center";
-            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p1, cx-60, 58); 
-            ctx.fillStyle = "#fff"; ctx.fillText("-", cx, 58);
-            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p2, cx+60, 58); 
+            ctx.font = "bold 35px 'Russo One'"; ctx.textAlign = "center";
+            ctx.fillStyle = "#e74c3c"; ctx.fillText(this.score.p1, cx-50, 48); 
+            ctx.fillStyle = "#fff"; ctx.fillText("-", cx, 48);
+            ctx.fillStyle = "#3498db"; ctx.fillText(this.score.p2, cx+50, 48); 
 
             if (this.msgs && this.msgs.length > 0) {
                 this.msgs.forEach(m => {
                     m.y -= 2; m.a -= 0.02; m.s += 0.01;
                     if(m.a > 0) {
                         ctx.save(); ctx.globalAlpha = Math.min(1, m.a); ctx.translate(cx, m.y); ctx.scale(m.s, m.s);
-                        ctx.font = "bold 40px 'Russo One'"; ctx.strokeStyle = "black"; ctx.lineWidth = 6; ctx.strokeText(m.t, 0, 0); ctx.fillStyle = m.c; ctx.fillText(m.t, 0, 0);
+                        ctx.font = "bold 35px 'Russo One'"; ctx.strokeStyle = "black"; ctx.lineWidth = 5; ctx.strokeText(m.t, 0, 0); ctx.fillStyle = m.c; ctx.fillText(m.t, 0, 0);
                         ctx.restore();
                     }
                 });
@@ -1058,13 +1087,13 @@
             ctx.globalAlpha = 1;
 
             if (this.state === 'SERVE' && this.server === 'p1') {
-                ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.strokeStyle = "transparent";
-                if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-180, h-80, 360, 60, 10); ctx.fill(); }
-                else { ctx.fillRect(cx-180, h-80, 360, 60); }
-                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE A MÃO PARA SACAR";
-                ctx.fillStyle = "#fff"; ctx.font = "bold 18px sans-serif"; ctx.fillText(textoSaque, cx, h-45);
+                ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.strokeStyle = "transparent";
+                if(ctx.roundRect) { ctx.beginPath(); ctx.roundRect(cx-150, h-70, 300, 50, 10); ctx.fill(); }
+                else { ctx.fillRect(cx-150, h-70, 300, 50); }
+                let textoSaque = this.useMouse ? "TOQUE PARA SACAR" : "LEVANTE O BRAÇO PARA SACAR";
+                ctx.fillStyle = "#fff"; ctx.font = "bold 16px sans-serif"; ctx.fillText(textoSaque, cx, h-40);
                 const progress = Math.min(1, this.timer / CONF.AUTO_SERVE_DELAY);
-                ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-160, h-25, 320*progress, 8);
+                ctx.fillStyle = "#f1c40f"; ctx.fillRect(cx-140, h-25, 280*progress, 5);
             }
         },
 
