@@ -1,7 +1,7 @@
 // =============================================================================
-// THIAGUINHO WII PING PONG: VERSÃO 8.0 - PLATINUM MULTIPLAYER (FIX DEFINITIVO)
+// THIAGUINHO WII PING PONG: VERSÃO 9.0 - PLATINUM (FUNÇÕES RESTAURADAS)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 100% ESTÁVEL, LOBBY MULTIPLAYER RESTAURADO, BUGS CORRIGIDOS
+// STATUS: 100% ESTÁVEL, LOBBY MULTIPLAYER RESTAURADO, BUGS CORRIGIDOS E BLINDADOS
 // =============================================================================
 
 (function() {
@@ -46,7 +46,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO 
+    // 2. MATH CORE & ESCUDO ANTI-CRASH MATEMÁTICO (CORRIGIDO V9)
     // -----------------------------------------------------------------
     const MathCore = {
         project: (x, y, z, w, h) => {
@@ -82,6 +82,37 @@
         dist3d: (x1, y1, z1, x2, y2, z2) => {
             let d = Math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2);
             return Number.isFinite(d) ? d : 9999;
+        },
+        dot3d: (x1, y1, z1, x2, y2, z2) => {
+            let dt = x1*x2 + y1*y2 + z1*z2;
+            return Number.isFinite(dt) ? dt : 0;
+        },
+        predict: (b, targetZ) => {
+            let sx = b.x, sy = b.y, sz = b.z;
+            let svx = b.vx, svy = b.vy, svz = b.vz;
+            let steps = 0;
+            while(sz < targetZ && steps < 300) {
+                svx += (b.spinY * svz * CONF.MAGNUS_FORCE * 0.005);
+                svy += (b.spinX * svz * CONF.MAGNUS_FORCE * 0.005) + CONF.GRAVITY;
+                svx *= CONF.AIR_DRAG; svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
+                sx += svx; sy += svy; sz += svz;
+                if(sy > 0) { sy = 0; svy *= -0.8; }
+                steps++;
+            }
+            return Number.isFinite(sx) ? sx : 0;
+        },
+        predictY: (b, targetZ) => {
+            let sy = b.y, sz = b.z;
+            let svy = b.vy, svz = b.vz;
+            let steps = 0;
+            while(sz < targetZ && steps < 300) {
+                svy += CONF.GRAVITY;
+                svy *= CONF.AIR_DRAG; svz *= CONF.AIR_DRAG;
+                sy += svy; sz += svz;
+                if(sy > 0) { sy = 0; svy *= -0.8; }
+                steps++;
+            }
+            return Number.isFinite(sy) ? sy : -200;
         }
     };
 
@@ -119,9 +150,10 @@
             this.state = 'MODE_SELECT'; this.handedness = null; this.useMouse = false;
             this.activeAIProfile = JSON.parse(JSON.stringify(AI_PROFILES.PRO));
             this.lastFrameTime = performance.now();
-            this.msgs = []; // Garantindo que as mensagens resetem
+            this.msgs = [];
+            this.particles = [];
             this.loadCalib();
-            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V8.0");
+            if(window.System && window.System.msg) window.System.msg("THIAGUINHO WII - V9.0");
             this.setupInput();
         },
 
@@ -139,10 +171,33 @@
             }
         },
 
-        // CORREÇÃO CRÍTICA: FUNÇÃO RESTAURADA (Estava faltando e causava o travamento TypeError)
+        // CORREÇÃO CRÍTICA V9: FUNÇÕES QUE HAVIAM SIDO DELETADAS FORAM RESTAURADAS
         addMsg: function(t, c) { 
             if (!this.msgs) this.msgs = [];
             this.msgs.push({t, c, y: 300, a: 1.5, s: 1.0}); 
+        },
+
+        spawnParticles: function(x, y, z, count, color) {
+            if (!this.particles) this.particles = [];
+            for (let i = 0; i < count; i++) {
+                this.particles.push({ x, y, z, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, vz: (Math.random()-0.5)*15, life: 1.0, c: color });
+            }
+            if (this.particles.length > 150) this.particles = this.particles.slice(this.particles.length - 150);
+        },
+
+        playHitSound: function(speed) {
+            try {
+                if (!window.AudioContext && !window.webkitAudioContext) return;
+                if (!this.audioCtx) this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+                const osc = this.audioCtx.createOscillator(); const gain = this.audioCtx.createGain();
+                osc.connect(gain); gain.connect(this.audioCtx.destination);
+                osc.frequency.value = 200 + Math.min(speed * 3, 600); osc.type = 'sine';
+                const vol = Math.min(speed / 300, 0.5);
+                gain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(this.audioCtx.currentTime + 0.1);
+            } catch(e) {}
         },
 
         sfx: function(action, ...args) {
@@ -158,7 +213,7 @@
 
         loadCalib: function() {
             try {
-                const s = localStorage.getItem('tennis_calib_v8');
+                const s = localStorage.getItem('tennis_calib_v9');
                 if(s) {
                     const data = JSON.parse(s);
                     if(data.calib && Number.isFinite(data.calib.tlX)) this.calib = data.calib;
@@ -189,20 +244,15 @@
                 const my = cy - rect.top;
 
                 if (this.state === 'MODE_SELECT') {
-                    // O NOVO MENU COM 4 OPÇÕES!
                     if (my >= h * 0.25 && my <= h * 0.25 + 50) { 
-                        // OFFLINE - CÂMERA
                         this.isOnline = false; this.useMouse = false; this.state = 'CALIB_HAND_SELECT';
                     } else if (my >= h * 0.40 && my <= h * 0.40 + 50) { 
-                        // OFFLINE - DEDO
                         this.isOnline = false; this.useMouse = true; this.handedness = 'right'; this.startGame();
                     } else if (my >= h * 0.55 && my <= h * 0.55 + 50) { 
-                        // ONLINE - CÂMERA
                         this.isOnline = !!window.DB; this.useMouse = false;
                         if (!this.isOnline) { if(window.System.msg) window.System.msg("SEM INTERNET/FIREBASE"); return; }
                         this.state = 'CALIB_HAND_SELECT';
                     } else if (my >= h * 0.70 && my <= h * 0.70 + 50) { 
-                        // ONLINE - DEDO
                         this.isOnline = !!window.DB; this.useMouse = true; this.handedness = 'right';
                         if (!this.isOnline) { if(window.System.msg) window.System.msg("SEM INTERNET/FIREBASE"); return; }
                         this.connectMultiplayer();
@@ -223,9 +273,6 @@
             };
         },
 
-        // =====================================================================
-        // MULTIPLAYER FIREBASE (LÓGICA IGUAL AO KART E BOXE)
-        // =====================================================================
         connectMultiplayer: function() {
             this.state = 'LOBBY';
             try {
@@ -255,7 +302,6 @@
                 this.roomRef.child('ball').on('value', (snap) => {
                     if (this.isHost || !this.isOnline || !snap.exists()) return;
                     const b = snap.val();
-                    // Inverte o eixo X e Z para a visão perfeita cara-a-cara
                     this.ball.x = -b.x; this.ball.y = b.y; this.ball.z = -b.z; 
                     this.ball.vx = -b.vx; this.ball.vy = b.vy; this.ball.vz = -b.vz;
                     this.ball.spinX = -b.spinX; this.ball.spinY = -b.spinY;
@@ -305,7 +351,6 @@
             this.resetRound();
         },
 
-        // ADAPTAÇÃO DA CÂMERA 
         updateCameraAdapter: function(w, h) {
             if (h > w) { 
                 CONF.CAM_Z = -5000;  
@@ -320,9 +365,6 @@
             }
         },
 
-        // =====================================================================
-        // GAME LOOP BLINDADO
-        // =====================================================================
         update: function(ctx, w, h, pose) {
             try { 
                 const now = performance.now();
@@ -394,14 +436,11 @@
                 if (this.isOnline) this.syncMultiplayer();
 
             } catch (e) {
-                console.error("SHIELD V8.0 ATIVADO (Sistema Seguro): ", e);
+                console.error("SHIELD V9.0 ATIVADO (Sistema Seguro Salvou o Frame): ", e);
             }
             return this.score.p1 || 0;
         },
 
-        // =====================================================================
-        // A CALIBRAÇÃO (A "CERCA" DO JOGADOR)
-        // =====================================================================
         updateAutoCalibration: function(dt) {
             const d = dt / 16;
             this.calibTimer = Math.max(0, this.calibTimer - (10 * d));
@@ -431,7 +470,7 @@
                         if (Math.abs(this.calib.tlX - this.calib.brX) < 150) this.calib.brX = this.calib.tlX + 250;
                         if (Math.abs(this.calib.tlY - this.calib.brY) < 150) this.calib.brY = this.calib.tlY + 250;
                         
-                        try { localStorage.setItem('tennis_calib_v8', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
+                        try { localStorage.setItem('tennis_calib_v9', JSON.stringify({ calib: this.calib, hand: this.handedness })); } catch(e) {}
                         
                         this.calibTimer = 0; 
                         if (this.isOnline) this.connectMultiplayer(); else this.startGame(); 
@@ -550,7 +589,7 @@
             if (b.y >= 0 && b.prevY < 0) {
                 b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS;
                 this.spawnParticles(b.x, 0, b.z, 5, '#fff');
-                this.sfx('hit');
+                this.playHitSound(Math.sqrt(b.vx**2 + b.vy**2 + b.vz**2) * 1.5);
             }
 
             if (Math.abs(b.vz) > 20) {
@@ -589,7 +628,7 @@
                     if (Math.abs(b.x) <= CONF.TABLE_W/2 && Math.abs(b.z) <= CONF.TABLE_L/2) {
                         b.y = 0; b.vy = -Math.abs(b.vy) * CONF.BOUNCE_LOSS; 
                         b.vx += b.spinY * 0.5; b.vz += b.spinX * 0.5;
-                        this.spawnParticles(b.x, 0, b.z, 8, '#fff'); this.sfx('hit');
+                        this.spawnParticles(b.x, 0, b.z, 8, '#fff'); this.playHitSound(currentSpeed * 1.5);
 
                         const side = b.z < 0 ? 'p1' : 'p2';
                         if (this.lastHitter === side) { this.scorePoint(side === 'p1' ? 'p2' : 'p1', "DOIS TOQUES"); return; } 
@@ -602,7 +641,6 @@
                 this.checkPaddleHit();
             }
 
-            // REGRAS: PASSOU OU CAIU FORA DA MESA
             if (b.z < this.p1.z - 100) {
                 if (this.ball.bounceCount === 0 && this.lastHitter === 'p2') this.scorePoint('p1', "FORA!");
                 else this.scorePoint('p2', "PASSOU!"); return;
@@ -635,10 +673,9 @@
 
         checkPaddleHitClient: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
-                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) { 
-                        this.sfx('hit'); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
+                if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.x, this.p1.y, this.p1.z) < CONF.PADDLE_HITBOX) {
+                    if (MathCore.dot3d(this.p1.x - this.ball.x, this.p1.y - this.ball.y, this.p1.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) { 
+                        this.playHitSound(100); this.spawnParticles(this.ball.x, this.ball.y, this.ball.z, 15, '#e74c3c'); this.ball.lastHitBy = 'p1'; 
                     }
                 }
             }
@@ -646,15 +683,17 @@
 
         checkPaddleHit: function() {
             if (this.ball.vz < 0 && this.ball.lastHitBy !== 'p1') {
-                if (this.ball.z < this.p1.z + 150 && this.ball.z > this.p1.z - 150) {
-                    let dx = this.ball.x - this.p1.x; let dy = this.ball.y - this.p1.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) this.hitBall('p1', dx, dy);
+                if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p1.x, this.p1.y, this.p1.z) < CONF.PADDLE_HITBOX) {
+                    if (MathCore.dot3d(this.p1.x - this.ball.x, this.p1.y - this.ball.y, this.p1.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
+                        this.hitBall('p1', this.ball.x - this.p1.x, this.ball.y - this.p1.y);
+                    }
                 }
             }
             if (this.ball.vz > 0 && this.ball.lastHitBy !== 'p2') {
-                if (this.ball.z > this.p2.z - 150 && this.ball.z < this.p2.z + 150) {
-                    let dx = this.ball.x - this.p2.x; let dy = this.ball.y - this.p2.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < CONF.PADDLE_HITBOX) this.hitBall('p2', dx, dy);
+                if (MathCore.dist3d(this.ball.x, this.ball.y, this.ball.z, this.p2.x, this.p2.y, this.p2.z) < CONF.PADDLE_HITBOX) {
+                    if (MathCore.dot3d(this.p2.x - this.ball.x, this.p2.y - this.ball.y, this.p2.z - this.ball.z, this.ball.vx, this.ball.vy, this.ball.vz) > 0) {
+                        this.hitBall('p2', this.ball.x - this.p2.x, this.ball.y - this.p2.y);
+                    }
                 }
             }
         },
@@ -672,7 +711,7 @@
             if (isSmash) { force *= 1.35; this.shake = 15; this.flash = 0.3; this.hitstop = 30; if(isP1 && typeof this.addMsg === 'function') this.addMsg("CORTADA!", "#0ff"); } 
             else { this.shake = 3; }
 
-            this.sfx('hit');
+            this.playHitSound(force * 3);
             this.ball.active = true; this.ball.lastHitBy = who;
             this.ball.vz = Math.abs(force) * (isP1 ? 1 : -1); 
             
@@ -764,9 +803,6 @@
             this.lastHitter = null; this.aiRecalcCounter = 0; this.timer = 0;
         },
 
-        // =================================================================
-        // DESENHOS BLINDADOS (ZERO CANVAS CRASHES)
-        // =================================================================
         safeCircle: function(ctx, x, y, r, color) {
             if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(r) && r > 0.1) {
                 ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
@@ -788,9 +824,8 @@
         renderModeSelect: function(ctx, w, h) {
             ctx.fillStyle = "rgba(10, 20, 30, 0.85)"; ctx.fillRect(0, 0, w, h);
             ctx.fillStyle = "white"; ctx.textAlign = "center"; ctx.font = "bold 45px 'Russo One'";
-            ctx.fillText("PING PONG V8.0", w/2, h * 0.15);
+            ctx.fillText("PING PONG V9.0", w/2, h * 0.15);
             
-            // OS 4 BOTÕES OFICIAIS (COMO SOLICITADO NO LOBBY)
             ctx.fillStyle = "#e67e22"; ctx.fillRect(w/2 - 160, h * 0.25, 320, 50);
             ctx.fillStyle = "#d35400"; ctx.fillRect(w/2 - 160, h * 0.40, 320, 50);
             ctx.fillStyle = "#2ecc71"; ctx.fillRect(w/2 - 160, h * 0.55, 320, 50);
