@@ -1,6 +1,5 @@
 /* =================================================================
-   CORE DO SISTEMA - VERSÃO COM LOGIN E INTEGRAÇÃO FIREBASE DB
-   STATUS: SESSÃO, PERMISSÕES E MANOBRA DE LOGIN (SEM EMAIL) ATIVADOS
+   CORE DO SISTEMA - BYPASS DE CACHE ATIVO E LOGIN GHOST
    ================================================================= */
 
 window.Sfx = {
@@ -28,10 +27,7 @@ window.Sfx = {
 };
 
 window.Profile = {
-    username: "Piloto",
-    coins: 0,
-    xp: 0,
-    permissions: {},
+    username: "Piloto", coins: 0, xp: 0, permissions: {},
 
     login: async function() {
         window.Sfx.click();
@@ -39,8 +35,8 @@ window.Profile = {
         const pass = document.getElementById('auth-pass').value;
         if(!userLogin || !pass) { alert("Preencha o login e senha!"); return; }
         
-        // A MANOBRA: Se o usuário digitar apenas o nome (ex: thiago), o sistema injeta um domínio fantasma.
-        let email = userLogin.includes('@') ? userLogin : userLogin.toLowerCase() + '@thiaguinhoconsole.com';
+        // MANOBRA DE ADMIN: Se escrever só "thiago", injeta um domínio invisível
+        let email = userLogin.includes('@') ? userLogin : userLogin.toLowerCase() + '@console.com';
 
         try {
             document.getElementById('loading-text').innerText = "AUTENTICANDO...";
@@ -51,7 +47,15 @@ window.Profile = {
         } catch(e) {
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('auth-screen').classList.remove('hidden');
-            alert("Erro no Login: " + e.message);
+            
+            // TRADUTOR DE ERROS PARA DEBUG
+            if (e.code === 'auth/user-not-found') {
+                alert("❌ PILOTO NÃO ENCONTRADO!\n\nSe esta é a primeira vez rodando a versão atualizada, clique em 'NOVO REGISTRO' para regravar o seu usuário 'thiago'.");
+            } else if (e.code === 'auth/wrong-password') {
+                alert("❌ SENHA INCORRETA!");
+            } else {
+                alert("ERRO: " + e.message);
+            }
         }
     },
 
@@ -59,13 +63,10 @@ window.Profile = {
         window.Sfx.click();
         let userLogin = document.getElementById('auth-email').value.trim();
         const pass = document.getElementById('auth-pass').value;
-        if(!userLogin || !pass) { alert("Preencha o login e senha para registrar!"); return; }
+        if(!userLogin || !pass) { alert("Preencha o login e senha!"); return; }
         
-        // A MANOBRA: O mesmo domínio fantasma para novos registros
-        let email = userLogin.includes('@') ? userLogin : userLogin.toLowerCase() + '@thiaguinhoconsole.com';
-        
-        // Se o cara só digitou "thiago", já usa isso como username, senão pede o nome.
-        let username = userLogin.includes('@') ? prompt("Escolha o seu Nome de Piloto:") : userLogin;
+        let email = userLogin.includes('@') ? userLogin : userLogin.toLowerCase() + '@console.com';
+        let username = userLogin.includes('@') ? prompt("Nome de Piloto:") : userLogin;
         if(!username || username.trim() === '') return;
 
         try {
@@ -76,21 +77,14 @@ window.Profile = {
             const cred = await window.AuthApp.createUserWithEmailAndPassword(email, pass);
             
             await window.DB.ref('users/' + cred.user.uid).set({
-                username: username,
-                coins: 0,
-                xp: 0,
-                permissions: {
-                    'kart': true,
-                    'box_pro': true,
-                    'usarmy_flight_sim': true,
-                    'ping_pong': true,
-                    'ar_truck_sim': true
-                }
+                username: username, coins: 0, xp: 0,
+                permissions: { 'kart': true, 'box_pro': true, 'usarmy_flight_sim': true, 'ping_pong': true, 'ar_truck_sim': true }
             });
         } catch(e) {
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('auth-screen').classList.remove('hidden');
-            alert("Erro ao Registrar: " + e.message);
+            if(e.code === 'auth/email-already-in-use') alert("Esta conta já existe! Clique em ENTRAR.");
+            else alert("Erro: " + e.message);
         }
     },
 
@@ -141,24 +135,13 @@ window.System = {
         const grid = document.getElementById('menu-grid');
         if(!grid) return;
         grid.innerHTML = '';
-        
         for(const id in this.games) {
             const g = this.games[id];
-            
-            if (window.Profile.permissions && window.Profile.permissions[id] === false) {
-                continue; 
-            }
-            
+            if (window.Profile.permissions && window.Profile.permissions[id] === false) continue; 
             const card = document.createElement('div');
             card.className = 'game-card';
-            card.innerHTML = `
-                <div class="game-icon">${g.icon}</div>
-                <div class="game-title">${g.name}</div>
-            `;
-            card.onclick = () => {
-                window.Sfx.click();
-                this.launchGame(id);
-            };
+            card.innerHTML = `<div class="game-icon">${g.icon}</div><div class="game-title">${g.name}</div>`;
+            card.onclick = () => { window.Sfx.click(); this.launchGame(id); };
             grid.appendChild(card);
         }
     },
@@ -167,13 +150,10 @@ window.System = {
         this.activeGame = this.games[id];
         document.getElementById('menu-screen').classList.add('hidden');
         document.getElementById('admin-screen').classList.add('hidden');
-        
         document.getElementById('loading-text').innerText = "INICIANDO " + this.activeGame.name.toUpperCase() + "...";
         document.getElementById('loading').classList.remove('hidden');
         
-        if (this.activeGame.conf && this.activeGame.conf.camera) {
-            await this.switchCamera(this.activeGame.conf.camera);
-        }
+        if (this.activeGame.conf && this.activeGame.conf.camera) await this.switchCamera(this.activeGame.conf.camera);
         
         let op = this.activeGame.conf.camOpacity !== undefined ? this.activeGame.conf.camOpacity : 0.2;
         this.video.style.opacity = op;
@@ -196,79 +176,46 @@ window.System = {
 
     msg: function(text, color) {
         const el = document.createElement('div');
-        el.style.position = 'absolute';
-        el.style.top = '100px';
-        el.style.left = '50%';
-        el.style.transform = 'translateX(-50%)';
-        el.style.background = 'rgba(0,0,0,0.8)';
-        el.style.color = color || '#00ffcc';
-        el.style.padding = '10px 20px';
-        el.style.borderRadius = '10px';
-        el.style.fontFamily = "'Russo One', Arial";
-        el.style.fontSize = '20px';
-        el.style.zIndex = '100';
-        el.innerText = text;
-        document.body.appendChild(el);
-        setTimeout(()=>el.remove(), 2000);
+        el.style.position = 'absolute'; el.style.top = '100px'; el.style.left = '50%'; el.style.transform = 'translateX(-50%)';
+        el.style.background = 'rgba(0,0,0,0.8)'; el.style.color = color || '#00ffcc'; el.style.padding = '10px 20px';
+        el.style.borderRadius = '10px'; el.style.fontFamily = "'Russo One', Arial"; el.style.fontSize = '20px'; el.style.zIndex = '100';
+        el.innerText = text; document.body.appendChild(el); setTimeout(()=>el.remove(), 2000);
     },
 
     gameOver: function(score, isWin, extraCoins=0) {
         this.stopEngine();
         if(this.activeGame && this.activeGame.obj.cleanup) this.activeGame.obj.cleanup();
-        
         this.ctx.fillStyle = isWin ? 'rgba(46, 204, 113, 0.9)' : 'rgba(231, 76, 60, 0.9)';
         this.ctx.fillRect(0,0,this.w,this.h);
-        this.ctx.fillStyle = 'white';
-        this.ctx.textAlign = 'center';
-        this.ctx.font = "bold 50px 'Russo One'";
+        this.ctx.fillStyle = 'white'; this.ctx.textAlign = 'center'; this.ctx.font = "bold 50px 'Russo One'";
         this.ctx.fillText(isWin ? "VITÓRIA!" : "FIM DE JOGO", this.w/2, this.h/2 - 20);
-        
-        if(isWin) window.Sfx.coin();
-        else window.Sfx.error();
-        
-        setTimeout(() => {
-            this.home();
-        }, 3000);
+        if(isWin) window.Sfx.coin(); else window.Sfx.error();
+        setTimeout(() => { this.home(); }, 3000);
     },
 
     resize: function() {
         if(!window.System.canvas) return;
-        window.System.w = window.innerWidth;
-        window.System.h = window.innerHeight;
-        window.System.canvas.width = window.System.w;
-        window.System.canvas.height = window.System.h;
+        window.System.w = window.innerWidth; window.System.h = window.innerHeight;
+        window.System.canvas.width = window.System.w; window.System.canvas.height = window.System.h;
     },
 
     switchCamera: async function(facingMode) {
         if (this.camFacing === facingMode && this.video && this.video.srcObject) return;
-        if (this.video && this.video.srcObject) {
-            this.video.srcObject.getTracks().forEach(t => t.stop());
-        }
+        if (this.video && this.video.srcObject) this.video.srcObject.getTracks().forEach(t => t.stop());
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: facingMode, width: 640, height: 480 }
-            });
-            this.video.srcObject = stream;
-            this.camFacing = facingMode;
-            if(facingMode === 'user') this.video.style.transform = 'scaleX(-1)';
-            else this.video.style.transform = 'scaleX(1)';
-        } catch(e) {
-            console.error("Camera Error:", e);
-        }
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingMode, width: 640, height: 480 } });
+            this.video.srcObject = stream; this.camFacing = facingMode;
+            if(facingMode === 'user') this.video.style.transform = 'scaleX(-1)'; else this.video.style.transform = 'scaleX(1)';
+        } catch(e) {}
     },
 
     startEngine: function() {
         if(this.loopId) return;
         const tick = async () => {
             if(this.detector && this.video.readyState === 4) {
-                try {
-                    const poses = await this.detector.estimatePoses(this.video);
-                    this.lastPose = poses;
-                } catch(e){}
+                try { const poses = await this.detector.estimatePoses(this.video); this.lastPose = poses; } catch(e){}
             }
-            if(this.activeGame && this.activeGame.obj.update) {
-                this.activeGame.obj.update(this.ctx, this.w, this.h, this.lastPose);
-            }
+            if(this.activeGame && this.activeGame.obj.update) this.activeGame.obj.update(this.ctx, this.w, this.h, this.lastPose);
             this.loopId = requestAnimationFrame(tick);
         };
         tick();
@@ -280,11 +227,8 @@ window.System = {
     }
 };
 
-// CSS Injection
 const style = document.createElement('style');
-style.innerHTML = `
-.ripple { position: absolute; border: 2px solid #00b0f0; border-radius: 50%; animation: ripple 1s linear infinite; pointer-events: none;}
-@keyframes ripple { 0% { transform: translate(-50%, -50%) scale(0); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; } }`;
+style.innerHTML = `.ripple { position: absolute; border: 2px solid #00b0f0; border-radius: 50%; animation: ripple 1s linear infinite; pointer-events: none;} @keyframes ripple { 0% { transform: translate(-50%, -50%) scale(0); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; } }`;
 document.head.appendChild(style);
 
 window.onload = async () => {
