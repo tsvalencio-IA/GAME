@@ -1,19 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    <defs>
-        <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#0f172a"/>
-            <stop offset="100%" stop-color="#1e293b"/>
-        </linearGradient>
-        <linearGradient id="primary" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#00ffcc"/>
-            <stop offset="100%" stop-color="#00bfff"/>
-        </linearGradient>
-    </defs>
-    <rect width="512" height="512" rx="110" fill="url(#bg)"/>
-    <path d="M110 220 C70 220 50 260 50 330 C50 410 80 430 110 430 C150 430 160 380 200 380 L312 380 C352 380 362 430 402 430 C432 430 462 410 462 330 C462 260 442 220 402 220 Z" fill="url(#primary)" opacity="0.95"/>
-    <path d="M120 280 v40 m-20 -20 h40" stroke="#0f172a" stroke-width="22" stroke-linecap="round"/>
-    <circle cx="370" cy="310" r="22" fill="#0f172a"/>
-    <circle cx="420" cy="270" r="22" fill="#0f172a"/>
-    <text x="256" y="155" font-family="'Russo One', Arial, sans-serif" font-weight="900" font-size="78" fill="#ffffff" text-anchor="middle" letter-spacing="1">tHIAguinho</text>
-    <text x="256" y="485" font-family="'Chakra Petch', Arial, sans-serif" font-weight="bold" font-size="42" fill="#00ffcc" text-anchor="middle" letter-spacing="6">CONSOLE</text>
+  <rect width="512" height="512" rx="120" fill="#000000"/>
+  <rect x="56" y="56" width="400" height="400" rx="80" fill="none" stroke="#00b0f0" stroke-width="16"/>
+  <path d="M150 256 L256 150 L362 256 M256 150 L256 360" stroke="#2ecc71" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="256" cy="256" r="160" stroke="#f1c40f" stroke-width="12" stroke-dasharray="20 20" fill="none" opacity="0.5" />
+  <text x="50%" y="430" font-family="Arial, sans-serif" font-weight="bold" font-size="60" fill="#ffffff" text-anchor="middle" letter-spacing="4">WII</text>
 </svg>
