@@ -3,14 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#0f172a">
-    <title>tHIAguinho Console</title>
+    <title>ThIAguinho Wii: Console OS</title>
     
-    <!-- Ligações de Instalação PWA e Ícone -->
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon.svg">
-    <link rel="icon" type="image/svg+xml" href="icon.svg">
-
     <!-- Bibliotecas Essenciais -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
@@ -24,133 +18,342 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Russo+One&family=Roboto:wght@400;700&display=swap');
-        body { margin: 0; overflow: hidden; background-color: #f0f2f5; font-family: 'Roboto', sans-serif; touch-action: none; user-select: none; }
-        #game-canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 10; }
-        #webcam { position: absolute; bottom: 20px; right: 20px; width: 160px; height: 120px; border: 2px solid #00b0f0; border-radius: 12px; z-index: 20; object-fit: cover; opacity: 0.2; transform: scaleX(-1); background: #000; box-shadow: 0 10px 25px rgba(0,0,0,0.2); pointer-events: none; }
+        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Russo+One&family=Roboto:wght@300;400;500;700&display=swap');
+
+        :root {
+            --wii-bg: #ececec;
+            --wii-blue: #00b0f0;
+            --wii-blue-glow: rgba(0, 176, 240, 0.4);
+            --glass-bg: rgba(255, 255, 255, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --xp-color: #f1c40f;
+        }
+
+        body { 
+            background: radial-gradient(circle at center, #ffffff 0%, #e4e7eb 100%);
+            margin: 0; overflow: hidden; 
+            font-family: 'Roboto', sans-serif; 
+            user-select: none; touch-action: none;
+            height: 100dvh; width: 100dvw; 
+        }
+
+        .crt-overlay {
+            position: fixed; inset: 0; pointer-events: none; z-index: 999;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.02) 50%);
+            background-size: 100% 4px;
+        }
+
+        #webcam { 
+            position: absolute; bottom: clamp(70px, 10vh, 95px); right: clamp(10px, 3vw, 25px); 
+            width: clamp(90px, 20vw, 130px); 
+            border-radius: 12px; border: 3px solid white; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            transform: scaleX(-1); 
+            z-index: 50; opacity: 0; transition: opacity 0.5s ease;
+        }
+
+        #game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 10; }
+
+        .wii-container {
+            display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+            height: 100%; width: 100%; position: relative; z-index: 20; 
+            padding: clamp(10px, 3vh, 30px) 0; box-sizing: border-box;
+            background: url('data:image/svg+xml;utf8,<svg opacity="0.03" xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="1.5" fill="%23000"/></svg>');
+        }
+
+        /* --- AUTH SCREEN STYLES --- */
+        .auth-box {
+            background: var(--glass-bg); backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border); border-radius: 20px;
+            padding: clamp(20px, 5vh, 40px); width: 90%; max-width: 400px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column; gap: 15px; margin: auto;
+        }
+        .wii-input {
+            width: 100%; padding: 12px 15px; border-radius: 30px;
+            border: 2px solid #ddd; font-family: 'Roboto'; font-size: 1rem;
+            outline: none; transition: border-color 0.3s; text-align: center;
+        }
+        .wii-input:focus { border-color: var(--wii-blue); }
+        .auth-buttons { display: flex; gap: 10px; margin-top: 10px; }
+        .auth-btn { flex: 1; text-align: center; }
+
+        /* --- MENU STYLES --- */
+        .wii-header {
+            width: 95%; max-width: 1000px; 
+            display: flex; flex-direction: column; gap: 10px;
+            border-bottom: 2px solid rgba(0,0,0,0.05); 
+            padding-bottom: clamp(5px, 2vh, 15px); margin-bottom: 5px;
+        }
         
-        .ui-layer { position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f8f9fa; }
-        .hidden { display: none !important; }
+        .header-top-row {
+            display: flex; justify-content: space-between; align-items: center; width: 100%;
+        }
+
+        .wii-title { 
+            font-family: 'Russo One', sans-serif; font-weight: 400; color: #444; 
+            font-size: clamp(1.2rem, 4vw, 1.8rem); letter-spacing: 1px; 
+            text-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+        }
+        .wii-title span { color: var(--wii-blue); }
+
+        .net-info {
+            font-size: clamp(0.6rem, 2vw, 0.85rem); color: #888; 
+            font-family: 'Chakra Petch', sans-serif; font-weight: bold;
+        }
+
+        .player-profile {
+            display: flex; align-items: center; justify-content: center; gap: clamp(8px, 2vw, 15px);
+            background: var(--glass-bg); backdrop-filter: blur(10px);
+            padding: clamp(6px, 1.5vh, 8px) clamp(10px, 3vw, 20px); 
+            border-radius: 30px; border: 1px solid var(--glass-border);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05); width: fit-content; align-self: center;
+        }
+        .level-badge {
+            background: var(--wii-blue); color: white; font-family: 'Russo One';
+            width: clamp(30px, 8vw, 40px); height: clamp(30px, 8vw, 40px); 
+            border-radius: 50%; display: flex; align-items: center; justify-content: center; 
+            font-size: clamp(0.9rem, 2.5vw, 1.2rem);
+            box-shadow: 0 4px 10px var(--wii-blue-glow); border: 2px solid #fff;
+        }
+        .xp-container { display: flex; flex-direction: column; width: clamp(80px, 25vw, 120px); }
+        .xp-text { font-size: clamp(0.55rem, 1.5vw, 0.7rem); font-weight: bold; color: #888; display: flex; justify-content: space-between; }
+        .xp-bar-bg { width: 100%; height: clamp(6px, 1.5vh, 8px); background: #ddd; border-radius: 4px; overflow: hidden; margin-top: 3px; }
+        .xp-bar-fill { height: 100%; background: var(--xp-color); width: 0%; transition: width 0.5s ease-out; }
+        .coin-box { 
+            display: flex; align-items: center; gap: 5px; font-family: 'Russo One'; 
+            color: #f39c12; font-size: clamp(0.9rem, 2.5vw, 1.2rem); 
+            margin-left: clamp(5px, 1vw, 10px); border-left: 1px solid #ddd; padding-left: clamp(5px, 2vw, 15px); 
+        }
+
+        .channel-grid { 
+            display: grid; grid-template-columns: repeat(2, 1fr); 
+            gap: clamp(10px, 3vw, 20px); width: 95%; max-width: 900px; 
+            padding: 5px; overflow-y: auto; flex-grow: 1; align-content: center;
+        }
+        @media (min-width: 768px) { 
+            .channel-grid { grid-template-columns: repeat(4, 1fr); gap: 25px; } 
+            .wii-header { flex-direction: row; align-items: center; }
+            .player-profile { align-self: auto; }
+        }
+
+        .channel {
+            background: linear-gradient(135deg, #ffffff 0%, #f0f4f8 100%); 
+            aspect-ratio: 16/11; min-height: 90px;
+            border-radius: clamp(12px, 3vw, 20px); border: 2px solid #fff;
+            box-shadow: 4px 4px 10px rgba(0,0,0,0.06), inset 0 -4px 10px rgba(0,0,0,0.02); 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s ease;
+        }
+        .channel::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 40%; background: linear-gradient(to bottom, rgba(255,255,255,0.8), rgba(255,255,255,0)); border-radius: 18px 18px 0 0; pointer-events: none; }
+        .channel:active { transform: scale(0.95); }
+        .channel:hover { transform: scale(1.05) translateY(-2px); border-color: var(--wii-blue); box-shadow: 0 10px 20px var(--wii-blue-glow); z-index: 10; }
         
-        /* Estilos do Loading */
-        .spinner { border: 6px solid #e0e0e0; border-top: 6px solid #00b0f0; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .channel-icon { font-size: clamp(2rem, 8vw, 3.5rem); margin-bottom: 5px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15)); transition: transform 0.3s; }
+        .channel:hover .channel-icon { transform: scale(1.15); }
+        .channel-title { 
+            font-family: 'Chakra Petch', sans-serif; font-size: clamp(0.65rem, 2vw, 0.9rem); 
+            color: #555; font-weight: 700; text-transform: uppercase; 
+            background: rgba(255,255,255,0.8); padding: 2px 8px; border-radius: 8px; text-align: center;
+        }
+
+        #phase-screen { background: radial-gradient(circle at center, #2c3e50 0%, #000000 100%); }
+        .mission-grid { display: flex; flex-direction: column; gap: 10px; width: 90%; max-width: 600px; margin: auto; overflow-y: auto; max-height: 60vh; padding: 10px; }
+        .mission-card {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px;
+            padding: clamp(10px, 3vw, 20px); display: flex; align-items: center; justify-content: space-between;
+            color: white; cursor: pointer; transition: all 0.2s ease; backdrop-filter: blur(5px);
+        }
+        .mission-card:hover:not(.locked) { background: rgba(0, 176, 240, 0.4); transform: scale(1.02); border-color: #00b0f0; }
+        .mission-card:active:not(.locked) { transform: scale(0.98); }
+        .mission-card.locked { opacity: 0.5; filter: grayscale(100%); pointer-events: none; }
+        .mission-info h2 { font-family: 'Russo One'; font-size: clamp(1rem, 3.5vw, 1.5rem); margin: 0; color: #f1c40f; text-transform: uppercase; }
+        .mission-info p { font-family: 'Chakra Petch'; margin: 2px 0 0 0; font-size: clamp(0.7rem, 2vw, 0.9rem); color: #ccc; }
+        .mission-icon { font-size: clamp(1.5rem, 5vw, 2.5rem); }
+
+        .wii-footer { 
+            width: 95%; max-width: 700px; height: clamp(50px, 8vh, 70px); 
+            background: var(--glass-bg); backdrop-filter: blur(10px); 
+            border: 1px solid var(--glass-border); border-radius: 35px; 
+            display: flex; justify-content: space-between; align-items: center; 
+            padding: 0 clamp(10px, 3vw, 20px); margin-bottom: clamp(15px, 4vh, 20px); 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.05); flex-shrink: 0;
+        }
+        .wii-oval-btn { 
+            background: linear-gradient(180deg, #ffffff 0%, #e0e5ec 100%); border: 2px solid #fff; 
+            padding: clamp(6px, 2vh, 12px) clamp(12px, 4vw, 35px); border-radius: 25px; 
+            font-weight: 700; color: #555; cursor: pointer; text-transform: uppercase; 
+            font-size: clamp(0.7rem, 2vw, 1rem); box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: all 0.2s; 
+        }
+        .wii-oval-btn:hover { background: #fff; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,176,240,0.2); color: var(--wii-blue); }
+        .wii-oval-btn:active { transform: translateY(2px); box-shadow: none; }
+        .clock { font-size: clamp(1rem, 4vw, 1.6rem); color: #777; font-weight: 400; font-family: 'Chakra Petch', sans-serif; }
+
+        /* --- ADMIN SCREEN --- */
+        #admin-screen { background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%); overflow-y: auto; }
+        .admin-header { width: 90%; max-width: 800px; display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 2px solid rgba(255,255,255,0.1); margin-bottom: 20px; }
+        .admin-title { font-family: 'Russo One'; color: white; font-size: 2rem; }
+        .admin-user-list { width: 90%; max-width: 800px; display: flex; flex-direction: column; gap: 15px; padding-bottom: 30px; }
+        .admin-user-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 10px; color: white; }
+        .admin-user-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; }
+        .admin-user-name { font-family: 'Russo One'; font-size: 1.2rem; color: #00b0f0; text-transform: uppercase; }
+        .admin-user-stats { font-family: 'Chakra Petch'; font-size: 0.9rem; color: #aaa; }
+        .admin-toggles { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+        .admin-toggle-btn { 
+            background: rgba(0,0,0,0.3); border: 1px solid #555; border-radius: 20px; 
+            padding: 5px 15px; font-family: 'Roboto'; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; color: #ccc;
+        }
+        .admin-toggle-btn.active { background: #2ecc71; border-color: #27ae60; color: white; font-weight: bold; }
+
+        #loading { background: radial-gradient(circle at center, #ffffff 0%, #d1d8e0 100%); z-index: 1000; position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; transition: opacity 0.4s ease; }
+        .hidden { display: none !important; opacity: 0; pointer-events: none; }
+        .spinner-wii { width: clamp(40px, 10vw, 60px); height: clamp(40px, 10vw, 60px); border: 5px solid #e0e0e0; border-top: 5px solid var(--wii-blue); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #game-ui { pointer-events: none; } #game-ui > * { pointer-events: auto; }
+        .hud-score-box { 
+            position: fixed; top: clamp(10px, 3vh, 25px); left: clamp(10px, 3vw, 25px); 
+            background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); 
+            padding: clamp(4px, 1vh, 10px) clamp(12px, 4vw, 30px); border-radius: 30px; 
+            border: 1px solid rgba(255,255,255,0.3); display: flex; align-items: center; gap: 10px; 
+        }
+        #hud-score { color: #f1c40f; font-family: 'Russo One'; font-size: clamp(1.5rem, 5vw, 2.5rem); }
         
-        /* Estilos do Menu */
-        .glass-panel { background: rgba(255, 255, 255, 0.95); border-radius: 20px; padding: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.5); text-align: center; max-width: 90%; }
-        .menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; width: 90%; max-width: 1000px; margin-top: 20px; padding-bottom: 30px;}
-        .game-card { background: white; border-radius: 16px; padding: 25px; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.05); border: 2px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 180px; position: relative; overflow: hidden;}
-        .game-card:hover { transform: translateY(-8px); box-shadow: 0 15px 30px rgba(0,176,240,0.2); border-color: #00b0f0; }
-        .game-icon { font-size: 3.5rem; margin-bottom: 15px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1)); }
-        .game-title { font-family: 'Chakra Petch', sans-serif; font-size: 1.4rem; font-weight: 700; color: #2c3e50; text-transform: uppercase; }
+        #game-msg { position: fixed; top: 35%; left: 50%; transform: translate(-50%, -50%); font-family: 'Russo One'; font-size: clamp(2rem, 10vw, 70px); color: #fff; text-shadow: 0 4px 0 #000, 0 0 20px rgba(0,176,240,0.8); width: 100%; text-align: center; pointer-events: none; }
         
-        /* Cabeçalho */
-        .header-bar { position: absolute; top: 0; left: 0; width: 100%; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.05); z-index: 40; box-sizing: border-box; }
-        .logo-text { font-family: 'Chakra Petch', sans-serif; font-weight: 700; font-size: 1.8rem; color: #2c3e50; letter-spacing: -0.5px; }
-        .logo-os { font-family: 'Russo One', sans-serif; color: #00b0f0; margin-left: 8px; font-size: 1.5rem; }
-        .user-info { display: flex; align-items: center; gap: 20px; }
-        
-        /* Estilos do Admin */
-        #admin-screen { background: #0f172a; color: white; overflow-y: auto; padding: 80px 20px 20px; }
-        .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 2px solid #1e293b; padding-bottom: 15px;}
-        .admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-        .admin-card { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
-        .btn-action { padding: 8px 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.85rem; width: 100%; margin-top: 10px; border: none;}
-        .btn-grant { background: #10b981; color: white; }
-        .btn-grant:hover { background: #059669; }
-        .btn-revoke { background: #ef4444; color: white; }
-        .btn-revoke:hover { background: #dc2626; }
-        .btn-gift { background: #f59e0b; color: white; margin-top: 15px; }
-        .btn-gift:hover { background: #d97706; }
-        .btn-delete { background: transparent; border: 1px solid #ef4444; color: #ef4444; margin-top: 15px; }
-        .btn-delete:hover { background: #ef4444; color: white; }
-        
-        #btn-close-admin { background: #3b82f6; color: white; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; border:none; }
+        .home-btn { 
+            position: fixed; top: clamp(10px, 3vh, 25px); right: clamp(10px, 3vw, 25px); 
+            width: clamp(45px, 12vw, 65px); height: clamp(45px, 12vw, 65px); 
+            background: radial-gradient(circle at top left, #ffffff, #e0e0e0); border-radius: 50%; border: 3px solid #fff; 
+            display: flex; align-items: center; justify-content: center; font-size: clamp(1.2rem, 4vw, 2rem); 
+            cursor: pointer; z-index: 100; box-shadow: 0 5px 15px rgba(0,0,0,0.3); color: var(--wii-blue);
+        }
+
+        #screen-over { background: radial-gradient(circle at center, rgba(15, 23, 42, 0.95) 0%, rgba(0, 0, 0, 0.98) 100%); }
+        .results-container { 
+            background: rgba(255,255,255,0.05); padding: clamp(20px, 5vh, 40px) clamp(20px, 5vw, 60px); 
+            border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); text-align: center; 
+            display: flex; flex-direction: column; align-items: center; width: 90%; max-width: 500px;
+        }
+        .rank-stamp { font-family: 'Russo One'; font-size: clamp(5rem, 20vw, 8rem); margin: -10px 0 5px 0; text-shadow: 0 0 30px currentColor; transform: scale(5); opacity: 0; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .rank-stamp.show { transform: scale(1) rotate(-10deg); opacity: 1; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(10px, 2vw, 20px); width: 100%; margin-top: 15px; }
+        .stat-box { background: rgba(0,0,0,0.3); padding: clamp(8px, 2vh, 15px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }
+        .stat-title { color: #a4b0be; font-size: clamp(0.65rem, 2vw, 0.9rem); text-transform: uppercase; }
+        .stat-val { font-family: 'Russo One'; font-size: clamp(1.2rem, 5vw, 2rem); color: white; }
+
+        .signature-badge { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); font-family: 'Chakra Petch', sans-serif; font-size: 0.65rem; color: #888; letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+        .signature-badge span { color: var(--wii-blue); font-weight: 700; }
     </style>
 </head>
 <body>
 
-    <!-- 1. TELA DE CARREGAMENTO -->
-    <div id="loading" class="ui-layer">
-        <div class="spinner"></div>
-        <h1 class="text-4xl font-bold text-gray-800 tracking-wider font-['Chakra_Petch']">tHIAguinho <span class="text-[#00b0f0] font-['Russo_One']">CONSOLE</span></h1>
-        <p id="loading-text" class="text-gray-500 mt-4 font-semibold tracking-widest text-sm">CARREGANDO SISTEMA...</p>
-    </div>
-
-    <!-- 2. TELA DE AUTENTICAÇÃO -->
-    <div id="auth-screen" class="ui-layer hidden" style="background: url('https://www.transparenttextures.com/patterns/cubes.png') #f0f2f5;">
-        <div class="glass-panel w-[90%] max-w-md">
-            <h2 class="text-3xl font-bold text-gray-800 mb-2 font-['Chakra_Petch']">Identificação de Piloto</h2>
-            <p class="text-sm text-gray-500 mb-8">Insira o seu código de acesso ao Console.</p>
-            
-            <!-- Type=text para permitir a manobra de login do thiago sem teclado barrar -->
-            <input type="text" id="auth-email" placeholder="Login do Piloto" class="w-full p-4 mb-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#00b0f0] focus:outline-none transition-all text-gray-700 bg-gray-50" autocomplete="off">
-            <input type="password" id="auth-pass" placeholder="Senha Secreta" class="w-full p-4 mb-6 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#00b0f0] focus:outline-none transition-all text-gray-700 bg-gray-50">
-            
-            <button onclick="window.Profile.login()" class="w-full bg-gradient-to-r from-[#00b0f0] to-[#0080ff] text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all mb-4 uppercase tracking-widest">
-                ENTRAR NO CONSOLE
-            </button>
-            <button onclick="window.Profile.register()" class="w-full bg-white text-[#00b0f0] border-2 border-[#00b0f0] font-bold py-4 rounded-xl hover:bg-[#f0f9ff] transition-all uppercase tracking-widest">
-                NOVO REGISTRO
-            </button>
-        </div>
-    </div>
-
-    <!-- 3. MENU PRINCIPAL -->
-    <div id="menu-screen" class="ui-layer hidden relative" style="background: #f0f2f5;">
-        <!-- CABEÇALHO SUPERIOR -->
-        <div class="header-bar">
-            <div class="logo-text">tHIAguinho<span class="logo-os">Console</span></div>
-            
-            <div class="user-info">
-                <div class="flex items-center bg-gray-100 rounded-full px-4 py-2 border border-gray-200">
-                    <span class="font-bold text-gray-700 mr-2" id="ui-username">Piloto</span>
-                    <span class="bg-[#00b0f0] text-white text-xs font-bold px-2 py-1 rounded-full" id="ui-level">Lvl 1</span>
-                </div>
-                <div class="flex items-center bg-yellow-50 rounded-full px-4 py-2 border border-yellow-200">
-                    <span class="text-yellow-500 mr-2">💰</span>
-                    <span class="font-bold text-yellow-600" id="ui-coins">0</span>
-                </div>
-                <div id="net-status" class="text-xs font-bold text-gray-400">REDE: CONECTANDO...</div>
-                
-                <!-- BOTÃO INSTALAR PWA -->
-                <button id="btn-install-app" class="hidden bg-green-500 text-white font-bold px-4 py-2 rounded-full shadow hover:bg-green-600 transition animate-pulse">
-                    📲 INSTALAR APP
-                </button>
-            </div>
-        </div>
-
-        <div id="menu-grid" class="menu-grid mt-24">
-            <!-- JOGOS INJETADOS VIA JAVASCRIPT -->
-        </div>
-
-        <button id="btn-admin-panel" onclick="window.Admin.init()" class="hidden absolute bottom-6 right-6 bg-red-600 text-white font-bold px-6 py-3 rounded-xl shadow-lg hover:bg-red-700 transition">
-            🛠️ PAINEL GESTOR
-        </button>
-    </div>
-
-    <!-- 4. PAINEL DE ADMINISTRAÇÃO -->
-    <div id="admin-screen" class="ui-layer hidden">
-        <div class="w-full max-w-6xl mx-auto">
-            <div class="admin-header">
-                <div>
-                    <h1 class="text-3xl font-bold font-['Chakra_Petch'] text-[#00ffcc]">COMANDO CENTRAL DO CONSOLE</h1>
-                    <p class="text-gray-400 text-sm mt-1">Gestão de Pilotos e Permissões de Software</p>
-                </div>
-                <button id="btn-close-admin" onclick="document.getElementById('admin-screen').classList.add('hidden'); document.getElementById('menu-screen').classList.remove('hidden');">VOLTAR AO CONSOLE</button>
-            </div>
-            <div id="admin-user-list" class="admin-grid"></div>
-        </div>
-    </div>
-
-    <!-- 5. O MOTOR DO JOGO -->
+    <video id="webcam" autoplay playsinline muted></video>
+    <div class="crt-overlay"></div>
     <canvas id="game-canvas"></canvas>
-    <video id="webcam" autoplay playsinline></video>
 
-    <!-- INICIALIZAÇÃO FIREBASE E SERVICE WORKER PWA -->
+    <div id="loading">
+        <div class="spinner-wii"></div>
+        <h1 class="mt-4 text-xl md:text-3xl text-gray-700 font-['Russo_One'] tracking-wider">ThIAguinho <span style="color: #00b0f0">OS</span></h1>
+        <p id="loading-text" class="mt-2 text-gray-500 font-bold tracking-widest text-xs md:text-sm uppercase">INICIANDO SISTEMA...</p>
+    </div>
+
+    <!-- TELA DE LOGIN / REGISTRO -->
+    <div id="auth-screen" class="wii-container hidden" style="justify-content: center;">
+        <div class="wii-title" style="margin-bottom: 20px;">ThIAguinho <span>Wii</span></div>
+        <div class="auth-box">
+            <h2 style="text-align: center; font-family: 'Russo One'; color: #444; font-size: 1.2rem;">IDENTIFICAÇÃO</h2>
+            <input type="text" id="auth-user" class="wii-input" placeholder="Seu Nome (Ex: joaozinho)" autocomplete="username">
+            <input type="password" id="auth-pass" class="wii-input" placeholder="Senha secreta" autocomplete="current-password">
+            <div class="auth-buttons">
+                <button class="wii-oval-btn auth-btn" onclick="window.Auth.login()">ENTRAR</button>
+                <button class="wii-oval-btn auth-btn" style="background: #2ecc71; color: white; border-color: #27ae60;" onclick="window.Auth.register()">CRIAR</button>
+            </div>
+            <p id="auth-error" style="color: #e74c3c; font-size: 0.8rem; text-align: center; margin-top: 5px; display: none;"></p>
+        </div>
+        <div class="signature-badge">Powered by <span>thIAguinho Soluções</span></div>
+    </div>
+
+    <!-- MENU PRINCIPAL -->
+    <div id="menu-screen" class="wii-container hidden">
+        <div class="wii-header">
+            <div class="header-top-row">
+                <div class="wii-title">ThIAguinho <span>Wii</span></div>
+                <div class="net-info">REDE: <span id="net-status" style="color: #999;">OFFLINE</span></div>
+            </div>
+            <div class="player-profile">
+                <div class="level-badge" id="ui-level">1</div>
+                <div class="xp-container">
+                    <div class="xp-text"><span id="ui-username">Jogador</span> <span id="ui-xp-text">0/1000</span></div>
+                    <div class="xp-bar-bg"><div class="xp-bar-fill" id="ui-xp-bar"></div></div>
+                </div>
+                <div class="coin-box">🪙 <span id="ui-coins">0</span></div>
+            </div>
+        </div>
+
+        <div class="channel-grid" id="channel-grid"></div>
+
+        <div class="wii-footer">
+            <div class="wii-oval-btn" onclick="window.Auth.logout()">Sair</div>
+            <div class="clock" id="clock">12:00</div>
+            <!-- Botão Admin, gerado via JS se for admin -->
+            <div id="admin-btn-container"></div>
+        </div>
+        
+        <div class="signature-badge">Powered by <span>thIAguinho Soluções</span></div>
+    </div>
+
+    <!-- PAINEL ADMIN -->
+    <div id="admin-screen" class="wii-container hidden" style="justify-content: flex-start;">
+        <div class="admin-header">
+            <div class="admin-title">PAINEL DO GESTOR</div>
+            <button class="wii-oval-btn" onclick="document.getElementById('admin-screen').classList.add('hidden'); document.getElementById('menu-screen').classList.remove('hidden');">VOLTAR</button>
+        </div>
+        <div class="admin-user-list" id="admin-user-list">
+            <!-- Usuários renderizados pelo admin.js -->
+        </div>
+    </div>
+
+    <!-- MODO CARREIRA (TELA DE FASES) -->
+    <div id="phase-screen" class="wii-container hidden" style="justify-content: center;">
+        <h1 id="phase-title" style="font-family: 'Russo One'; font-size: clamp(2rem, 8vw, 3.5rem); color: #fff; margin-bottom: clamp(15px, 4vh, 40px); text-shadow: 0 0 15px rgba(0,176,240,0.8); text-align: center;">KART LEGENDS</h1>
+        <div class="mission-grid" id="phase-grid"></div>
+        <button class="wii-oval-btn" onclick="document.getElementById('phase-screen').classList.add('hidden'); document.getElementById('menu-screen').classList.remove('hidden');" style="margin-top: clamp(20px, 5vh, 40px);">VOLTAR AO MENU</button>
+    </div>
+
+    <!-- HUD DO JOGO -->
+    <div id="game-ui" class="hidden">
+        <div class="hud-score-box">
+            <span style="color: #fff; font-size: clamp(0.7rem, 2vw, 1rem); font-weight: 800; letter-spacing: 1px;">SCORE</span>
+            <span id="hud-score">0</span>
+        </div>
+        <div id="game-msg"></div>
+        <button class="home-btn" onclick="window.System.home()">🏠</button>
+    </div>
+
+    <!-- TELA DE RESULTADOS -->
+    <div id="screen-over" class="wii-container hidden" style="justify-content: center;">
+        <h1 style="font-family: 'Russo One'; font-size: clamp(2rem, 6vw, 3rem); color: #fff; margin-bottom: 15px; letter-spacing: 2px; text-align: center;" id="result-header">MISSÃO CONCLUÍDA!</h1>
+        
+        <div class="results-container">
+            <p style="color: #ccc; font-weight: bold; margin-bottom: 5px; font-size: clamp(0.7rem, 2vw, 1rem); letter-spacing: 2px;">RANKING</p>
+            <div class="rank-stamp" id="result-rank">S</div>
+            
+            <div class="stats-grid">
+                <div class="stat-box"><div class="stat-title">Pontos</div><div class="stat-val" id="result-score">0</div></div>
+                <div class="stat-box"><div class="stat-title">Objetivo</div><div class="stat-val" style="color: #3498db" id="result-status">VITÓRIA</div></div>
+                <div class="stat-box"><div class="stat-title">XP Ganho</div><div class="stat-val" style="color: var(--xp-color);" id="result-xp">+0</div></div>
+                <div class="stat-box"><div class="stat-title">Moedas</div><div class="stat-val" style="color: #2ecc71" id="result-coins">+0</div></div>
+            </div>
+        </div>
+        
+        <button class="wii-oval-btn" onclick="window.System.home()" style="margin-top: clamp(20px, 5vh, 40px); font-size: clamp(1rem, 3vw, 1.4rem);">CONTINUAR</button>
+    </div>
+
     <script>
+        // ESTA É A SUA CONFIGURAÇÃO ORIGINAL QUE VOCÊ MANDOU NO ZIP (A CORRETA)
         const firebaseConfig = {
-          apiKey: "AIzaSyDa-11Y90M_N-J1HhK0Xw7YjGg9Q-wTgRw",
+          apiKey: "AIzaSyCW3xYc5TXI1LmLLea9y9-KZ90oqnnhgRw",
           authDomain: "thiaguinhogame-ac91b.firebaseapp.com",
           databaseURL: "https://thiaguinhogame-ac91b-default-rtdb.firebaseio.com",
           projectId: "thiaguinhogame-ac91b",
@@ -169,45 +372,18 @@
         } catch (e) {
             console.error("Firebase Init Error", e);
         }
-
-        // REGISTRO DO SERVICE WORKER (PWA INSTALLER)
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js').then(reg => {
-                    console.log('✅ Console Service Worker Ativado!', reg.scope);
-                }).catch(err => {
-                    console.error('❌ Falha no Service Worker do Console:', err);
-                });
-            });
-        }
-
-        // Instalação no Telemóvel
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-            const installBtn = document.getElementById('btn-install-app');
-            if(installBtn) {
-                installBtn.classList.remove('hidden');
-                installBtn.addEventListener('click', () => {
-                    installBtn.classList.add('hidden');
-                    deferredPrompt.prompt();
-                    deferredPrompt.userChoice.then((choiceResult) => {
-                        deferredPrompt = null;
-                    });
-                });
-            }
-        });
     </script>
 
-    <!-- CARREGANDO O CORE, ADMIN E OS JOGOS ORIGINAIS INTACTOS -->
+    <!-- CARREGANDO O CORE, ADMIN E OS JOGOS -->
     <script src="js/core.js"></script>
     <script src="js/admin.js"></script>
     <script src="js/game_kart.js"></script>
     <script src="js/game_run.js"></script>
     <script src="js/game_box.js"></script>
-    <script src="js/game_flight.js"></script>
-    <script src="js/game_ar.js"></script>
     <script src="js/game_tennis.js"></script>
+    <script src="js/game_ar.js"></script>
+<script src="js/game_flight.js"></script>
+
+    <script>setInterval(() => { const now = new Date(); const el = document.getElementById('clock'); if(el) el.innerText = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}); }, 1000);</script>
 </body>
 </html>
