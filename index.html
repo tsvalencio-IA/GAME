@@ -83,7 +83,8 @@
             <h2 class="text-3xl font-bold text-gray-800 mb-2 font-['Chakra_Petch']">Identificação de Piloto</h2>
             <p class="text-sm text-gray-500 mb-8">Insira o seu código de acesso ao Console.</p>
             
-            <input type="email" id="auth-email" placeholder="Email do Piloto" class="w-full p-4 mb-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#00b0f0] focus:outline-none transition-all text-gray-700 bg-gray-50">
+            <!-- Type=text para permitir a manobra de login do thiago sem teclado barrar -->
+            <input type="text" id="auth-email" placeholder="Login do Piloto" class="w-full p-4 mb-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#00b0f0] focus:outline-none transition-all text-gray-700 bg-gray-50" autocomplete="off">
             <input type="password" id="auth-pass" placeholder="Senha Secreta" class="w-full p-4 mb-6 border border-gray-300 rounded-xl focus:ring-2 focus:ring-[#00b0f0] focus:outline-none transition-all text-gray-700 bg-gray-50">
             
             <button onclick="window.Profile.login()" class="w-full bg-gradient-to-r from-[#00b0f0] to-[#0080ff] text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all mb-4 uppercase tracking-widest">
