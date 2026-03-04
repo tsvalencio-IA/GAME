@@ -1,12 +1,12 @@
 {
-  "name": "ThIAguinho Wii: Console OS",
-  "short_name": "ThIAguinho Wii",
-  "description": "Console de jogos com Inteligência Artificial e Multiplayer",
+  "name": "thIAguinho GAME: Console OS",
+  "short_name": "thIAguinho GAME",
+  "description": "Plataforma de Jogos com Câmera e Inteligência Artificial",
   "start_url": "./index.html",
   "display": "fullscreen",
-  "background_color": "#000000",
-  "theme_color": "#000000",
-  "orientation": "landscape",
+  "background_color": "#050508",
+  "theme_color": "#1a1a24",
+  "orientation": "any",
   "icons": [
     {
       "src": "./icon.svg",
