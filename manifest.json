@@ -1,23 +1,22 @@
 {
-  "name": "tHIAguinho Console",
-  "short_name": "tHIA Console",
-  "description": "O primeiro Console de Realidade Aumentada e Sensor de Movimento via Web.",
+  "name": "ThIAguinho Wii: Console OS",
+  "short_name": "Thiaguinho Wii",
+  "description": "Plataforma de jogos controlados por movimento através da webcam com multiplayer em tempo real.",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#00ffcc",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "orientation": "landscape",
   "icons": [
     {
-      "src": "icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
     },
     {
-      "src": "icon.svg",
+      "src": "icons/icon-512x512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml"
+      "type": "image/png"
     }
   ]
 }
