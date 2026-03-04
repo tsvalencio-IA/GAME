@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>ThIAguinho Wii: Console OS</title>
     
+    <!-- Conexão com o PWA (Instalador Nativo) -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#1a1a24">
+    <link rel="apple-touch-icon" href="./icon.svg">
+
     <!-- Bibliotecas Essenciais -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
@@ -254,7 +259,7 @@
 
     <div id="loading">
         <div class="spinner-wii"></div>
-        <h1 class="mt-4 text-xl md:text-3xl text-gray-700 font-['Russo_One'] tracking-wider">ThIAguinho <span style="color: #00b0f0">OS</span></h1>
+        <h1 class="mt-4 text-xl md:text-3xl text-gray-700 font-['Russo_One'] tracking-wider">ThIAguinho <span style="color: #00b0f0">GAME</span></h1>
         <p id="loading-text" class="mt-2 text-gray-500 font-bold tracking-widest text-xs md:text-sm uppercase">INICIANDO SISTEMA...</p>
     </div>
 
@@ -382,8 +387,19 @@
     <script src="js/game_box.js"></script>
     <script src="js/game_tennis.js"></script>
     <script src="js/game_ar.js"></script>
-<script src="js/game_flight.js"></script>
+    <script src="js/game_flight.js"></script>
 
     <script>setInterval(() => { const now = new Date(); const el = document.getElementById('clock'); if(el) el.innerText = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}); }, 1000);</script>
+
+    <!-- Registo do Service Worker para PWA -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker do ThIAguinho OS registado com sucesso!', reg.scope))
+                    .catch(err => console.error('Erro ao registar o Service Worker:', err));
+            });
+        }
+    </script>
 </body>
 </html>
