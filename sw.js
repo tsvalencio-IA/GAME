@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thiaguinho-console-v3'; // Mudou para v3 para forçar a atualização imediata!
+const CACHE_NAME = 'thiaguinho-console-v4'; // FORÇANDO ATUALIZAÇÃO MÁXIMA
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -17,11 +17,11 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            console.log('[Service Worker] Instalando nova versão V3...');
+            console.log('[Service Worker] Instalando nova versão V4...');
             return cache.addAll(ASSETS_TO_CACHE);
         })
     );
-    self.skipWaiting();
+    self.skipWaiting(); // Obriga a instalar imediatamente
 });
 
 self.addEventListener('activate', (event) => {
@@ -30,22 +30,29 @@ self.addEventListener('activate', (event) => {
             return Promise.all(
                 cacheNames.map((cache) => {
                     if (cache !== CACHE_NAME) {
-                        console.log('[Service Worker] Apagando cache quebrado antigo:', cache);
-                        return caches.delete(cache); // Destrói o cache antigo
+                        console.log('[Service Worker] Destruindo cache antigo:', cache);
+                        return caches.delete(cache); // Limpa as memórias antigas que estavam bloqueando o login
                     }
                 })
             );
         })
     );
-    self.clients.claim();
+    self.clients.claim(); // Assume controle imediato
 });
 
 self.addEventListener('fetch', (event) => {
     event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
-            return cachedResponse || fetch(event.request).catch(() => {
-                return caches.match('./index.html');
-            });
-        })
+        fetch(event.request) // Tenta a rede primeiro para garantir código fresco
+            .then(response => {
+                const responseClone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseClone));
+                return response;
+            })
+            .catch(() => {
+                // Se falhar a rede (offline), usa o cache
+                return caches.match(event.request).then(cachedResponse => {
+                    return cachedResponse || caches.match('./index.html');
+                });
+            })
     );
 });
