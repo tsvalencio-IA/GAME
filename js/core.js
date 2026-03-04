@@ -1,6 +1,6 @@
 /* =================================================================
    CORE DO SISTEMA - VERSÃO COM LOGIN E INTEGRAÇÃO FIREBASE DB
-   STATUS: GESTÃO DE SESSÃO E PERMISSÕES DE JOGOS ATIVADAS
+   STATUS: SESSÃO, PERMISSÕES E MANOBRA DE LOGIN (SEM EMAIL) ATIVADOS
    ================================================================= */
 
 window.Sfx = {
@@ -35,10 +35,13 @@ window.Profile = {
 
     login: async function() {
         window.Sfx.click();
-        const email = document.getElementById('auth-email').value;
+        let userLogin = document.getElementById('auth-email').value.trim();
         const pass = document.getElementById('auth-pass').value;
-        if(!email || !pass) { alert("Preencha o email e senha!"); return; }
+        if(!userLogin || !pass) { alert("Preencha o login e senha!"); return; }
         
+        // A MANOBRA: Se o usuário digitar apenas o nome (ex: thiago), o sistema injeta um domínio fantasma.
+        let email = userLogin.includes('@') ? userLogin : userLogin.toLowerCase() + '@thiaguinhoconsole.com';
+
         try {
             document.getElementById('loading-text').innerText = "AUTENTICANDO...";
             document.getElementById('auth-screen').classList.add('hidden');
@@ -54,11 +57,15 @@ window.Profile = {
 
     register: async function() {
         window.Sfx.click();
-        const email = document.getElementById('auth-email').value;
+        let userLogin = document.getElementById('auth-email').value.trim();
         const pass = document.getElementById('auth-pass').value;
-        if(!email || !pass) { alert("Preencha o email e senha para registrar!"); return; }
+        if(!userLogin || !pass) { alert("Preencha o login e senha para registrar!"); return; }
         
-        const username = prompt("Escolha o seu Nome de Piloto:");
+        // A MANOBRA: O mesmo domínio fantasma para novos registros
+        let email = userLogin.includes('@') ? userLogin : userLogin.toLowerCase() + '@thiaguinhoconsole.com';
+        
+        // Se o cara só digitou "thiago", já usa isso como username, senão pede o nome.
+        let username = userLogin.includes('@') ? prompt("Escolha o seu Nome de Piloto:") : userLogin;
         if(!username || username.trim() === '') return;
 
         try {
