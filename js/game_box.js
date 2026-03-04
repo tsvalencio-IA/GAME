@@ -1,7 +1,7 @@
 // =============================================================================
-// SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL + CALIBRATION + IMPACT)
+// SUPER BOXING: ENTERPRISE EDITION (WII PHYSICS OVERHAUL + MISSIONS)
 // ARQUITETO: SENIOR DEV (CODE 177) & PARCEIRO DE PROGRAMACAO
-// STATUS: PLATINUM MASTER (REFACTORED v3.4 - IMPACT & COUNTER UPDATE)
+// STATUS: PLATINUM MASTER V4.0 + FASES DE CAMPANHA E MOEDAS POR HABILIDADE
 // =============================================================================
 
 (function() {
@@ -77,7 +77,7 @@
     };
 
     // -----------------------------------------------------------------
-    // 3. ENGINE DO JOGO
+    // 3. ENGINE DO JOGO (COM MISSÕES INJETADAS)
     // -----------------------------------------------------------------
     const Game = {
         state: 'INIT',
@@ -95,6 +95,7 @@
         p1: null,
         p2: null,
         msgs: [], 
+        particles: [],
 
         // Variáveis de Calibração
         calibTimer: 0,
@@ -104,15 +105,29 @@
         dynamicBlockDist: null,
         calibSuccessTimer: 0,
 
-        // Efeitos Visuais (V3.4)
-        screenFlash: 0.0, // Flash vermelho quando apanha
-        enemyFlash: 0.0,  // Flash branco no inimigo quando acerta
-        counterTimer: 0.0, // Tempo de oportunidade de contra-ataque
+        // Efeitos Visuais
+        screenFlash: 0.0, 
+        enemyFlash: 0.0,  
+        counterTimer: 0.0, 
 
-        init: function() {
+        // --- NOVO: GERENCIAMENTO DE MISSÕES E RECOMPENSAS ---
+        currentFase: null,
+        matchCoins: 0,
+        matchEnded: false,
+
+        init: function(faseData) {
             try {
-                this.state = 'MODE_SELECT';
+                this.currentFase = faseData || { id: 'arcade', mode: 'FIGHT', desc: 'Vença a Luta!' };
                 this.cleanup();
+                
+                // Se for missão de campanha, salta o menu de rede e vai direto para a escolha de personagem
+                if (this.currentFase.id !== 'arcade') {
+                    this.state = 'CHAR_SELECT';
+                    this.isOnline = false;
+                } else {
+                    this.state = 'MODE_SELECT';
+                }
+
                 if(window.System && window.System.msg) window.System.msg("BOXING PRO");
                 
                 this.lastTime = performance.now();
@@ -123,6 +138,9 @@
                 this.dynamicMinExtension = null;
                 this.dynamicPunchThresh = null;
                 this.dynamicBlockDist = null;
+                this.particles = [];
+                this.matchCoins = 0;
+                this.matchEnded = false;
                 
                 this.setupInput();
             } catch(e) {
@@ -137,6 +155,7 @@
                 hp: 100, maxHp: 100,
                 stamina: 100,
                 guard: false,
+                isDodging: false, 
                 score: 0,
                 pose: SafeUtils.createPose(),
                 aiState: { timer: 0, action: 'IDLE', targetX: 0, targetY: 0 }, 
@@ -156,6 +175,7 @@
 
         setupInput: function() {
             window.System.canvas.onclick = (e) => {
+                if (this.matchEnded) return; // Bloqueia cliques no fim da luta
                 const r = window.System.canvas.getBoundingClientRect();
                 const x = (e.clientX - r.left);
                 const y = (e.clientY - r.top);
@@ -172,7 +192,7 @@
                     
                     if (clickedIndex >= 0 && clickedIndex < CHARACTERS.length) {
                         this.selChar = clickedIndex;
-                        this.p1.charId = clickedIndex; // Correção: Atualiza char do P1
+                        this.p1.charId = clickedIndex; 
                         this.playSound('sine', 600);
                         
                         if (y > h * 0.75) {
@@ -182,9 +202,6 @@
                             this.playSound('square', 400);
                         }
                     }
-                } 
-                else if (this.state === 'GAMEOVER') {
-                    this.init();
                 }
             };
         },
@@ -196,17 +213,32 @@
         },
 
         startGame: function() {
-            // Reinicia P1 com o char selecionado e stats resetados
             this.p1 = this.createPlayer('p1', this.selChar);
-            // Mantém a calibração se existir
             
             if (this.isOnline) {
                 this.connectLobby();
             } else {
-                const cpuId = (this.selChar + 1) % CHARACTERS.length;
+                // --- INJEÇÃO 20/10: CONFIGURAÇÃO DE MISSÕES (BOSS FIGHTS E ADVERSÁRIOS) ---
+                let cpuId = (this.selChar + 1) % CHARACTERS.length; // Default
+                let buffHp = 100;
+                let buffDmg = 1.0;
+
+                if (this.currentFase.id === 'f1') { cpuId = 1; } // Luigi (Treino)
+                if (this.currentFase.id === 'f2') { cpuId = 3; } // Waluigi (Agressivo)
+                if (this.currentFase.id === 'f3') { 
+                    cpuId = 2; // Wario (Boss)
+                    buffHp = 150; // Boss tem mais vida
+                    buffDmg = 1.5; // Boss bate mais forte
+                }
+
                 this.p2 = this.createPlayer('p2', cpuId);
+                this.p2.maxHp = buffHp;
+                this.p2.hp = buffHp;
+                CHARACTERS[cpuId].pwr = buffDmg;
+
                 this.state = 'FIGHT';
                 this.timer = CONF.ROUND_TIME; 
+                this.round = 1;
                 this.lastTime = performance.now();
                 window.System.msg("FIGHT!");
             }
@@ -242,7 +274,7 @@
                         }
                     } else if (this.state === 'FIGHT') {
                         window.System.msg("OPONENTE DESCONECTOU");
-                        this.state = 'GAMEOVER';
+                        this.processMatchEnd(true); // Ganha por W.O.
                     }
                 });
             } catch(e) {
@@ -272,51 +304,89 @@
             syncLimb(local.wrists.r, remote.wrists.r);
         },
 
+        // --- NOVO: LÓGICA DE FIM DE LUTA PARA O MODO CARREIRA ---
+        processMatchEnd: function() {
+            if (this.matchEnded) return;
+            this.matchEnded = true;
+            this.state = 'GAMEOVER';
+
+            let isWin = false;
+            
+            if (this.p1.hp > 0 && this.p2.hp <= 0) {
+                isWin = true; // Ganhou a luta
+                this.matchCoins += 15; // Bónus de Nocaute!
+                this.p1.score += 500;
+                
+                // Regra Específica: Fase 2 exige vitória no 1º Round
+                if (this.currentFase.id === 'f2' && this.round > 1) {
+                    isWin = false;
+                    this.spawnMsg(window.innerWidth/2, window.innerHeight/2, "TEMPO ESGOTADO!", "#e74c3c");
+                }
+            }
+
+            // Pausa dramática para saborear o nocaute antes de fechar o jogo
+            setTimeout(() => {
+                if(window.System.gameOver) {
+                    window.System.gameOver(this.p1.score, isWin, this.matchCoins);
+                } else {
+                    window.System.home();
+                }
+            }, 2500); 
+        },
+
         update: function(ctx, w, h, inputPose) {
             try {
                 const now = performance.now();
                 const dt = Math.min((now - this.lastTime) / 1000, 0.1); 
                 this.lastTime = now;
 
-                if (this.state !== 'FIGHT' && this.state !== 'CALIBRATION') {
+                if (this.state !== 'FIGHT' && this.state !== 'CALIBRATION' && this.state !== 'GAMEOVER') {
                     ctx.fillStyle = '#2c3e50'; ctx.fillRect(0,0,w,h);
                 }
 
                 if (this.state === 'MODE_SELECT') { this.uiMode(ctx, w, h); return; }
                 if (this.state === 'CHAR_SELECT') { this.uiChar(ctx, w, h); return; }
                 if (this.state === 'LOBBY') { this.uiLobby(ctx, w, h); return; }
-                if (this.state === 'GAMEOVER') { this.uiGameOver(ctx, w, h); return; }
-
+                
                 if (this.state === 'CALIBRATION') {
                     this.processInput(inputPose, w, h, dt); 
                     this.uiCalibration(ctx, w, h, dt);
                     return;
                 }
 
-                if (this.state === 'FIGHT') {
-                    this.processInput(inputPose, w, h, dt);
+                // Renderiza a Luta (Mesmo se estiver em GAMEOVER para ver a queda)
+                if (this.state === 'FIGHT' || this.state === 'GAMEOVER') {
+                    if (this.state === 'FIGHT') {
+                        this.processInput(inputPose, w, h, dt);
 
-                    if (this.isOnline) this.sendUpdate();
-                    else this.updateAI(w, h, dt);
+                        if (this.isOnline) this.sendUpdate();
+                        else this.updateAI(w, h, dt);
 
-                    // Efeitos de Flash
+                        if (this.timer > 0) this.timer -= dt;
+                        else this.endRound();
+
+                        // Verifica Nocaute
+                        if (this.p1.hp <= 0 || this.p2.hp <= 0) {
+                            this.processMatchEnd();
+                        }
+                    }
+
                     if (this.screenFlash > 0) this.screenFlash -= dt * 2;
                     if (this.enemyFlash > 0) this.enemyFlash -= dt * 5;
                     if (this.counterTimer > 0) this.counterTimer -= dt;
 
-                    // Render
                     this.drawArena(ctx, w, h);
                     
-                    // Flash Vermelho quando apanha
                     if (this.screenFlash > 0) {
                         ctx.fillStyle = `rgba(255, 0, 0, ${this.screenFlash * 0.5})`;
                         ctx.fillRect(0, 0, w, h);
                     }
 
-                    // Inimigo (passa o parametro de flash)
+                    // Se a IA morrer, ela "cai" para baixo (Efeito de Nocaute)
+                    if (this.p2.hp <= 0) { this.p2.pose.head.y += 100 * dt; }
+
                     this.drawCharacter(ctx, this.p2, w, h, false, this.enemyFlash > 0);
                     
-                    // Player (Frente)
                     ctx.globalAlpha = 0.7;
                     this.drawCharacter(ctx, this.p1, w, h, true, false);
                     ctx.globalAlpha = 1.0;
@@ -324,10 +394,23 @@
                     this.drawHUD(ctx, w, h);
                     this.renderMsgs(ctx, dt);
 
-                    if (this.timer > 0) this.timer -= dt;
-                    else this.endRound();
+                    // Renderizar Partículas Sangue/Suor
+                    if (this.particles && this.particles.length > 0) {
+                        this.particles.forEach(p => {
+                            p.x += p.vx; p.y += p.vy; p.vy += 0.8; p.life -= dt * 2;
+                            ctx.fillStyle = p.c; ctx.globalAlpha = Math.max(0, p.life);
+                            ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+                        });
+                        this.particles = this.particles.filter(p => p.life > 0);
+                        ctx.globalAlpha = 1.0;
+                    }
 
-                    if (this.p1.hp <= 0 || this.p2.hp <= 0) this.state = 'GAMEOVER';
+                    if (this.state === 'GAMEOVER') {
+                        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(0,0,w,h);
+                        ctx.fillStyle = this.p1.hp > 0 ? "#f1c40f" : "#e74c3c";
+                        ctx.textAlign="center"; ctx.font="bold 80px 'Russo One'";
+                        ctx.fillText(this.p1.hp > 0 ? "NOCAUTE!" : "CAIU!", w/2, h/2);
+                    }
                 }
 
                 return this.p1.score;
@@ -361,7 +444,6 @@
             ctx.font = "bold 40px Arial"; ctx.fillText("FAÇA A POSE T", w/2, h * 0.2);
             ctx.font = "20px Arial"; ctx.fillText("ABRA OS BRAÇOS EM 90°", w/2, h * 0.25);
 
-            // Validação Robusta v3.3
             const armL = Math.abs(p.wrists.l.x - p.shoulders.l.x);
             const armR = Math.abs(p.wrists.r.x - p.shoulders.r.x);
             const shWidth = Math.abs(p.shoulders.r.x - p.shoulders.l.x);
@@ -429,6 +511,15 @@
             const nextWrR = get('right_wrist', p.wrists.r);
             
             if (this.state === 'FIGHT') {
+                // Sistema de Esquiva Dinâmica
+                let noseSpeedX = p.head.x - (this.lastHeadX || p.head.x);
+                if (Math.abs(noseSpeedX) > 20) {
+                    this.p1.isDodging = true;
+                } else {
+                    this.p1.isDodging = false;
+                }
+                this.lastHeadX = p.head.x;
+
                 this.updateHandLogic(p.wrists.l, nextWrL, p.shoulders.l, this.p1, this.p2, dt);
                 this.updateHandLogic(p.wrists.r, nextWrR, p.shoulders.r, this.p1, this.p2, dt);
 
@@ -509,38 +600,50 @@
 
             if (hitHead || hitBody) {
                 hand.hasHit = true; 
+
+                // --- INJEÇÃO 20/10: MOEDAS POR ESQUIVA PERFEITA ---
+                if (defender === this.p1 && defender.isDodging) {
+                    this.spawnMsg(headBox.x, headBox.y - 40, "ESQUIVA!", "#2ecc71");
+                    this.playSound('sine', 800, 0.2);
+                    this.counterTimer = 1.5; 
+                    if(window.Gfx) window.Gfx.shakeScreen(5);
+                    this.matchCoins += 3; // Recompensa a Esquiva!
+                    this.p1.score += 50;
+                    hand.z = 80; hand.state = 'RETRACT';
+                    return; 
+                }
                 
                 const basePwr = CHARACTERS[attacker.charId].pwr;
                 const fatigue = Math.max(0.3, attacker.stamina / 100);
                 let damage = basePwr * 5 * fatigue * hand.punchForce; 
 
-                // LÓGICA DE COUNTER (NOVA)
-                // Se quem ataca é o P1 e o Counter está ativo, dano x2
+                // Counter Attack Massivo
                 if (attacker === this.p1 && this.counterTimer > 0) {
                     damage *= 2.0;
-                    this.spawnMsg(w/2, h/2, "COUNTER!!", "#f39c12");
+                    this.spawnMsg(cx, cy, "COUNTER!!", "#f39c12");
                     this.playSound('sawtooth', 300, 0.3);
-                    this.counterTimer = 0; // Consome o counter
+                    this.counterTimer = 0; 
                 }
 
                 if (defender.guard) {
                     damage *= 0.2; 
-                    // Se quem defendeu foi o P1, ativa o Counter Window
                     if (defender === this.p1) {
                         this.spawnMsg(headBox.x, headBox.y - 60, "PERFECT BLOCK!", "#3498db");
-                        this.counterTimer = 1.0; // 1 segundo para contra-atacar
+                        this.counterTimer = 1.0; 
+                        this.matchCoins += 1; // Recompensa a Defesa!
+                        this.p1.score += 20;
                     } else {
-                        // Se inimigo defendeu
                         this.spawnMsg(headBox.x, headBox.y - 40, "BLOCKED", "#aaa");
                     }
                     this.playSound('square', 100, 0.1);
                     hand.z = 80; hand.state = 'RETRACT';
                 } else {
-                    // DANO REAL
                     if (hitHead) {
                         damage *= 2.0;
-                        if(attacker === this.p1) this.spawnMsg(headBox.x, headBox.y - 50, "CRITICAL!", "#f00");
-                        else this.spawnMsg(w/2, h/2, "OUCH!", "#e74c3c"); // Dano no player
+                        if(attacker === this.p1) { 
+                            this.spawnMsg(headBox.x, headBox.y - 50, "CRITICAL!", "#f00"); 
+                            this.matchCoins += 2; // Recompensa o Headshot!
+                        } else this.spawnMsg(window.innerWidth/2, window.innerHeight/2, "OUCH!", "#e74c3c"); 
                         
                         if(window.Gfx) window.Gfx.shakeScreen(15 * hand.punchForce);
                         this.playSound('sawtooth', 150, 0.2);
@@ -552,18 +655,21 @@
                     
                     attacker.score += Math.floor(damage * 10);
 
-                    // FEEDBACK VISUAL V3.4
-                    if (defender === this.p1) {
-                        this.screenFlash = 1.0; // Tela vermelha
-                    } else {
-                        this.enemyFlash = 1.0; // Inimigo branco
+                    if (defender === this.p1) this.screenFlash = 1.0; 
+                    else this.enemyFlash = 1.0; 
+
+                    for(let i=0; i<8; i++) {
+                        this.particles.push({
+                            x: defender === this.p1 ? headBox.x : cx,
+                            y: defender === this.p1 ? headBox.y : cy,
+                            vx: (Math.random()-0.5)*20, vy: -Math.random()*15, 
+                            life: 1.0, c: hitHead ? "#e74c3c" : "#bdc3c7"
+                        });
                     }
                 }
                 
                 defender.hp = Math.max(0, defender.hp - damage);
                 
-                // CORREÇÃO: Enviar hp atualizado para a rede, seja P1 ou P2 (se P1 for o host)
-                // Se eu bato no inimigo, atualizo o HP dele no firebase
                 if(this.isOnline && this.dbRef && attacker === this.p1) {
                      this.dbRef.child('players/' + defender.id).update({ hp: defender.hp });
                 }
@@ -642,7 +748,6 @@
             ctx.beginPath(); ctx.moveTo(0, mid-120); ctx.lineTo(w, mid-120); ctx.stroke();
         },
 
-        // V3.4: Adicionado parametro 'flash'
         drawCharacter: function(ctx, player, w, h, isSelf, flash) {
             const p = player.pose;
             if (p.shoulders.l.x === 0) return;
@@ -654,10 +759,9 @@
             const cx = (p.shoulders.l.x + p.shoulders.r.x) / 2;
             const cy = (p.shoulders.l.y + p.shoulders.r.y) / 2;
 
-            // Se flash estiver ativo, forçamos branco
             if (flash) {
                 ctx.save();
-                ctx.globalCompositeOperation = "source-over"; // Simples overlay
+                ctx.globalCompositeOperation = "source-over"; 
             }
 
             const limb = (p1, p2, width) => {
@@ -744,6 +848,14 @@
                 ctx.fillStyle = "#fff"; ctx.font="30px Arial"; 
                 ctx.fillText(c.name[0], center, 210);
             });
+            
+            // --- NOVO: INDICAÇÃO DE MISSÃO NO ECRÃ DE SELEÇÃO ---
+            if (this.currentFase.id !== 'arcade') {
+                ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(0, 0, w, 60);
+                ctx.fillStyle = "#f1c40f"; ctx.font="bold 24px Arial";
+                ctx.fillText(`MISSÃO: ${this.currentFase.desc}`, w/2, 35);
+            }
+
             ctx.fillStyle = "#2ecc71"; ctx.fillRect(0, h-80, w, 80);
             ctx.fillStyle = "#fff"; ctx.font="bold 40px Arial";
             ctx.fillText("INICIAR LUTA", w/2, h-25);
@@ -755,31 +867,31 @@
             ctx.fillText("AGUARDANDO OPONENTE...", w/2, h/2);
         },
 
-        uiGameOver: function(ctx, w, h) {
-            ctx.fillStyle = "rgba(0,0,0,0.85)"; ctx.fillRect(0,0,w,h);
-            const win = this.p1.hp > 0;
-            ctx.fillStyle = win ? "#f1c40f" : "#e74c3c";
-            ctx.textAlign="center"; ctx.font="bold 60px 'Russo One'";
-            ctx.fillText(win ? "VITÓRIA!" : "DERROTA", w/2, h/2);
-            ctx.fillStyle = "#fff"; ctx.font="20px sans-serif"; ctx.fillText("CLIQUE PARA REINICIAR", w/2, h-50);
-        },
-
         drawHUD: function(ctx, w, h) {
             const barW = w * 0.4;
             ctx.fillStyle = "#444"; ctx.fillRect(10, 10, barW, 25);
-            ctx.fillStyle = "#e74c3c"; ctx.fillRect(10, 10, barW * (this.p1.hp/100), 25);
+            ctx.fillStyle = "#e74c3c"; ctx.fillRect(10, 10, barW * (this.p1.hp/this.p1.maxHp), 25);
             ctx.fillStyle = "#444"; ctx.fillRect(w-10-barW, 10, barW, 25);
-            ctx.fillStyle = "#3498db"; ctx.fillRect(w-10-barW, 10, barW * (this.p2.hp/100), 25);
+            ctx.fillStyle = "#3498db"; ctx.fillRect(w-10-barW, 10, barW * (this.p2.hp/this.p2.maxHp), 25);
             ctx.fillStyle = "#f1c40f"; ctx.fillRect(10, 40, barW * (this.p1.stamina/100), 5);
             
-            // Indicador de Counter
             if (this.counterTimer > 0) {
                 ctx.fillStyle = "#f39c12"; ctx.font="bold 20px Arial"; ctx.textAlign="left";
                 ctx.fillText("COUNTER READY!", 20, 70);
             }
 
+            // Central HUD
             ctx.fillStyle = "#fff"; ctx.font="bold 30px Arial"; ctx.textAlign="center";
             ctx.fillText(Math.ceil(this.timer), w/2, 35);
+
+            // --- NOVO: MOEDAS COLETADAS NA LUTA ---
+            ctx.fillStyle = "#f1c40f"; ctx.font="bold 20px 'Russo One'";
+            ctx.fillText(`🪙 ${this.matchCoins}`, w/2, 65);
+            
+            if (this.currentFase.id !== 'arcade') {
+                ctx.fillStyle = "#ecf0f1"; ctx.font="14px Arial";
+                ctx.fillText(`Missão: ${this.currentFase.desc}`, w/2, 85);
+            }
         },
 
         drawBtn: function(ctx, x, y, txt) {
@@ -810,13 +922,24 @@
                 this.round++;
                 this.timer = CONF.ROUND_TIME;
                 window.System.msg("ROUND " + this.round);
-            } else this.state = 'GAMEOVER';
+            } else {
+                this.processMatchEnd();
+            }
         }
     };
 
     const register = () => {
         if(window.System && window.System.registerGame) {
-            window.System.registerGame('box_pro', 'Boxing Pro', '🥊', Game, { camOpacity: 0.1 });
+            window.System.registerGame('box_pro', 'Boxing Pro', '🥊', Game, { 
+                camOpacity: 0.1,
+                // --- NOVO: FASES DE CAMPANHA DO BOXE ---
+                phases: [
+                    { id: 'f1', name: 'TREINO AMADOR', desc: 'Derrote o Luigi (Fácil).', reqLvl: 1 },
+                    { id: 'f2', name: 'RIVALIDADE', desc: 'Vença o Waluigi antes do 2º Round.', reqLvl: 2 },
+                    { id: 'f3', name: 'O CINTURÃO', desc: 'Derrote o Wario (Status de Campeão).', reqLvl: 3 },
+                    { id: 'arcade', name: 'MODO LIVRE', desc: 'Lute offline/online sem restrições.', reqLvl: 1 }
+                ]
+            });
         } else {
             setTimeout(register, 500);
         }
