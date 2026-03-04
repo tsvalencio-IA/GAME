@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thiaguinho-console-v2'; // Mudou para v2 para forçar a atualização!
+const CACHE_NAME = 'thiaguinho-console-v3'; // Mudou para v3 para forçar a atualização imediata!
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -17,7 +17,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            console.log('[Service Worker] Instalando nova versão V2...');
+            console.log('[Service Worker] Instalando nova versão V3...');
             return cache.addAll(ASSETS_TO_CACHE);
         })
     );
