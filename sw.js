@@ -1,4 +1,4 @@
-const CACHE_NAME = 'thiaguinho-console-v1';
+const CACHE_NAME = 'thiaguinho-console-v2'; // Mudou para v2 para forçar a atualização!
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -7,6 +7,7 @@ const ASSETS_TO_CACHE = [
     './js/core.js',
     './js/admin.js',
     './js/game_kart.js',
+    './js/game_run.js',
     './js/game_box.js',
     './js/game_flight.js',
     './js/game_ar.js',
@@ -16,7 +17,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then((cache) => {
-            console.log('[Service Worker] Guardando ficheiros no Cache...');
+            console.log('[Service Worker] Instalando nova versão V2...');
             return cache.addAll(ASSETS_TO_CACHE);
         })
     );
@@ -29,8 +30,8 @@ self.addEventListener('activate', (event) => {
             return Promise.all(
                 cacheNames.map((cache) => {
                     if (cache !== CACHE_NAME) {
-                        console.log('[Service Worker] Apagando cache antigo:', cache);
-                        return caches.delete(cache);
+                        console.log('[Service Worker] Apagando cache quebrado antigo:', cache);
+                        return caches.delete(cache); // Destrói o cache antigo
                     }
                 })
             );
