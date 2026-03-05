@@ -1,7 +1,7 @@
 // =============================================================================
-// KART LEGENDS: TITANIUM MASTER FINAL V22 (COMBATE REALISTA, ECONOMIA E FÍSICA)
+// KART LEGENDS: TITANIUM MASTER FINAL V23 (COMBATE REALISTA, ECONOMIA E FÍSICA)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 100% COMPLETO. MÍSSEIS INTELIGENTES, RECUPERAÇÃO DE VOO, 1000 REAIS/MOEDA.
+// STATUS: 100% COMPLETO. COPAS MULTIPLAYER, MAGNETISMO, BANANAS EM REDE, 1000 REAIS/MOEDA.
 // =============================================================================
 
 (function() {
@@ -156,7 +156,7 @@
         speed: 0, pos: 0, playerX: 0, steer: 0, targetSteer: 0, cameraX: 0, nitro: 100, turboLock: false, gestureTimer: 0, spinAngle: 0, spinTimer: 0, lateralInertia: 0, vibration: 0, engineTimer: 0,
         driftSparks: 0, slipstreamTimer: 0, lap: 1, maxLapPos: 0, status: 'RACING', finishTime: 0, finalRank: 0, score: 0, visualTilt: 0, bounce: 0, skyColor: 0, inputActive: false, virtualWheel: { x:0, y:0, r:60, opacity:0, isHigh: false }, rivals: [], 
         
-        currentFase: null, matchCoins: 0,
+        currentFase: null, matchCoins: 0, cupPoints: 0,
         item: null, itemCooldown: 0, projectiles: [],
 
         useCustomKart: false, kartUpgrades: {}, shopHitboxes: [], lobbyHitboxes: [], 
@@ -165,6 +165,7 @@
         init: function(faseData) { 
             this.cleanup(); this.state = 'MODE_SELECT'; this.setupUI(); this.resetPhysics(); KartAudio.init(); 
             this.currentFase = faseData || { id: 'arcade', mode: 'RACE', targetRank: 3, trackId: 0, diff: 'MEDIUM' }; 
+            this.cupPoints = 0; // Reset na Copa ao iniciar a Fase
 
             if (window.Profile) {
                 if (!window.Profile.kartSave) window.Profile.kartSave = { garage: [{ modelId: 0 }], activeKartIdx: 0, upgrades: { engine: 1, tires: 1, suspension: 1 } };
@@ -181,7 +182,10 @@
 
         cleanup: function() {
             if (this.dbRef) try { this.dbRef.child('players').off(); } catch(e){}
-            if (this.roomRef) try { this.roomRef.off(); } catch(e){}
+            if (this.roomRef) try { 
+                this.roomRef.off(); 
+                this.roomRef.child('shared/hazards').off();
+            } catch(e){}
             if (this.maintenanceInterval) clearInterval(this.maintenanceInterval);
             if(nitroBtn) nitroBtn.remove(); if(resetBtn) resetBtn.remove();
             KartAudio.stop(); window.System.canvas.onpointerdown = null;
@@ -191,6 +195,13 @@
             this.speed = 0; this.pos = 0; this.playerX = 0; this.steer = 0; this.cameraX = 0; this.driftSparks = 0; this.slipstreamTimer = 0; 
             this.lap = 1; this.maxLapPos = 0; this.status = 'RACING'; this.finishTime = 0; this.finalRank = 0; this.score = 0; this.nitro = 100; this.spinAngle = 0; this.spinTimer = 0; this.lateralInertia = 0; this.vibration = 0; this.engineTimer = 0; this.inputActive = false; this.rivals = []; this.localBots = []; particles = []; hudMessages = []; this.remotePlayersData = {};
             this.matchCoins = 0; this.item = null; this.itemCooldown = 0; this.projectiles = [];
+            
+            // --- INJEÇÃO DO CHAT GPT: PASSO 1 & 2 ---
+            this.player = { lap: 1, position: 1, finished: false };
+            this.totalLaps = CONF.TOTAL_LAPS;
+            this.raceState = "RUNNING"; 
+            this.reward = 0;
+            // ----------------------------------------
         },
 
         pushMsg: function(text, color='#fff', size=40) { hudMessages.push({ text, color, size, life: 90, scale: 0.1 }); },
@@ -210,7 +221,7 @@
             resetBtn.addEventListener('mousedown', (e)=>{ 
                 e.preventDefault(); 
                 if(this.state === 'LOBBY' && this.isOnline && this.roomRef) { 
-                    this.roomRef.update({ raceState: 'LOBBY', totalRacers: 0, raceStartTime: 0 }); 
+                    this.roomRef.update({ raceState: 'LOBBY', totalRacers: 0, raceStartTime: 0, 'shared/hazards': null }); 
                     window.System.msg("SALA RESETADA COM SUCESSO!"); 
                     this.pushMsg("SALA RESETADA!", "#0f0", 50);
                 }
@@ -218,7 +229,7 @@
             resetBtn.addEventListener('touchstart', (e)=>{ 
                 e.preventDefault(); 
                 if(this.state === 'LOBBY' && this.isOnline && this.roomRef) { 
-                    this.roomRef.update({ raceState: 'LOBBY', totalRacers: 0, raceStartTime: 0 }); 
+                    this.roomRef.update({ raceState: 'LOBBY', totalRacers: 0, raceStartTime: 0, 'shared/hazards': null }); 
                     window.System.msg("SALA RESETADA COM SUCESSO!"); 
                     this.pushMsg("SALA RESETADA!", "#0f0", 50);
                 }
@@ -238,6 +249,62 @@
 
                 KartAudio.init(); if(KartAudio.ctx && KartAudio.ctx.state === 'suspended') KartAudio.ctx.resume();
 
+                // --- SISTEMA DE PÓDIO E COPA (NOVO) ---
+                if (this.raceState === "FINISHED") {
+                    if (window.Profile) { window.Profile.coins = (window.Profile.coins || 0) + this.reward; if(window.Profile.save) window.Profile.save(); }
+                    this.player.lap = 1;
+                    this.player.finished = false;
+                    this.reward = 0;
+                    
+                    // Adiciona Pontos
+                    let pts = [15, 12, 10, 8, 6, 4, 2, 1];
+                    this.cupPoints = (this.cupPoints || 0) + (pts[this.finalRank - 1] || 1);
+                    if (this.isOnline && this.dbRef) {
+                        this.dbRef.child('players/' + window.System.playerId).update({ cupPoints: this.cupPoints });
+                    }
+                    
+                    let nextTrackId = this.selectedTrack + 1;
+                    if (nextTrackId < TRACKS.length) {
+                        // Próxima Corrida
+                        if (this.isOnline) {
+                            if (this.isHost) {
+                                this.roomRef.update({ trackId: nextTrackId, raceState: 'RACING', 'shared/hazards': null });
+                            } else {
+                                this.pushMsg("AGUARDANDO HOST...", "#fff", 30);
+                            }
+                        } else {
+                            this.selectedTrack = nextTrackId;
+                            this.startRace(this.selectedTrack);
+                        }
+                    } else {
+                        // Fim da Copa -> Pódio
+                        if (this.isOnline) {
+                            if (this.isHost) this.roomRef.update({ raceState: 'CUP_END' });
+                        } else {
+                            this.raceState = 'CUP_END';
+                        }
+                    }
+                    
+                    window.Sfx.click();
+                    return;
+                }
+
+                if (this.raceState === "CUP_END") {
+                    this.cupPoints = 0;
+                    this.player.lap = 1;
+                    this.player.finished = false;
+                    this.raceState = "RUNNING";
+                    this.reward = 0;
+                    this.state = 'LOBBY';
+                    if (this.isOnline && this.isHost) {
+                        this.roomRef.update({ raceState: 'LOBBY', trackId: 0, 'shared/hazards': null });
+                    }
+                    this.resetPhysics();
+                    window.Sfx.click();
+                    return;
+                }
+                // ------------------------------------
+
                 if (this.state === 'MODE_SELECT') { 
                     if (this.currentFase.id === 'arcade') {
                         if (yPct < 0.5) this.selectMode('OFFLINE'); else this.selectMode('ONLINE'); 
@@ -249,7 +316,11 @@
                         if (this.isOnline) {
                             if (this.isHost) {
                                 const activePlayers = Object.values(this.remotePlayersData || {}).filter(p => (Date.now() - p.lastSeen < SAFETY.ZOMBIE_TIMEOUT));
-                                if (activePlayers.length >= 2) { this.roomRef.update({ raceState: 'RACING', totalRacers: activePlayers.length, raceStartTime: firebase.database.ServerValue.TIMESTAMP }); } else { window.System.msg("PRECISA DE 2 JOGADORES!"); window.Sfx.play(150, 'sawtooth', 0.3, 0.1); }
+                                if (activePlayers.length >= 2) { 
+                                    this.roomRef.update({ raceState: 'RACING', totalRacers: activePlayers.length, raceStartTime: firebase.database.ServerValue.TIMESTAMP, 'shared/hazards': null }); 
+                                } else { 
+                                    window.System.msg("PRECISA DE 2 JOGADORES!"); window.Sfx.play(150, 'sawtooth', 0.3, 0.1); 
+                                }
                             } else { this.toggleReady(); }
                         } else { this.startRace(this.currentFase.trackId !== undefined ? this.currentFase.trackId : this.selectedTrack); }
                     } else {
@@ -344,11 +415,11 @@
                     let globalIdx = segments.length; 
                     
                     let coinChance = (this.currentFase.mode === 'COIN_HUNT') ? 0.8 : 0.3;
-                    if (globalIdx % 8 === 0 && Math.random() < coinChance) { obsList.push({ type: 'coin', x: (Math.random() - 0.5) * 1.6, collected: false }); }
+                    if (globalIdx % 8 === 0 && Math.random() < coinChance) { obsList.push({ id: 'c_'+globalIdx, type: 'coin', x: (Math.random() - 0.5) * 1.6, collected: false }); }
                     
                     if (globalIdx > 50 && globalIdx % 35 === 0) {
-                        obsList.push({ type: 'item_box', x: (Math.random() - 0.5) * 1.4, collected: false });
-                        if(Math.random() < 0.4) { obsList.push({ type: 'item_box', x: (Math.random() - 0.5) * 1.4, collected: false }); }
+                        obsList.push({ id: 'bx_'+globalIdx, type: 'item_box', x: (Math.random() - 0.5) * 1.4, collected: false });
+                        if(Math.random() < 0.4) { obsList.push({ id: 'bx2_'+globalIdx, type: 'item_box', x: (Math.random() - 0.5) * 1.4, collected: false }); }
                     }
                     
                     segments.push({ curve: curve * mult, color: Math.floor(segments.length / CONF.RUMBLE_LENGTH) % 2 ? 'dark' : 'light', theme: trk.theme, obs: obsList }); 
@@ -376,17 +447,33 @@
         connectMultiplayer: function() {
             this.roomRef = window.DB.ref('rooms/' + this.roomId); this.dbRef = this.roomRef;
             const myRef = this.dbRef.child('players/' + window.System.playerId);
-            myRef.set({ name: 'Player', charId: this.selectedChar, ready: false, lastSeen: firebase.database.ServerValue.TIMESTAMP, status: 'LOBBY', pos: 0, lap: 1, finishTime: 0 });
+            myRef.set({ name: window.Profile?.username || 'Player', charId: this.selectedChar, ready: false, lastSeen: firebase.database.ServerValue.TIMESTAMP, status: 'LOBBY', pos: 0, lap: 1, finishTime: 0, cupPoints: this.cupPoints });
             myRef.onDisconnect().remove();
             this.maintenanceInterval = setInterval(() => this.performHostMaintenance(), SAFETY.MAINTENANCE_RATE);
 
             this.roomRef.child('raceState').on('value', (snap) => {
                 const globalState = snap.val(); this.raceState = globalState; 
-                if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING' || this.state === 'KART_SHOP')) { this.roomRef.child('trackId').once('value').then(tSnap => { this.startRace(tSnap.val() || 0); }); }
+                if(globalState === 'RACING' && (this.state === 'LOBBY' || this.state === 'WAITING' || this.state === 'KART_SHOP' || this.raceState === 'FINISHED')) { this.roomRef.child('trackId').once('value').then(tSnap => { this.startRace(tSnap.val() || 0); }); }
                 if(globalState === 'GAMEOVER' && (this.state === 'RACE' || this.state === 'SPECTATE')) { this.state = 'GAMEOVER'; window.Sfx.play(1000, 'sine', 1, 0.5); }
-                if(globalState === 'LOBBY' && (this.state === 'GAMEOVER' || this.state === 'RACE')) { this.state = 'LOBBY'; this.resetPhysics(); window.System.msg("SALA REINICIADA"); }
+                if(globalState === 'LOBBY' && (this.state === 'GAMEOVER' || this.state === 'RACE' || this.raceState === 'CUP_END')) { this.state = 'LOBBY'; this.resetPhysics(); window.System.msg("SALA REINICIADA"); }
             });
             this.roomRef.child('trackId').on('value', (snap) => { if(snap.exists() && !this.isHost) this.selectedTrack = snap.val(); });
+            
+            // --- SYNC DE HAZARDS (BANANAS) EM REDE ---
+            this.roomRef.child('shared/hazards').on('value', snap => {
+                let hData = snap.val() || {};
+                Object.keys(hData).forEach(hId => {
+                    let hz = hData[hId];
+                    if (hz.owner !== window.System.playerId) { 
+                        let seg = getSegment(hz.pos / CONF.SEGMENT_LENGTH);
+                        if (!seg.obs) seg.obs = [];
+                        if (!seg.obs.find(o => o.id === hId)) {
+                            seg.obs.push({ id: hId, type: 'banana', x: hz.x, collected: false, owner: hz.owner, time: hz.time });
+                        }
+                    }
+                });
+            });
+
             this.dbRef.child('players').on('value', (snap) => {
                 const data = snap.val(); if (!data) return;
                 this.remotePlayersData = data; const now = Date.now(); const ids = Object.keys(data).sort();
@@ -439,6 +526,16 @@
             if (this.state === 'KART_SHOP') { this.renderShop(ctx, w, h); return; }
             if (this.state === 'GAMEOVER') { return Math.floor(this.score); }
             
+            if (this.raceState === "FINISHED") {
+                this.renderWorld(ctx, w, h);
+                this.renderUI(ctx, w, h);
+                return Math.floor(this.score);
+            }
+            if (this.raceState === "CUP_END") {
+                this.renderCupEnd(ctx, w, h);
+                return Math.floor(this.score);
+            }
+            
             this.updatePhysics(w, h, pose);
             this.checkRaceStatus();
             this.renderWorld(ctx, w, h);
@@ -463,7 +560,6 @@
             }
         },
 
-        // --- SISTEMA INTELIGENTE DE RANKING (P/ MÍSSEIS TELEGUIADOS) ---
         getRankings: function() {
             let allR = [
                 { id: 'player', lap: this.lap, pos: this.pos, x: this.playerX },
@@ -471,7 +567,7 @@
                 ...this.rivals.filter(r => r.isRemote).map(r => ({ id: r.id, lap: r.lap, pos: r.pos, x: r.x }))
             ];
             allR.forEach(r => { r.totalDist = (r.lap * trackLength) + r.pos; });
-            allR.sort((a, b) => b.totalDist - a.totalDist); // 1º lugar no index 0
+            allR.sort((a, b) => b.totalDist - a.totalDist); 
             return allR;
         },
 
@@ -578,10 +674,9 @@
             if(d.status === 'RACING' && d.spinTimer <= 0 && isAccelerating) { d.speed += (max - d.speed) * char.accel; } else if (d.status !== 'FINISHED') { d.speed *= 0.96; }
             d.speed *= currentDrag;
 
-            // FIX ABSOLUTO: GIRO NO AR (KART NÃO FICA MAIS PRESO DE CABEÇA PARA BAIXO)
             if (d.spinTimer > 0) { 
                 d.spinTimer--; 
-                d.spinAngle += (Math.PI * 2) / 40; // 360 perfeito em 40 frames
+                d.spinAngle += (Math.PI * 2) / 40; 
                 d.speed *= 0.95; 
                 d.bounce *= 0.85; 
             } else {
@@ -607,26 +702,46 @@
                 if (d.slipstreamTimer > 20) { d.speed += 3.5; if (Math.random() > 0.4) this.spawnParticle(w/2 + (Math.random()-0.5)*200, h/2 + Math.random()*150, 'wind'); }
             } else { d.slipstreamTimer = 0; }
 
-            const pickupHitbox = 1.8; 
-            const segInfo = getSegment(d.pos / CONF.SEGMENT_LENGTH);
-            if (segInfo.obs) {
-                segInfo.obs.forEach(o => {
-                    if (!o.collected && Math.abs(d.playerX - o.x) < pickupHitbox) {
-                        if (o.type === 'coin') {
-                            o.collected = true; d.matchCoins++; d.score += 50; window.Sfx.coin(); 
-                            this.pushMsg("+ R$1.000", "#f1c40f", 25);
-                            if (window.Profile) { window.Profile.coins = (window.Profile.coins || 0) + 1000; if(window.Profile.save) window.Profile.save(); }
-                        } else if (o.type === 'item_box' && !d.item) {
-                            o.collected = true; window.Sfx.play(1000, 'sine', 0.1);
-                            const possibleItems = ['mushroom', 'banana', 'shell'];
-                            d.item = possibleItems[Math.floor(Math.random() * possibleItems.length)];
-                            this.pushMsg("CAIXA PEGA!", "#fff", 30);
-                        } else if (o.type === 'banana') {
-                            o.collected = true; d.spinTimer = 40; d.speed *= 0.2; window.Sfx.error(); window.Gfx.shakeScreen(20);
-                            this.pushMsg("ESCORREGOU!", "#f00", 40);
+            // --- MAGNETISMO E HITBOX AUMENTADA ---
+            const pickupHitbox = 4.5; 
+            for (let i = 0; i <= 1; i++) {
+                const segInfo = getSegment((d.pos / CONF.SEGMENT_LENGTH) + i);
+                if (segInfo.obs) {
+                    segInfo.obs.forEach(o => {
+                        if (!o.collected) {
+                            let dist = Math.abs(d.playerX - o.x);
+                            
+                            // Efeito Magnético: Atrai o item pro jogador se estiver proximo
+                            if (dist < 4.5 && o.type !== 'banana') {
+                                o.x += (d.playerX - o.x) * 0.15; 
+                                dist = Math.abs(d.playerX - o.x);
+                            }
+
+                            if (dist < pickupHitbox) {
+                                if (o.type === 'coin') {
+                                    o.collected = true; d.matchCoins++; d.score += 50; window.Sfx.coin(); 
+                                    if (window.Profile) { window.Profile.coins = (window.Profile.coins || 0) + 1000; if(window.Profile.save) window.Profile.save(); }
+                                } else if (o.type === 'item_box' && !d.item) {
+                                    o.collected = true; window.Sfx.play(1000, 'sine', 0.1);
+                                    const possibleItems = ['mushroom', 'banana', 'shell'];
+                                    d.item = possibleItems[Math.floor(Math.random() * possibleItems.length)];
+                                    this.pushMsg("CAIXA PEGA!", "#fff", 30);
+                                } else if (o.type === 'banana') {
+                                    // Imunidade de Dono da Banana (1.5 segundos após jogar)
+                                    if (o.owner === window.System.playerId && (Date.now() - o.time < 1500)) return;
+
+                                    o.collected = true; d.spinTimer = 40; d.speed *= 0.2; window.Sfx.error(); window.Gfx.shakeScreen(20);
+                                    this.pushMsg("ESCORREGOU!", "#f00", 40);
+                                    
+                                    // Remove the hazard globally
+                                    if (this.isOnline && this.roomRef && o.id) {
+                                        this.roomRef.child('shared/hazards/' + o.id).remove();
+                                    }
+                                }
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
 
             if (itemTriggered && d.item && d.itemCooldown <= 0 && d.status === 'RACING') {
@@ -636,10 +751,20 @@
                     this.pushMsg("COGUMELO BOOST!", "#f1c40f");
                 } 
                 else if (d.item === 'banana') {
+                    // Joga a banana pra trás
+                    let dropPos = d.pos - (CONF.SEGMENT_LENGTH * 2);
+                    if (dropPos < 0) dropPos += trackLength;
+                    let segInfo = getSegment(dropPos / CONF.SEGMENT_LENGTH);
                     if (!segInfo.obs) segInfo.obs = [];
-                    segInfo.obs.push({ type: 'banana', x: d.playerX, collected: false });
+                    
+                    let hazId = 'b_' + window.System.playerId + '_' + Date.now();
+                    segInfo.obs.push({ id: hazId, type: 'banana', x: d.playerX, collected: false, owner: window.System.playerId, time: Date.now() });
                     window.Sfx.play(300, 'sine', 0.2, 0.2);
                     this.pushMsg("BANANA DROPADA!", "#f1c40f");
+
+                    if (this.isOnline && this.roomRef) {
+                        this.roomRef.child('shared/hazards/' + hazId).set({ pos: dropPos, x: d.playerX, owner: window.System.playerId, time: Date.now() });
+                    }
                 } 
                 else if (d.item === 'shell') {
                     let ranks = this.getRankings();
@@ -650,7 +775,7 @@
 
                     d.projectiles.push({ pos: d.pos + 200, x: d.playerX, speed: Math.max(d.speed, 200) + 150, active: true, life: 400, owner: 'player', targetId: targetId });
                     window.Sfx.play(600, 'sawtooth', 0.2, 0.2);
-                    this.pushMsg("MÍSSIL LANÇADO!", "#2ecc71");
+                    this.pushMsg("CASCO LANÇADO!", "#2ecc71"); // Adeus míssel
                 }
                 d.item = null; d.itemCooldown = 60; 
             }
@@ -802,6 +927,15 @@
             if (d.pos >= trackLength) { 
                 if (d.maxLapPos > trackLength * 0.70) {
                     d.pos -= trackLength; d.lap++; d.maxLapPos = 0;
+                    
+                    d.player.lap++;
+                    if (d.player.lap > d.totalLaps) {
+                        d.raceState = "FINISHED";
+                        d.player.finished = true;
+                        d.reward = 1000 + (d.currentFase?.reqLvl || 1) * 250;
+                        window.Sfx.play(1000, 'sine', 1, 0.5);
+                    }
+
                     if (d.lap > CONF.TOTAL_LAPS) {
                         d.lap = CONF.TOTAL_LAPS; d.status = 'FINISHED'; if (d.finishTime === 0) d.finishTime = Date.now(); 
                         nitroBtn.style.display = 'none';
@@ -1103,6 +1237,90 @@
                 ctx.beginPath(); ctx.arc(0, 0, 18, 0, Math.PI * 2); ctx.fillStyle = '#2d3436'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#bdc3c7'; ctx.stroke();
                 ctx.fillStyle = '#d63031'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText("GT", 0, 1); ctx.restore();
             }
+
+            // --- INJEÇÃO DO CHAT GPT: PASSO 5 (TELA FINAL COM MATEMÁTICA RESPONSIVA E COPAS) ---
+            if (this.raceState === "FINISHED") {
+                const cx = w / 2;
+                const cy = h / 2;
+                const fTitle = Math.max(24, Math.min(48, w * 0.08));
+                const fSub = Math.max(16, Math.min(28, w * 0.05));
+                const fBtn = Math.max(14, Math.min(24, w * 0.04));
+                const btnW = Math.max(250, Math.min(400, w * 0.8));
+                const btnH = Math.max(45, Math.min(60, h * 0.1));
+
+                ctx.fillStyle = "rgba(0,0,0,0.85)";
+                ctx.fillRect(0, 0, w, h);
+
+                ctx.fillStyle = "#00ffcc";
+                ctx.font = `bold ${fTitle}px "Russo One", Arial`;
+                ctx.textAlign = "center";
+                ctx.fillText("CORRIDA FINALIZADA!", cx, cy - h*0.15);
+
+                ctx.fillStyle = "#ffffff";
+                ctx.font = `bold ${fSub}px Arial`;
+                ctx.fillText(`POSIÇÃO FINAL: ${this.finalRank}º`, cx, cy - h*0.05);
+
+                ctx.fillStyle = "#f1c40f";
+                ctx.fillText(`RECOMPENSA: R$ ${this.reward}`, cx, cy + h*0.05);
+
+                ctx.fillStyle = "#2ecc71";
+                if(ctx.roundRect) {
+                    ctx.beginPath(); ctx.roundRect(cx - btnW/2, cy + h*0.15, btnW, btnH, 10); ctx.fill();
+                } else {
+                    ctx.fillRect(cx - btnW/2, cy + h*0.15, btnW, btnH);
+                }
+
+                ctx.fillStyle = "#fff";
+                ctx.font = `bold ${fBtn}px Arial`;
+                
+                let nextTrackId = this.selectedTrack + 1;
+                let btnText = nextTrackId < TRACKS.length ? "PRÓXIMA CORRIDA" : "VER PÓDIO DA COPA";
+                if (this.isOnline && !this.isHost && nextTrackId < TRACKS.length) btnText = "AGUARDANDO HOST...";
+
+                ctx.fillText(btnText, cx, cy + h*0.15 + btnH/2 + fBtn*0.35);
+                ctx.textAlign = "left";
+            }
+            // ------------------------------------
+        },
+
+        renderCupEnd: function(ctx, w, h) {
+            const cx = w / 2; const cy = h / 2;
+            ctx.fillStyle = "rgba(20,0,0,0.95)"; ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "#f1c40f"; ctx.textAlign = "center"; ctx.font = "bold 50px 'Russo One'";
+            ctx.fillText("🏁 FIM DA COPA! 🏁", cx, h*0.15);
+            
+            let playersArr = [{ name: window.Profile?.username || 'VOCÊ', pts: this.cupPoints || 0 }];
+            if (this.isOnline && this.remotePlayersData) {
+                Object.keys(this.remotePlayersData).forEach(uid => {
+                    if (uid !== window.System.playerId && !uid.startsWith('bot_')) {
+                        playersArr.push({ name: this.remotePlayersData[uid].name, pts: this.remotePlayersData[uid].cupPoints || 0 });
+                    }
+                });
+            }
+            if (!this.isOnline || this.isHost) {
+                this.localBots.forEach(bot => playersArr.push({name: bot.name, pts: Math.floor(Math.random()*25 + 5)}));
+            }
+            playersArr.sort((a,b) => b.pts - a.pts);
+
+            ctx.font = "bold 28px Arial";
+            playersArr.slice(0, 5).forEach((p, idx) => {
+                let color = idx === 0 ? '#f1c40f' : (idx === 1 ? '#bdc3c7' : (idx === 2 ? '#cd7f32' : '#fff'));
+                ctx.fillStyle = color;
+                ctx.fillText(`${idx+1}º LUGAR - ${p.name} - ${p.pts} PTS`, cx, h*0.35 + (idx*50));
+            });
+
+            const btnW = Math.max(250, Math.min(400, w * 0.8));
+            const btnH = Math.max(45, Math.min(60, h * 0.1));
+            const fBtn = Math.max(14, Math.min(24, w * 0.04));
+
+            ctx.fillStyle = "#3498db"; 
+            if(ctx.roundRect) {
+                ctx.beginPath(); ctx.roundRect(cx - btnW/2, cy + h*0.30, btnW, btnH, 10); ctx.fill();
+            } else {
+                ctx.fillRect(cx - btnW/2, cy + h*0.30, btnW, btnH);
+            }
+            ctx.fillStyle = "#fff"; ctx.font = `bold ${fBtn}px 'Russo One'`;
+            ctx.fillText("VOLTAR AO LOBBY", cx, cy + h*0.30 + btnH/2 + fBtn*0.35);
         },
 
         renderShop: function(ctx, w, h) {
