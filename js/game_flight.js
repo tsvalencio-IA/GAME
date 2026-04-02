@@ -1,7 +1,7 @@
 // =============================================================================
 // AERO STRIKE WAR: TACTICAL YOKE SIMULATOR (AAA PROFESSIONAL EVOLUTION)
 // ARQUITETO: SENIOR GAME ENGINE ARCHITECT
-// STATUS: 100% COMPLETO. FÍSICA CORRIGIDA, MULTIPLAYER SYNC TOTAL.
+// STATUS: 100% COMPLETO. FÍSICA CORRIGIDA, MULTIPLAYER SYNC, YOKE BALANCEADO (0.09).
 // =============================================================================
 
 (function() {
@@ -195,7 +195,6 @@
                 });
             }
             
-            // CORREÇÃO CRÍTICA DE IDENTIDADE (Prevenção de Clones no Firebase)
             let baseUid = (window.System && window.System.playerId) ? window.System.playerId : "anon";
             let sessionSuffix = Math.floor(Math.random() * 100000);
             this.net.uid = baseUid + "_" + sessionSuffix;
@@ -276,22 +275,18 @@
             this.net.playersRef = this.net.sessionRef.child('players');
             this.net.sharedRef = this.net.sessionRef.child('shared');
             
-            // Garante que saio da sala quando fechar a aba
             this.net.playersRef.child(this.net.uid).onDisconnect().remove();
             
             let self = this;
             let uname = (window.Profile && window.Profile.username) ? window.Profile.username : 'PILOTO';
             
-            // 1. Entra na sala IMEDIATAMENTE (Sem apagar ninguém)
             self.net.playersRef.child(self.net.uid).set({
                 name: uname, ready: false, hp: 100, x: 0, y: 3000, z: 0, pitch: 0, yaw: 0, roll: 0, timestamp: Date.now(), firing: false, missilesFired: 0
             });
 
-            // 2. Ouve todos os jogadores (Sincronização e Gestão Segura de Host)
             this.net.playersRef.on('value', snap => { 
                 self.net.players = snap.val() || {}; 
                 
-                // SISTEMA DE DANO PVP (Eu apanho se outro me acertou no DB)
                 if (self.state === 'PLAYING' && self.net.players[self.net.uid]) {
                     let remoteHp = self.net.players[self.net.uid].hp;
                     if (remoteHp !== undefined && remoteHp < self.ship.hp) {
@@ -300,7 +295,6 @@
                     }
                 }
 
-                // GESTÃO SEGURA DE HOST (Não destroi a sala ao entrar)
                 this.net.sessionRef.child('host').once('value').then(hSnap => {
                     let currentHost = hSnap.val();
                     let connectedUIDs = Object.keys(self.net.players);
@@ -312,7 +306,6 @@
                                 self.net.isHost = true;
                                 self.net.sessionRef.child('host').set(self.net.uid);
                                 
-                                // APENAS SE EU FOR O ÚNICO NA SALA, eu limpo os dados antigos
                                 if (connectedUIDs.length === 1) {
                                     self.net.sessionRef.child('state').set('LOBBY');
                                     self.net.sharedRef.set({ wave: 1, teamKills: 0 });
@@ -369,7 +362,6 @@
                     this.session.cash -= cost;
                     this.upgrades[type]++;
                     GameSfx.play('buy');
-                    // Apenas para atualizar visualmente, usa o Player ID Real
                     let realId = window.System && window.System.playerId;
                     if (window.DB && realId) {
                         window.DB.ref('users/' + realId + '/coins').set(this.session.cash);
@@ -384,7 +376,7 @@
             else if (y > h*0.85) {
                 if ((this.mode === 'PVP' || this.mode === 'COOP') && this.net.isHost && this.net.sessionRef) {
                     this.net.sessionRef.child('state').set('PLAYING');
-                    if (this.net.sharedRef) this.net.sharedRef.set({ wave: 1, teamKills: 0 }); // Zera o placar cooperativo ao começar
+                    if (this.net.sharedRef) this.net.sharedRef.set({ wave: 1, teamKills: 0 }); 
                 } else if (this.mode === 'SINGLE' || this.mode === 'FREE') { 
                     this.state = 'CALIBRATION'; this.timer = 5.0; 
                 }
@@ -619,7 +611,6 @@
                 this._updateMissiles(dt); 
                 this._cleanupFx();
 
-                // SYNC CONTINUO E SEGURO DO JOGADOR NO FIREBASE
                 if ((this.mode === 'PVP' || this.mode === 'COOP') && this.net.playersRef && this.net.uid) {
                     if (performance.now() - this.net.lastSend > 100) {
                         this.net.playersRef.child(this.net.uid).update({
@@ -634,7 +625,6 @@
 
                 if (this.ship.hp <= 0 && this.state !== 'GAMEOVER') this._endGame('GAMEOVER');
 
-                // CORREÇÃO PVP: Se fez 1 kill, ganha.
                 if (this.mode === 'PVP' && this.session.kills >= 1 && this.state === 'PLAYING') {
                     this._endGame('VICTORY');
                 }
@@ -697,7 +687,10 @@
                     } else {
                         let deltaY = avgY - this.pilot.baseY;
                         let safeH = h > 0 ? h : 100; 
-                        let pitchInput = -deltaY / (safeH * 0.15); 
+                        
+                        // FIX V35: PONTO DOCE DO YOKE. 0.09 é o balanço exato entre cansaço (0.15) e jitter (0.05)
+                        let pitchInput = -deltaY / (safeH * 0.09); 
+                        
                         trgPitch = Math.max(-1.0, Math.min(1.0, pitchInput || 0)); 
                     }
 
@@ -1006,7 +999,6 @@
                         }
                     }
                     
-                    // PVP UPDATE: O outro jogador leva dano real!
                     if (this.mode==='PVP' && b.life>0 && this.net.players) {
                         Object.keys(this.net.players).forEach(uid => {
                             if (uid!==this.net.uid && this.net.players[uid]?.hp>0 && Math.hypot(b.x-this.net.players[uid].x, b.y-this.net.players[uid].y, b.z-this.net.players[uid].z)<150) {
@@ -1140,7 +1132,6 @@
                 this.net.sharedRef.update({ teamKills: teamKills });
             }
 
-            // Garante uso do ID Real do Banco de Dados para gravar os ganhos
             let realId = window.System && window.System.playerId;
             if (window.DB && realId) {
                 window.DB.ref('users/' + realId + '/coins').set(this.session.cash);
@@ -1166,7 +1157,6 @@
             
             this._drawWorld(ctx,w,h);
             this._drawEntities(ctx,w,h);
-            this._drawPilotFX(ctx, w, h); 
             this._drawHUD(ctx,w,h);
             this._drawCockpit(ctx,w,h);
             ctx.restore();
@@ -1340,16 +1330,6 @@
                 else if(d.t==='m'){ctx.fillStyle=o.isEnemy?'#ff3300':'#ffffff';ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,6*s),0,Math.PI*2);ctx.fill();}
                 else if(d.t==='f'){ctx.globalCompositeOperation='lighter';ctx.globalAlpha=Math.max(0,o.life);ctx.fillStyle=o.c;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(2,o.size*s),0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';}
             });
-        },
-
-        _drawPilotFX: function(ctx, w, h) {
-            if (this.ship.gForce > 7.0) {
-                let intensity = Math.min(1.0, (this.ship.gForce - 7.0) / 5.0); 
-                ctx.fillStyle = `rgba(0, 0, 0, ${intensity * 0.7})`; ctx.fillRect(0,0,w,h);
-            } else if (this.ship.gForce < -2.5) {
-                let intensityN = Math.min(1.0, (Math.abs(this.ship.gForce) - 2.5) / 3.0);
-                ctx.fillStyle = `rgba(231, 76, 60, ${intensityN * 0.5})`; ctx.fillRect(0,0,w,h);
-            }
         },
         
         _drawHUD: function(ctx,w,h){
