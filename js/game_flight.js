@@ -128,16 +128,49 @@
             this.engineSrc.start();
         },
         play: function(type) {
-            if (!window.Sfx || !window.Sfx.play) return;
-            if (type === 'lock') window.Sfx.play(1000, 'square', 0.1, 0.1);
-            else if (type === 'vulcan') window.Sfx.play(300, 'sawtooth', 0.08, 0.15);
-            else if (type === 'boom') window.Sfx.play(80, 'sawtooth', 0.4, 0.2);
-            else if (type === 'buy') window.Sfx.play(1200, 'sine', 0.1, 0.1);
-            else if (type === 'missile' && this.ctx) {
-                const t=this.ctx.currentTime, o=this.ctx.createOscillator(), g=this.ctx.createGain();
-                o.type='square'; o.frequency.setValueAtTime(150,t); o.frequency.linearRampToValueAtTime(900,t+0.5);
-                g.gain.setValueAtTime(0.5,t); g.gain.exponentialRampToValueAtTime(0.01,t+1);
-                o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t+1);
+            // Preserva os sons base caso exista uma biblioteca externa Sfx (como 'lock' e 'buy')
+            if (window.Sfx && window.Sfx.play) {
+                if (type === 'lock') window.Sfx.play(1000, 'square', 0.1, 0.1);
+                else if (type === 'buy') window.Sfx.play(1200, 'sine', 0.1, 0.1);
+            }
+            
+            // Novos sons nativos focados em imersão (sem depender do window.Sfx)
+            if (!this.ctx) return;
+            const t = this.ctx.currentTime;
+            
+            if (type === 'missile') { // 2: Som realista de míssil (propulsão/whoosh)
+                const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+                const data = buf.getChannelData(0);
+                for (let i = 0; i < buf.length; i++) data[i] = (Math.random() * 2 - 1);
+                const noise = this.ctx.createBufferSource(); noise.buffer = buf;
+                const filter = this.ctx.createBiquadFilter(); filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(800, t); filter.frequency.linearRampToValueAtTime(200, t + 1.5);
+                const g = this.ctx.createGain(); g.gain.setValueAtTime(0.8, t); g.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+                noise.connect(filter); filter.connect(g); g.connect(this.ctx.destination);
+                noise.start(t); noise.stop(t + 1.5);
+            } 
+            else if (type === 'vulcan') { // 3: Som da metralhadora
+                const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+                o.type = 'sawtooth'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.1);
+                g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t + 0.1);
+            }
+            else if (type === 'boom') { // 4: Som de explosão das aeronaves
+                const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+                const data = buf.getChannelData(0);
+                for (let i = 0; i < buf.length; i++) data[i] = (Math.random() * 2 - 1);
+                const noise = this.ctx.createBufferSource(); noise.buffer = buf;
+                const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; 
+                filter.frequency.setValueAtTime(1000, t); filter.frequency.exponentialRampToValueAtTime(50, t + 1.5);
+                const g = this.ctx.createGain(); g.gain.setValueAtTime(1.0, t); g.gain.exponentialRampToValueAtTime(0.01, t + 1.5);
+                noise.connect(filter); filter.connect(g); g.connect(this.ctx.destination);
+                noise.start(t); noise.stop(t + 1.5);
+            }
+            else if (type === 'hit') { // 5: Som de impacto na nave do jogador
+                const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+                o.type = 'square'; o.frequency.setValueAtTime(100, t); o.frequency.exponentialRampToValueAtTime(20, t + 0.3);
+                g.gain.setValueAtTime(0.8, t); g.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+                o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t + 0.3);
             }
         },
         stop: function() { if (this.engineSrc) { try { this.engineSrc.stop(); } catch(e){} this.engineSrc = null; } }
@@ -292,6 +325,10 @@
                     if (remoteHp !== undefined && remoteHp < self.ship.hp) {
                         self.ship.hp = remoteHp;
                         if (window.Gfx && window.Gfx.shakeScreen) window.Gfx.shakeScreen(15);
+                        
+                        // 5: Emoção ao ser atingido (Vibração e Som de Impacto no Multiplayer)
+                        if (navigator.vibrate) navigator.vibrate([200, 50, 200]);
+                        GameSfx.play('hit');
                     }
                 }
 
@@ -980,6 +1017,11 @@
 
                         this.ship.hp -= 10;
                         if (window.Gfx && window.Gfx.shakeScreen) window.Gfx.shakeScreen(15);
+                        
+                        // 5: Emoção ao ser atingido (Vibração e Som de Impacto)
+                        if (navigator.vibrate) navigator.vibrate([200, 50, 200]);
+                        GameSfx.play('hit');
+                        
                         b.life = 0;
                     }
                 } else {
@@ -1122,7 +1164,10 @@
             GameSfx.play('boom');
             this._fx(t.x,t.y,t.z,'#f33',40,300);
             this._fx(t.x,t.y,t.z,'#234',30,600);
-            this.floaters.push({x:t.x,y:t.y,z:t.z,text:`+ R$ ${rew}`,life:2});
+            
+            // 1: Remover o valor R$ da tela para reduzir poluição visual no combate (Comentado para manter a estrutura)
+            // this.floaters.push({x:t.x,y:t.y,z:t.z,text:`+ R$ ${rew}`,life:2});
+            
             this.session.kills++;
             this.session.cash += rew;
             this.session.xp += rew;
